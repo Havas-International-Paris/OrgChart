@@ -1,0 +1,33 @@
+name: Supabase backup
+
+# The Supabase free tier has no automated backups. This weekly job dumps
+# the database and keeps it as a workflow artifact (90-day retention by
+# default) as a safety net. Requires one repo secret:
+#   SUPABASE_DB_URL - full Postgres connection string
+#                     (Project Settings -> Database -> Connection string, URI)
+#                     Keep this secret private: it contains the DB password.
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # every Monday at 06:00 UTC
+  workflow_dispatch: {}
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install postgresql-client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Dump database
+        run: |
+          pg_dump "${{ secrets.SUPABASE_DB_URL }}" \
+            --no-owner --no-privileges \
+            -f "backup-$(date +%Y-%m-%d).sql"
+
+      - name: Upload backup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: supabase-backup-${{ github.run_id }}
+          path: backup-*.sql
+          retention-days: 90
