@@ -19,6 +19,20 @@ jobs:
       - name: Install postgresql-client
         run: sudo apt-get update && sudo apt-get install -y postgresql-client
 
+      - name: DEBUG - inspect connection string shape
+        run: |
+          python3 -c "
+          import os
+          v = os.environ['DB_URL']
+          print('length:', len(v))
+          print('starts with:', v[:20])
+          print('host portion (after @, before :port):')
+          after_at = v.split('@')[1] if '@' in v else 'NO @ FOUND'
+          print(after_at)
+          "
+        env:
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+
       - name: Dump database
         run: |
           pg_dump "${{ secrets.SUPABASE_DB_URL }}" \
