@@ -2,6 +2,8 @@
 
 Application interne pour visualiser et éditer l'organigramme de Havas International : tableur éditable à gauche, organigramme visuel à droite, sur un seul écran. Gère le multi-reporting (un employé peut avoir plusieurs managers, dont un seul "primaire"), les affectations clients/missions avec %ETP, et la synchronisation en temps réel entre utilisateurs.
 
+**En production** : https://orgchart-dun.vercel.app (dépôt : `Havas-International-Paris/OrgChart` sur GitHub, déployé automatiquement par Vercel à chaque push sur `main`).
+
 ## Stack
 
 - React + TypeScript + Vite, Tailwind CSS
@@ -75,12 +77,16 @@ supabase/
   - Le projet Supabase gratuit se met en pause après une semaine sans requête.
   - Pas de sauvegarde automatique incluse sur le plan gratuit.
 
-## À faire avant une mise en production réelle
+## Déploiement et mise à jour
 
-- Mettre en place un ping hebdomadaire (ex. GitHub Actions cron) vers le projet Supabase pour éviter la mise en pause.
-- Mettre en place un export SQL programmé (ex. GitHub Actions + `pg_dump`) comme sauvegarde de secours.
-- Créer un projet Supabase de production séparé du projet de développement, avec les mêmes migrations appliquées.
-- Déployer le frontend (ex. Vercel) avec les variables d'environnement du projet de production.
+Le frontend est hébergé sur **Vercel**, connecté au dépôt GitHub `Havas-International-Paris/OrgChart`. Il n'y a **pas d'environnement de staging séparé** : le projet Supabase utilisé pendant le développement sert aussi de base de production (choix assumé pour rester simple — voir les risques ci-dessous).
+
+- **Changements de code** : commit + push sur `main` → Vercel reconstruit et redéploie automatiquement en 1-2 minutes, sans action manuelle. Une Pull Request génère en plus une URL de prévisualisation Vercel distincte, testable avant de fusionner — un filet de sécurité léger même sans staging formel.
+- **Changements de base de données** (nouveau fichier dans `supabase/migrations/`) : **toujours manuel**. Il faut l'exécuter à la main dans l'éditeur SQL du projet Supabase, puisque c'est le même projet qui sert la production. Relire toute nouvelle migration avant de l'exécuter ; la sauvegarde hebdomadaire automatique (voir ci-dessous) sert de filet de sécurité en cas d'erreur.
+
+Deux workflows GitHub Actions ([supabase-keep-alive.yml](.github/workflows/supabase-keep-alive.yml), [supabase-backup.yml](.github/workflows/supabase-backup.yml)) tournent chaque lundi pour compenser les limites du plan gratuit Supabase (mise en pause après inactivité, pas de sauvegarde automatique incluse). Ils ont besoin de 3 secrets configurés dans **Settings → Secrets and variables → Actions** du dépôt GitHub : `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_DB_URL` — déjà en place. Déclenchement manuel possible depuis l'onglet **Actions** (bouton "Run workflow") pour vérifier qu'ils fonctionnent sans attendre le cron.
+
+**Risque à garder en tête** : sans staging séparé, une migration SQL erronée affecte directement les données réelles. Pas bloquant pour un outil interne à faible volume d'éditeurs, mais à ne pas oublier en cas d'évolution du schéma.
 
 ## Limitations connues
 
