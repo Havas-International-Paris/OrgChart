@@ -3,8 +3,12 @@ name: Supabase backup
 # The Supabase free tier has no automated backups. This weekly job dumps
 # the database and keeps it as a workflow artifact (90-day retention by
 # default) as a safety net. Requires one repo secret:
-#   SUPABASE_DB_URL - full Postgres connection string
-#                     (Project Settings -> Database -> Connection string, URI)
+#   SUPABASE_DB_URL - Postgres connection string, but the "Direct connection"
+#                     one (db.<ref>.supabase.co) is IPv6-only and GitHub's
+#                     runners have no IPv6 egress ("Network is unreachable").
+#                     Use the "Session pooler" string instead (Connect ->
+#                     Direct tab -> pooler option; host looks like
+#                     aws-0-<region>.pooler.supabase.com).
 #                     Keep this secret private: it contains the DB password.
 
 on:
@@ -16,26 +20,23 @@ jobs:
   backup:
     runs-on: ubuntu-latest
     steps:
-      - name: Install postgresql-client
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client
-
-      - name: DEBUG - inspect connection string shape
+      - name: Install postgresql-client 17
+        # Supabase runs Postgres 17; pg_dump refuses to dump from a server
+        # newer than itself, and Ubuntu's default postgresql-client package
+        # lags behind. Pull the matching version from the official PGDG apt repo.
         run: |
-          python3 -c "
-          import os
-          v = os.environ['DB_URL']
-          print('length:', len(v))
-          print('starts with:', v[:20])
-          print('host portion (after @, before :port):')
-          after_at = v.split('@')[1] if '@' in v else 'NO @ FOUND'
-          print(after_at)
-          "
-        env:
-          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          sudo apt-get install -y wget ca-certificates gnupg
+          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /usr/share/keyrings/postgresql-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/postgresql-keyring.gpg] http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-17
 
       - name: Dump database
+        # Use the versioned binary explicitly: GitHub's runner image ships
+        # its own older postgresql-client on PATH, and `pg_dump` could
+        # resolve to that one instead of the v17 we just installed.
         run: |
-          pg_dump "${{ secrets.SUPABASE_DB_URL }}" \
+          /usr/lib/postgresql/17/bin/pg_dump "${{ secrets.SUPABASE_DB_URL }}" \
             --no-owner --no-privileges \
             -f "backup-$(date +%Y-%m-%d).sql"
 
