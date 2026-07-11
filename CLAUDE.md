@@ -41,6 +41,15 @@ The dev server requires `.env.local` (copy from `.env.example`) with `VITE_SUPAB
 
 **Library version notes:** AG Grid is v36 using the new Theming API (`theme={themeQuartz}` prop, no CSS imports, requires `ModuleRegistry.registerModules([AllCommunityModule])`) — don't add the old `ag-theme-*.css` imports. Tailwind is v4, configured via the `@tailwindcss/vite` plugin in `vite.config.ts`, not a `tailwind.config.js`/PostCSS setup.
 
+## Deployment
+
+Production: https://orgchart-dun.vercel.app, deployed by Vercel from `Havas-International-Paris/OrgChart` on GitHub — every push to `main` auto-deploys, no manual step. No separate staging environment: the same Supabase project backs both local dev and production. New SQL migrations must be applied by hand to that one project (see README.md's "Déploiement et mise à jour" section) — there's no automated migration pipeline.
+
+**GitHub Actions + Supabase Postgres gotchas** (hit both when setting up `.github/workflows/supabase-backup.yml`, now documented inline in that file too):
+- Supabase's "Direct connection" string (`db.<ref>.supabase.co`) is **IPv6-only**; GitHub's hosted runners have no IPv6 egress and fail with `Network is unreachable`. Use the **Session pooler** connection string instead (`aws-0-<region>.pooler.supabase.com`, found via the Connect modal's "Direct" tab).
+- `pg_dump` refuses to dump from a server newer than itself. Supabase currently runs Postgres 17, but Ubuntu's default `postgresql-client` package is older — install `postgresql-client-17` from the official PGDG apt repo and invoke it by full path (`/usr/lib/postgresql/17/bin/pg_dump`), since the older bundled one stays first on `PATH`.
+- The three repo secrets (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_DB_URL`) have similar names — easy to edit the wrong one via GitHub's secrets UI (it happened once already). `SUPABASE_URL` must stay a plain `https://` URL (used by the keep-alive ping); the Postgres connection string belongs only in `SUPABASE_DB_URL`.
+
 ## Known issues
 
 - No optimistic locking: if two users edit the same field at the same moment, last write wins silently.
