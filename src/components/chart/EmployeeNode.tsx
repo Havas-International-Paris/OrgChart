@@ -8,6 +8,10 @@ export interface EmployeeNodeActions {
   openLinkManager: (employeeId: string) => void;
   openLinkSubordinate: (employeeId: string) => void;
   openAssignments: (employeeId: string) => void;
+  updateEmployee: (
+    id: string,
+    changes: Partial<Pick<Employee, 'first_name' | 'last_name' | 'job_title'>>,
+  ) => Promise<Employee>;
 }
 
 export interface EmployeeNodeData {
@@ -18,6 +22,7 @@ export interface EmployeeNodeData {
   isMatch: boolean;
   assignmentsCount: number;
   assignmentsTotalEtp: number;
+  jobTitles: string[];
   onToggleExpand: (employeeId: string) => void;
   actions: EmployeeNodeActions;
 }
@@ -79,6 +84,8 @@ function AddButton({
   );
 }
 
+type EditableField = 'first_name' | 'last_name' | 'job_title';
+
 function EmployeeNodeImpl({ data }: NodeProps<EmployeeNodeData>) {
   const {
     employee,
@@ -88,15 +95,43 @@ function EmployeeNodeImpl({ data }: NodeProps<EmployeeNodeData>) {
     isMatch,
     assignmentsCount,
     assignmentsTotalEtp,
+    jobTitles,
     onToggleExpand,
     actions,
   } = data;
+
+  const [editingField, setEditingField] = useState<EditableField | null>(null);
+  const [draft, setDraft] = useState('');
+
+  function startEdit(field: EditableField, currentValue: string) {
+    setDraft(currentValue);
+    setEditingField(field);
+  }
+
+  function cancelEdit() {
+    setEditingField(null);
+  }
+
+  async function commitEdit() {
+    const field = editingField;
+    if (!field) return;
+    try {
+      await actions.updateEmployee(employee.id, { [field]: draft });
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setEditingField(null);
+    }
+  }
 
   const borderClass = isSelected
     ? 'border-slate-900 ring-2 ring-slate-900'
     : isMatch
       ? 'border-amber-400 ring-2 ring-amber-300'
       : 'border-slate-300';
+
+  const textInputClass =
+    'min-w-0 flex-1 rounded border border-slate-300 px-1 py-0.5 text-sm font-semibold text-slate-900';
 
   return (
     <div className={`relative w-[220px] rounded-lg border bg-white px-3 py-2 shadow-sm ${borderClass}`}>
@@ -109,12 +144,100 @@ function EmployeeNodeImpl({ data }: NodeProps<EmployeeNodeData>) {
         onLinkExisting={() => actions.openLinkManager(employee.id)}
       />
 
-      <div className="truncate text-sm font-semibold text-slate-900">
-        {employee.first_name} {employee.last_name}
+      <div className="flex items-center gap-1 text-sm font-semibold text-slate-900">
+        {editingField === 'first_name' ? (
+          <input
+            autoFocus
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commitEdit}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commitEdit();
+              else if (e.key === 'Escape') cancelEdit();
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+            className={textInputClass}
+          />
+        ) : (
+          <span
+            className="truncate"
+            onDoubleClick={(e) => {
+              e.stopPropagation();
+              startEdit('first_name', employee.first_name);
+            }}
+          >
+            {employee.first_name}
+          </span>
+        )}
+        {editingField === 'last_name' ? (
+          <input
+            autoFocus
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commitEdit}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commitEdit();
+              else if (e.key === 'Escape') cancelEdit();
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+            className={textInputClass}
+          />
+        ) : (
+          <span
+            className="truncate"
+            onDoubleClick={(e) => {
+              e.stopPropagation();
+              startEdit('last_name', employee.last_name);
+            }}
+          >
+            {employee.last_name}
+          </span>
+        )}
       </div>
-      {employee.job_title && (
-        <div className="truncate text-xs text-slate-500">{employee.job_title}</div>
+
+      {editingField === 'job_title' ? (
+        <select
+          autoFocus
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commitEdit}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') cancelEdit();
+          }}
+          onMouseDown={(e) => e.stopPropagation()}
+          className="mt-0.5 w-full rounded border border-slate-300 px-1 py-0.5 text-xs text-slate-700"
+        >
+          <option value="" disabled>
+            Choisir un poste…
+          </option>
+          {jobTitles.map((title) => (
+            <option key={title} value={title}>
+              {title}
+            </option>
+          ))}
+        </select>
+      ) : employee.job_title ? (
+        <div
+          className="truncate text-xs text-slate-500"
+          onDoubleClick={(e) => {
+            e.stopPropagation();
+            startEdit('job_title', employee.job_title ?? '');
+          }}
+        >
+          {employee.job_title}
+        </div>
+      ) : (
+        <div
+          className="truncate text-xs text-slate-300"
+          onDoubleClick={(e) => {
+            e.stopPropagation();
+            startEdit('job_title', '');
+          }}
+        >
+          + poste
+        </div>
       )}
+
       {assignmentsCount > 0 && (
         <button
           onClick={(e) => {

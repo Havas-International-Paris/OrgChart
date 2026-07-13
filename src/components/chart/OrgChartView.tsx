@@ -11,6 +11,7 @@ import 'reactflow/dist/style.css';
 import { useEmployees } from '../../hooks/useEmployees';
 import { useReportingGraph } from '../../hooks/useReportingGraph';
 import { useAssignments } from '../../hooks/useAssignments';
+import { useJobTitles } from '../../hooks/useJobTitles';
 import { useSelectionStore } from '../../stores/selectionStore';
 import { useVisibleGraph } from './useVisibleGraph';
 import { layoutWithDagre, NODE_WIDTH, NODE_HEIGHT } from './layoutEngine';
@@ -29,7 +30,7 @@ interface LinkModalState {
 }
 
 export function OrgChartView() {
-  const { employees, loading: employeesLoading, createEmployee } = useEmployees();
+  const { employees, loading: employeesLoading, createEmployee, updateEmployee } = useEmployees();
   const {
     relationships,
     loading: relationshipsLoading,
@@ -39,6 +40,8 @@ export function OrgChartView() {
     wouldCreateCycle,
   } = useReportingGraph();
   const { assignmentsOf, totalEtpOf } = useAssignments();
+  const { jobTitles } = useJobTitles();
+  const jobTitleNames = useMemo(() => jobTitles.map((jt) => jt.name), [jobTitles]);
 
   const expandedNodeIds = useSelectionStore((s) => s.expandedNodeIds);
   const setExpandedNodeIds = useSelectionStore((s) => s.setExpandedNodeIds);
@@ -154,8 +157,16 @@ export function OrgChartView() {
       openLinkManager,
       openLinkSubordinate,
       openAssignments: setAssignmentsEmployeeId,
+      updateEmployee,
     }),
-    [quickAddManager, quickAddSubordinate, openLinkManager, openLinkSubordinate, setAssignmentsEmployeeId],
+    [
+      quickAddManager,
+      quickAddSubordinate,
+      openLinkManager,
+      openLinkSubordinate,
+      setAssignmentsEmployeeId,
+      updateEmployee,
+    ],
   );
 
   const linkModalProps = useMemo(() => {
@@ -205,6 +216,7 @@ export function OrgChartView() {
         isMatch: matchedIds.has(employee.id),
         assignmentsCount: assignmentsOf(employee.id).length,
         assignmentsTotalEtp: totalEtpOf(employee.id),
+        jobTitles: jobTitleNames,
         onToggleExpand: toggleExpanded,
         actions,
       },
@@ -242,6 +254,7 @@ export function OrgChartView() {
     actions,
     assignmentsOf,
     totalEtpOf,
+    jobTitleNames,
   ]);
 
   // Center on the selected node once it's laid out and visible.
