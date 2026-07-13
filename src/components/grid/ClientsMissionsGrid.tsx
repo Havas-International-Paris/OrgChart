@@ -6,8 +6,10 @@ import {
   themeQuartz,
   type CellValueChangedEvent,
   type ColDef,
+  type GridReadyEvent,
 } from 'ag-grid-community';
 import { useClientsMissions } from '../../hooks/useClientsMissions';
+import { useRowStabilizer } from './useRowStabilizer';
 import type { ClientMission } from '../../types/domain';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
@@ -16,6 +18,33 @@ export function ClientsMissionsGrid() {
   const { clientsMissions, loading, error, createClientMission, updateClientMission, deleteClientMission } =
     useClientsMissions();
   const [actionError, setActionError] = useState<string | null>(null);
+
+  const {
+    gridApiRef,
+    containerRef,
+    pinnedTopId,
+    pinNewRow,
+    comparatorFor,
+    handleCellEditingStarted,
+    handleCellFocused,
+  } = useRowStabilizer<ClientMission>();
+
+  const mainRowData = useMemo(
+    () => (pinnedTopId ? clientsMissions.filter((cm) => cm.id !== pinnedTopId) : clientsMissions),
+    [clientsMissions, pinnedTopId],
+  );
+  const pinnedTopRowData = useMemo(() => {
+    if (!pinnedTopId) return undefined;
+    const row = clientsMissions.find((cm) => cm.id === pinnedTopId);
+    return row ? [row] : undefined;
+  }, [clientsMissions, pinnedTopId]);
+
+  const handleGridReady = useCallback(
+    (event: GridReadyEvent<ClientMission>) => {
+      gridApiRef.current = event.api;
+    },
+    [gridApiRef],
+  );
 
   const handleCellValueChanged = useCallback(
     (event: CellValueChangedEvent<ClientMission>) => {
@@ -42,7 +71,14 @@ export function ClientsMissionsGrid() {
 
   const columnDefs = useMemo<ColDef<ClientMission>[]>(
     () => [
-      { field: 'name', headerName: 'Nom', editable: true, flex: 1, minWidth: 200 },
+      {
+        field: 'name',
+        headerName: 'Nom',
+        editable: true,
+        flex: 1,
+        minWidth: 200,
+        comparator: comparatorFor('name'),
+      },
       {
         field: 'type',
         headerName: 'Type',
@@ -51,6 +87,7 @@ export function ClientsMissionsGrid() {
         cellEditor: 'agSelectCellEditor',
         cellEditorParams: { values: ['client', 'mission'] },
         valueFormatter: (params) => (params.value === 'mission' ? 'Mission' : 'Client'),
+        comparator: comparatorFor('type'),
       },
       {
         headerName: '',
@@ -68,29 +105,39 @@ export function ClientsMissionsGrid() {
         ),
       },
     ],
-    [handleDelete],
+    [handleDelete, comparatorFor],
   );
+
+  const handleAdd = useCallback(async () => {
+    const created = await createClientMission('Nouveau', 'client');
+    pinNewRow(created.id);
+  }, [createClientMission, pinNewRow]);
 
   return (
     <div className="flex h-full flex-col gap-2">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold text-slate-700">Clients / Missions</h2>
         <button
-          onClick={() => createClientMission('Nouveau', 'client')}
+          onClick={handleAdd}
           className="rounded bg-slate-900 px-3 py-1 text-xs font-medium text-white"
         >
           + Ajouter
         </button>
       </div>
       {(error || actionError) && <p className="text-sm text-red-600">{error ?? actionError}</p>}
-      <div className="min-h-0 flex-1">
+      <div className="min-h-0 flex-1" ref={containerRef}>
         <AgGridReact<ClientMission>
           theme={themeQuartz}
-          rowData={clientsMissions}
+          rowData={mainRowData}
+          pinnedTopRowData={pinnedTopRowData}
           columnDefs={columnDefs}
           getRowId={(params) => params.data.id}
           loading={loading}
+          popupParent={containerRef.current ?? undefined}
+          onGridReady={handleGridReady}
           onCellValueChanged={handleCellValueChanged}
+          onCellEditingStarted={handleCellEditingStarted}
+          onCellFocused={handleCellFocused}
           animateRows
         />
       </div>

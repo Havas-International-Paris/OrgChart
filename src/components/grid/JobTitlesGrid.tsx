@@ -6,8 +6,10 @@ import {
   themeQuartz,
   type CellValueChangedEvent,
   type ColDef,
+  type GridReadyEvent,
 } from 'ag-grid-community';
 import { useJobTitles } from '../../hooks/useJobTitles';
+import { useRowStabilizer } from './useRowStabilizer';
 import type { JobTitle } from '../../types/domain';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
@@ -15,6 +17,33 @@ ModuleRegistry.registerModules([AllCommunityModule]);
 export function JobTitlesGrid() {
   const { jobTitles, loading, error, createJobTitle, updateJobTitle, deleteJobTitle } = useJobTitles();
   const [actionError, setActionError] = useState<string | null>(null);
+
+  const {
+    gridApiRef,
+    containerRef,
+    pinnedTopId,
+    pinNewRow,
+    comparatorFor,
+    handleCellEditingStarted,
+    handleCellFocused,
+  } = useRowStabilizer<JobTitle>();
+
+  const mainRowData = useMemo(
+    () => (pinnedTopId ? jobTitles.filter((jt) => jt.id !== pinnedTopId) : jobTitles),
+    [jobTitles, pinnedTopId],
+  );
+  const pinnedTopRowData = useMemo(() => {
+    if (!pinnedTopId) return undefined;
+    const row = jobTitles.find((jt) => jt.id === pinnedTopId);
+    return row ? [row] : undefined;
+  }, [jobTitles, pinnedTopId]);
+
+  const handleGridReady = useCallback(
+    (event: GridReadyEvent<JobTitle>) => {
+      gridApiRef.current = event.api;
+    },
+    [gridApiRef],
+  );
 
   const handleCellValueChanged = useCallback(
     (event: CellValueChangedEvent<JobTitle>) => {
@@ -38,7 +67,14 @@ export function JobTitlesGrid() {
 
   const columnDefs = useMemo<ColDef<JobTitle>[]>(
     () => [
-      { field: 'name', headerName: 'Poste', editable: true, flex: 1, minWidth: 200 },
+      {
+        field: 'name',
+        headerName: 'Poste',
+        editable: true,
+        flex: 1,
+        minWidth: 200,
+        comparator: comparatorFor('name'),
+      },
       {
         headerName: '',
         width: 56,
@@ -55,29 +91,39 @@ export function JobTitlesGrid() {
         ),
       },
     ],
-    [handleDelete],
+    [handleDelete, comparatorFor],
   );
+
+  const handleAdd = useCallback(async () => {
+    const created = await createJobTitle('Nouveau poste');
+    pinNewRow(created.id);
+  }, [createJobTitle, pinNewRow]);
 
   return (
     <div className="flex h-full flex-col gap-2">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold text-slate-700">Postes</h2>
         <button
-          onClick={() => createJobTitle('Nouveau poste')}
+          onClick={handleAdd}
           className="rounded bg-slate-900 px-3 py-1 text-xs font-medium text-white"
         >
           + Ajouter
         </button>
       </div>
       {(error || actionError) && <p className="text-sm text-red-600">{error ?? actionError}</p>}
-      <div className="min-h-0 flex-1">
+      <div className="min-h-0 flex-1" ref={containerRef}>
         <AgGridReact<JobTitle>
           theme={themeQuartz}
-          rowData={jobTitles}
+          rowData={mainRowData}
+          pinnedTopRowData={pinnedTopRowData}
           columnDefs={columnDefs}
           getRowId={(params) => params.data.id}
           loading={loading}
+          popupParent={containerRef.current ?? undefined}
+          onGridReady={handleGridReady}
           onCellValueChanged={handleCellValueChanged}
+          onCellEditingStarted={handleCellEditingStarted}
+          onCellFocused={handleCellFocused}
           animateRows
         />
       </div>

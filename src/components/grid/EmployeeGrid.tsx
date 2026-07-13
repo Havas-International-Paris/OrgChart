@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import {
   ModuleRegistry,
@@ -6,7 +6,6 @@ import {
   themeQuartz,
   type CellValueChangedEvent,
   type ColDef,
-  type GridApi,
   type GridReadyEvent,
   type RowClassParams,
   type RowClickedEvent,
@@ -17,6 +16,7 @@ import { useAssignments } from '../../hooks/useAssignments';
 import { useJobTitles } from '../../hooks/useJobTitles';
 import { useSelectionStore } from '../../stores/selectionStore';
 import { nameColumnDefs, roleDescColumnDef } from './gridColumnDefs';
+import { useRowStabilizer } from './useRowStabilizer';
 import { ManagerEditorModal } from '../shared/ManagerEditorModal';
 import type { Employee } from '../../types/domain';
 
@@ -34,9 +34,27 @@ export function EmployeeGrid() {
   const setAssignmentsEmployeeId = useSelectionStore((s) => s.setAssignmentsEmployeeId);
   const searchQuery = useSelectionStore((s) => s.searchQuery);
 
-  const gridApiRef = useRef<GridApi<Employee> | null>(null);
+  const {
+    gridApiRef,
+    containerRef,
+    pinnedTopId,
+    pinNewRow,
+    comparatorFor,
+    handleCellEditingStarted,
+    handleCellFocused,
+  } = useRowStabilizer<Employee>();
 
   const employeeById = useMemo(() => new Map(employees.map((e) => [e.id, e])), [employees]);
+
+  const mainRowData = useMemo(
+    () => (pinnedTopId ? employees.filter((e) => e.id !== pinnedTopId) : employees),
+    [employees, pinnedTopId],
+  );
+  const pinnedTopRowData = useMemo(() => {
+    if (!pinnedTopId) return undefined;
+    const row = employees.find((e) => e.id === pinnedTopId);
+    return row ? [row] : undefined;
+  }, [employees, pinnedTopId]);
 
   const handleCellValueChanged = useCallback(
     (event: CellValueChangedEvent<Employee>) => {
@@ -65,7 +83,8 @@ export function EmployeeGrid() {
 
   const columnDefs = useMemo<ColDef<Employee>[]>(
     () => [
-      ...nameColumnDefs,
+      { ...nameColumnDefs[0], comparator: comparatorFor('first_name') },
+      { ...nameColumnDefs[1], comparator: comparatorFor('last_name') },
       {
         field: 'job_title',
         headerName: 'Poste',
@@ -74,8 +93,9 @@ export function EmployeeGrid() {
         minWidth: 160,
         cellEditor: 'agSelectCellEditor',
         cellEditorParams: { values: jobTitles.map((jt) => jt.name) },
+        comparator: comparatorFor('job_title'),
       },
-      roleDescColumnDef,
+      { ...roleDescColumnDef, comparator: comparatorFor('role_desc') },
       {
         headerName: 'Managers',
         flex: 1,
@@ -148,6 +168,7 @@ export function EmployeeGrid() {
       totalEtpOf,
       setAssignmentsEmployeeId,
       jobTitles,
+      comparatorFor,
     ],
   );
 
@@ -162,30 +183,39 @@ export function EmployeeGrid() {
     [setSelectedEmployee],
   );
 
+  const handleAddEmployee = useCallback(async () => {
+    const created = await createEmployee({ first_name: '', last_name: '' });
+    pinNewRow(created.id);
+  }, [createEmployee, pinNewRow]);
+
   return (
     <div className="flex h-full flex-col gap-2">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold text-slate-700">Employés</h2>
         <button
-          onClick={() => createEmployee({ first_name: 'Nouveau', last_name: 'Employé' })}
+          onClick={handleAddEmployee}
           className="rounded bg-slate-900 px-3 py-1 text-xs font-medium text-white"
         >
           + Ajouter
         </button>
       </div>
       {error && <p className="text-sm text-red-600">{error}</p>}
-      <div className="min-h-0 flex-1">
+      <div className="min-h-0 flex-1" ref={containerRef}>
         <AgGridReact<Employee>
           theme={themeQuartz}
-          rowData={employees}
+          rowData={mainRowData}
+          pinnedTopRowData={pinnedTopRowData}
           columnDefs={columnDefs}
           getRowId={(params) => params.data.id}
           loading={loading}
           quickFilterText={searchQuery}
           getRowStyle={getRowStyle}
+          popupParent={containerRef.current ?? undefined}
           onGridReady={handleGridReady}
           onRowClicked={handleRowClicked}
           onCellValueChanged={handleCellValueChanged}
+          onCellEditingStarted={handleCellEditingStarted}
+          onCellFocused={handleCellFocused}
           animateRows
         />
       </div>

@@ -46,7 +46,7 @@ export function AssignmentEditorModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+    <div data-row-stabilizer-ignore className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
       <div className="w-full max-w-lg rounded-lg bg-white p-5 shadow-lg">
         <h2 className="mb-1 text-sm font-semibold text-slate-900">
           Clients / missions de {employee.first_name} {employee.last_name}
