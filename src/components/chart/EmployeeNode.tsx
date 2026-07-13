@@ -1,5 +1,6 @@
 import { memo, useState } from 'react';
 import { Handle, Position, type NodeProps } from 'reactflow';
+import { etpStatus } from '../../lib/etpStatus';
 import type { Employee } from '../../types/domain';
 
 export interface EmployeeNodeActions {
@@ -10,7 +11,7 @@ export interface EmployeeNodeActions {
   openAssignments: (employeeId: string) => void;
   updateEmployee: (
     id: string,
-    changes: Partial<Pick<Employee, 'first_name' | 'last_name' | 'job_title'>>,
+    changes: Partial<Pick<Employee, 'first_name' | 'last_name' | 'job_title' | 'department'>>,
   ) => Promise<Employee>;
 }
 
@@ -23,6 +24,8 @@ export interface EmployeeNodeData {
   assignmentsCount: number;
   assignmentsTotalEtp: number;
   jobTitles: string[];
+  departmentNames: string[];
+  departmentColor: string | null;
   onToggleExpand: (employeeId: string) => void;
   actions: EmployeeNodeActions;
 }
@@ -84,7 +87,7 @@ function AddButton({
   );
 }
 
-type EditableField = 'first_name' | 'last_name' | 'job_title';
+type EditableField = 'first_name' | 'last_name' | 'job_title' | 'department';
 
 function EmployeeNodeImpl({ data }: NodeProps<EmployeeNodeData>) {
   const {
@@ -96,6 +99,8 @@ function EmployeeNodeImpl({ data }: NodeProps<EmployeeNodeData>) {
     assignmentsCount,
     assignmentsTotalEtp,
     jobTitles,
+    departmentNames,
+    departmentColor,
     onToggleExpand,
     actions,
   } = data;
@@ -134,7 +139,10 @@ function EmployeeNodeImpl({ data }: NodeProps<EmployeeNodeData>) {
     'min-w-0 flex-1 rounded border border-slate-300 px-1 py-0.5 text-sm font-semibold text-slate-900';
 
   return (
-    <div className={`relative w-[220px] rounded-lg border bg-white px-3 py-2 shadow-sm ${borderClass}`}>
+    <div
+      className={`relative w-[220px] rounded-lg border bg-white px-3 py-2 shadow-sm ${borderClass}`}
+      style={departmentColor ? { borderLeftColor: departmentColor, borderLeftWidth: 4 } : undefined}
+    >
       <Handle type="target" position={Position.Top} className="!bg-slate-400" />
 
       <AddButton
@@ -238,6 +246,53 @@ function EmployeeNodeImpl({ data }: NodeProps<EmployeeNodeData>) {
         </div>
       )}
 
+      {editingField === 'department' ? (
+        <select
+          autoFocus
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commitEdit}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') cancelEdit();
+          }}
+          onMouseDown={(e) => e.stopPropagation()}
+          className="mt-0.5 w-full rounded border border-slate-300 px-1 py-0.5 text-xs text-slate-700"
+        >
+          <option value="" disabled>
+            Choisir une business unit…
+          </option>
+          {departmentNames.map((name) => (
+            <option key={name} value={name}>
+              {name}
+            </option>
+          ))}
+        </select>
+      ) : employee.department ? (
+        <div
+          className="mt-0.5 flex items-center gap-1 text-xs text-slate-500"
+          onDoubleClick={(e) => {
+            e.stopPropagation();
+            startEdit('department', employee.department ?? '');
+          }}
+        >
+          <span
+            className="h-1.5 w-1.5 shrink-0 rounded-full"
+            style={{ backgroundColor: departmentColor ?? undefined }}
+          />
+          <span className="truncate">{employee.department}</span>
+        </div>
+      ) : (
+        <div
+          className="mt-0.5 truncate text-xs text-slate-300"
+          onDoubleClick={(e) => {
+            e.stopPropagation();
+            startEdit('department', '');
+          }}
+        >
+          + business unit
+        </div>
+      )}
+
       {assignmentsCount > 0 && (
         <button
           onClick={(e) => {
@@ -245,9 +300,11 @@ function EmployeeNodeImpl({ data }: NodeProps<EmployeeNodeData>) {
             actions.openAssignments(employee.id);
           }}
           className={`mt-1 block rounded px-1.5 py-0.5 text-xs ${
-            assignmentsTotalEtp === 100
+            etpStatus(assignmentsTotalEtp) === 'green'
               ? 'bg-emerald-50 text-emerald-700'
-              : 'bg-amber-50 text-amber-700'
+              : etpStatus(assignmentsTotalEtp) === 'amber'
+                ? 'bg-amber-50 text-amber-700'
+                : 'bg-red-50 text-red-700'
           }`}
         >
           {assignmentsCount} · {assignmentsTotalEtp}% ETP

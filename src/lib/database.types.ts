@@ -2,6 +2,7 @@
 // linked, regenerate with `supabase gen types typescript` and replace this file.
 
 export type ClientMissionType = 'client' | 'mission';
+export type RemunerationModel = 'retainer' | 'commission';
 
 export interface Database {
   public: {
@@ -13,6 +14,7 @@ export interface Database {
           last_name: string;
           job_title: string | null;
           role_desc: string | null;
+          department: string | null;
           created_at: string;
           updated_at: string;
           created_by: string | null;
@@ -24,12 +26,14 @@ export interface Database {
           last_name: string;
           job_title?: string | null;
           role_desc?: string | null;
+          department?: string | null;
         };
         Update: {
           first_name?: string;
           last_name?: string;
           job_title?: string | null;
           role_desc?: string | null;
+          department?: string | null;
         };
         Relationships: [];
       };
@@ -76,7 +80,9 @@ export interface Database {
           id: string;
           employee_id: string;
           client_mission_id: string;
-          etp_percent: number;
+          etp_vendu: number | null;
+          etp_reel: number | null;
+          remuneration_model: RemunerationModel | null;
           created_at: string;
           updated_at: string;
         };
@@ -84,14 +90,33 @@ export interface Database {
           id?: string;
           employee_id: string;
           client_mission_id: string;
-          etp_percent: number;
+          etp_vendu?: number | null;
+          etp_reel?: number | null;
+          remuneration_model?: RemunerationModel | null;
         };
         Update: {
-          etp_percent?: number;
+          etp_vendu?: number | null;
+          etp_reel?: number | null;
+          remuneration_model?: RemunerationModel | null;
         };
         Relationships: [];
       };
       job_titles: {
+        Row: {
+          id: string;
+          name: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          name: string;
+        };
+        Update: {
+          name?: string;
+        };
+        Relationships: [];
+      };
+      departments: {
         Row: {
           id: string;
           name: string;

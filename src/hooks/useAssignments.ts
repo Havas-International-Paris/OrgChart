@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import * as assignmentService from '../services/assignmentService';
-import type { Assignment } from '../types/domain';
+import type { Assignment, RemunerationModel } from '../types/domain';
 
 export function useAssignments() {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -38,21 +38,60 @@ export function useAssignments() {
   );
 
   const totalEtpOf = useCallback(
-    (employeeId: string) => assignmentsOf(employeeId).reduce((sum, a) => sum + a.etp_percent, 0),
+    (employeeId: string) => assignmentsOf(employeeId).reduce((sum, a) => sum + (a.etp_vendu ?? 0), 0),
     [assignmentsOf],
   );
 
+  const assignmentsOfClientMission = useCallback(
+    (clientMissionId: string) => assignments.filter((a) => a.client_mission_id === clientMissionId),
+    [assignments],
+  );
+
+  const totalEtpOfClientMission = useCallback(
+    (clientMissionId: string) =>
+      assignmentsOfClientMission(clientMissionId).reduce((sum, a) => sum + (a.etp_vendu ?? 0), 0),
+    [assignmentsOfClientMission],
+  );
+
+  const totalEtpReelOfClientMission = useCallback(
+    (clientMissionId: string) =>
+      assignmentsOfClientMission(clientMissionId).reduce((sum, a) => sum + (a.etp_reel ?? 0), 0),
+    [assignmentsOfClientMission],
+  );
+
   const createAssignment = useCallback(
-    async (employeeId: string, clientMissionId: string, etpPercent: number) => {
-      await assignmentService.createAssignment(employeeId, clientMissionId, etpPercent);
+    async (
+      employeeId: string,
+      clientMissionId: string,
+      etpVendu: number | null,
+      etpReel: number | null,
+      remunerationModel: RemunerationModel | null,
+    ) => {
+      await assignmentService.createAssignment(employeeId, clientMissionId, etpVendu, etpReel, remunerationModel);
       await refresh();
     },
     [refresh],
   );
 
-  const updateAssignmentEtp = useCallback(
-    async (id: string, etpPercent: number) => {
-      await assignmentService.updateAssignmentEtp(id, etpPercent);
+  const updateAssignmentEtpVendu = useCallback(
+    async (id: string, etpVendu: number | null) => {
+      await assignmentService.updateAssignmentEtpVendu(id, etpVendu);
+      await refresh();
+    },
+    [refresh],
+  );
+
+  const updateAssignmentEtpReel = useCallback(
+    async (id: string, etpReel: number | null) => {
+      await assignmentService.updateAssignmentEtpReel(id, etpReel);
+      await refresh();
+    },
+    [refresh],
+  );
+
+  const updateAssignmentRemuneration = useCallback(
+    async (id: string, remunerationModel: RemunerationModel | null, clearVendu: boolean) => {
+      await assignmentService.updateAssignmentRemuneration(id, remunerationModel, clearVendu);
       await refresh();
     },
     [refresh],
@@ -72,8 +111,13 @@ export function useAssignments() {
     error,
     assignmentsOf,
     totalEtpOf,
+    assignmentsOfClientMission,
+    totalEtpOfClientMission,
+    totalEtpReelOfClientMission,
     createAssignment,
-    updateAssignmentEtp,
+    updateAssignmentEtpVendu,
+    updateAssignmentEtpReel,
+    updateAssignmentRemuneration,
     deleteAssignment,
   };
 }

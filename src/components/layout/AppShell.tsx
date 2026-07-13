@@ -14,7 +14,14 @@ import { AssignmentEditorModal } from '../shared/AssignmentEditorModal';
 export function AppShell() {
   const { session, loading, signOut } = useAuth();
   const { employees } = useEmployees();
-  const { assignmentsOf, createAssignment, updateAssignmentEtp, deleteAssignment } = useAssignments();
+  const {
+    assignmentsOf,
+    createAssignment,
+    updateAssignmentEtpVendu,
+    updateAssignmentEtpReel,
+    updateAssignmentRemuneration,
+    deleteAssignment,
+  } = useAssignments();
   const { clientsMissions, findOrCreate } = useClientsMissions();
   const assignmentsEmployeeId = useSelectionStore((s) => s.assignmentsEmployeeId);
   const setAssignmentsEmployeeId = useSelectionStore((s) => s.setAssignmentsEmployeeId);
@@ -62,7 +69,9 @@ export function AppShell() {
           clientsMissions={clientsMissions}
           findOrCreate={findOrCreate}
           createAssignment={createAssignment}
-          updateAssignmentEtp={updateAssignmentEtp}
+          updateAssignmentEtpVendu={updateAssignmentEtpVendu}
+          updateAssignmentEtpReel={updateAssignmentEtpReel}
+          updateAssignmentRemuneration={updateAssignmentRemuneration}
           deleteAssignment={deleteAssignment}
           onClose={() => setAssignmentsEmployeeId(null)}
         />

@@ -2,13 +2,17 @@ import { useState } from 'react';
 import { EmployeeGrid } from '../grid/EmployeeGrid';
 import { ClientsMissionsGrid } from '../grid/ClientsMissionsGrid';
 import { JobTitlesGrid } from '../grid/JobTitlesGrid';
+import { DepartmentsGrid } from '../grid/DepartmentsGrid';
+import { AllocationsView } from '../grid/AllocationsView';
 
-type Tab = 'employees' | 'clientsMissions' | 'jobTitles';
+type Tab = 'employees' | 'clientsMissions' | 'allocations' | 'jobTitles' | 'departments';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'employees', label: 'Employés' },
   { id: 'clientsMissions', label: 'Clients / Missions' },
+  { id: 'allocations', label: 'Allocations' },
   { id: 'jobTitles', label: 'Postes' },
+  { id: 'departments', label: 'Business Units' },
 ];
 
 export function LeftPanel() {
@@ -34,7 +38,9 @@ export function LeftPanel() {
       <div className="min-h-0 flex-1">
         {activeTab === 'employees' && <EmployeeGrid />}
         {activeTab === 'clientsMissions' && <ClientsMissionsGrid />}
+        {activeTab === 'allocations' && <AllocationsView />}
         {activeTab === 'jobTitles' && <JobTitlesGrid />}
+        {activeTab === 'departments' && <DepartmentsGrid />}
       </div>
     </div>
   );

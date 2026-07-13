@@ -13,11 +13,16 @@ import {
 import { useEmployees } from '../../hooks/useEmployees';
 import { useReportingGraph } from '../../hooks/useReportingGraph';
 import { useAssignments } from '../../hooks/useAssignments';
+import { useClientsMissions } from '../../hooks/useClientsMissions';
 import { useJobTitles } from '../../hooks/useJobTitles';
+import { useDepartments } from '../../hooks/useDepartments';
 import { useSelectionStore } from '../../stores/selectionStore';
 import { nameColumnDefs, roleDescColumnDef } from './gridColumnDefs';
 import { useRowStabilizer } from './useRowStabilizer';
 import { ManagerEditorModal } from '../shared/ManagerEditorModal';
+import { etpStatus } from '../../lib/etpStatus';
+import { departmentColorMap } from '../../lib/departmentColor';
+import { buildEmployeesCsv, downloadCsv } from '../../lib/exportEmployeesCsv';
 import type { Employee } from '../../types/domain';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
@@ -26,7 +31,9 @@ export function EmployeeGrid() {
   const { employees, loading, error, createEmployee, updateEmployee, deleteEmployee } = useEmployees();
   const { managersOf, wouldCreateCycle, replaceManagersForEmployee } = useReportingGraph();
   const { assignmentsOf, totalEtpOf } = useAssignments();
+  const { clientsMissions } = useClientsMissions();
   const { jobTitles } = useJobTitles();
+  const { departments } = useDepartments();
   const [editingManagersFor, setEditingManagersFor] = useState<Employee | null>(null);
 
   const selectedEmployeeId = useSelectionStore((s) => s.selectedEmployeeId);
@@ -45,6 +52,11 @@ export function EmployeeGrid() {
   } = useRowStabilizer<Employee>();
 
   const employeeById = useMemo(() => new Map(employees.map((e) => [e.id, e])), [employees]);
+  const clientMissionById = useMemo(
+    () => new Map(clientsMissions.map((cm) => [cm.id, cm])),
+    [clientsMissions],
+  );
+  const departmentColorByName = useMemo(() => departmentColorMap(departments), [departments]);
 
   const mainRowData = useMemo(
     () => (pinnedTopId ? employees.filter((e) => e.id !== pinnedTopId) : employees),
@@ -97,6 +109,29 @@ export function EmployeeGrid() {
       },
       { ...roleDescColumnDef, comparator: comparatorFor('role_desc') },
       {
+        field: 'department',
+        headerName: 'Business Unit',
+        editable: true,
+        flex: 1,
+        minWidth: 160,
+        cellEditor: 'agSelectCellEditor',
+        cellEditorParams: { values: departments.map((d) => d.name) },
+        comparator: comparatorFor('department'),
+        cellRenderer: (params: { data: Employee }) => {
+          const name = params.data.department;
+          if (!name) return <span className="text-slate-300">—</span>;
+          return (
+            <span className="flex items-center gap-1.5">
+              <span
+                className="h-2 w-2 shrink-0 rounded-full"
+                style={{ backgroundColor: departmentColorByName.get(name) }}
+              />
+              <span className="truncate">{name}</span>
+            </span>
+          );
+        },
+      },
+      {
         headerName: 'Managers',
         flex: 1,
         minWidth: 200,
@@ -131,11 +166,18 @@ export function EmployeeGrid() {
         cellRenderer: (params: { data: Employee }) => {
           const count = assignmentsOf(params.data.id).length;
           const total = totalEtpOf(params.data.id);
+          const status = etpStatus(total);
           return (
             <button
               onClick={() => setAssignmentsEmployeeId(params.data.id)}
               className={`w-full truncate text-left text-sm hover:underline ${
-                count === 0 ? 'text-slate-300' : total === 100 ? 'text-emerald-700' : 'text-amber-700'
+                count === 0
+                  ? 'text-slate-300'
+                  : status === 'green'
+                    ? 'text-emerald-700'
+                    : status === 'amber'
+                      ? 'text-amber-700'
+                      : 'text-red-700'
               }`}
               title="Modifier les affectations"
             >
@@ -168,6 +210,8 @@ export function EmployeeGrid() {
       totalEtpOf,
       setAssignmentsEmployeeId,
       jobTitles,
+      departments,
+      departmentColorByName,
       comparatorFor,
     ],
   );
@@ -188,16 +232,30 @@ export function EmployeeGrid() {
     pinNewRow(created.id);
   }, [createEmployee, pinNewRow]);
 
+  const handleExport = useCallback(() => {
+    const csv = buildEmployeesCsv(employees, employeeById, managersOf, assignmentsOf, clientMissionById);
+    const date = new Date().toISOString().slice(0, 10);
+    downloadCsv(csv, `employes_export_${date}.csv`);
+  }, [employees, employeeById, managersOf, assignmentsOf, clientMissionById]);
+
   return (
     <div className="flex h-full flex-col gap-2">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold text-slate-700">Employés</h2>
-        <button
-          onClick={handleAddEmployee}
-          className="rounded bg-slate-900 px-3 py-1 text-xs font-medium text-white"
-        >
-          + Ajouter
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleExport}
+            className="rounded border border-slate-300 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+          >
+            Exporter CSV
+          </button>
+          <button
+            onClick={handleAddEmployee}
+            className="rounded bg-slate-900 px-3 py-1 text-xs font-medium text-white"
+          >
+            + Ajouter
+          </button>
+        </div>
       </div>
       {error && <p className="text-sm text-red-600">{error}</p>}
       <div className="min-h-0 flex-1" ref={containerRef}>

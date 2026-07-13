@@ -4,6 +4,7 @@ export interface Employee {
   last_name: string;
   job_title: string | null;
   role_desc: string | null;
+  department: string | null;
   created_at: string;
   updated_at: string;
   created_by: string | null;
@@ -11,7 +12,7 @@ export interface Employee {
 }
 
 export type EmployeeInput = Pick<Employee, 'first_name' | 'last_name'> &
-  Partial<Pick<Employee, 'job_title' | 'role_desc'>>;
+  Partial<Pick<Employee, 'job_title' | 'role_desc' | 'department'>>;
 
 export interface ReportingRelationship {
   id: string;
@@ -31,18 +32,29 @@ export interface ClientMission {
   created_at: string;
 }
 
+export type RemunerationModel = 'retainer' | 'commission';
+
 export interface Assignment {
   id: string;
   employee_id: string;
   client_mission_id: string;
-  etp_percent: number;
+  etp_vendu: number | null;
+  etp_reel: number | null;
+  remuneration_model: RemunerationModel | null;
   created_at: string;
   updated_at: string;
 }
 
-export type AssignmentInput = Pick<Assignment, 'employee_id' | 'client_mission_id' | 'etp_percent'>;
+export type AssignmentInput = Pick<Assignment, 'employee_id' | 'client_mission_id'> &
+  Partial<Pick<Assignment, 'etp_vendu' | 'remuneration_model'>>;
 
 export interface JobTitle {
+  id: string;
+  name: string;
+  created_at: string;
+}
+
+export interface Department {
   id: string;
   name: string;
   created_at: string;

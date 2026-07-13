@@ -9,7 +9,11 @@ import {
   type GridReadyEvent,
 } from 'ag-grid-community';
 import { useClientsMissions } from '../../hooks/useClientsMissions';
+import { useAssignments } from '../../hooks/useAssignments';
+import { useEmployees } from '../../hooks/useEmployees';
 import { useRowStabilizer } from './useRowStabilizer';
+import { etpStatus } from '../../lib/etpStatus';
+import { ClientAssignmentsModal } from '../shared/ClientAssignmentsModal';
 import type { ClientMission } from '../../types/domain';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
@@ -17,7 +21,19 @@ ModuleRegistry.registerModules([AllCommunityModule]);
 export function ClientsMissionsGrid() {
   const { clientsMissions, loading, error, createClientMission, updateClientMission, deleteClientMission } =
     useClientsMissions();
+  const {
+    assignmentsOfClientMission,
+    totalEtpOfClientMission,
+    totalEtpReelOfClientMission,
+    createAssignment,
+    updateAssignmentEtpVendu,
+    updateAssignmentEtpReel,
+    updateAssignmentRemuneration,
+    deleteAssignment,
+  } = useAssignments();
+  const { employees } = useEmployees();
   const [actionError, setActionError] = useState<string | null>(null);
+  const [viewingAssignmentsFor, setViewingAssignmentsFor] = useState<ClientMission | null>(null);
 
   const {
     gridApiRef,
@@ -90,6 +106,49 @@ export function ClientsMissionsGrid() {
         comparator: comparatorFor('type'),
       },
       {
+        headerName: 'Employés',
+        flex: 1,
+        minWidth: 140,
+        sortable: false,
+        filter: false,
+        cellRenderer: (params: { data: ClientMission }) => {
+          const count = assignmentsOfClientMission(params.data.id).length;
+          const total = totalEtpOfClientMission(params.data.id);
+          const status = etpStatus(total);
+          return (
+            <button
+              onClick={() => setViewingAssignmentsFor(params.data)}
+              className={`w-full truncate text-left text-sm hover:underline ${
+                count === 0
+                  ? 'text-slate-300'
+                  : status === 'green'
+                    ? 'text-emerald-700'
+                    : status === 'amber'
+                      ? 'text-amber-700'
+                      : 'text-red-700'
+              }`}
+              title="Voir le détail par employé"
+            >
+              {count === 0 ? '+ Ajouter' : `${count} · ${total}% vendu`}
+            </button>
+          );
+        },
+      },
+      {
+        headerName: 'Total réel',
+        width: 100,
+        sortable: false,
+        filter: false,
+        cellRenderer: (params: { data: ClientMission }) => {
+          const assignments = assignmentsOfClientMission(params.data.id);
+          const known = assignments.filter((a) => a.etp_reel !== null);
+          const total = totalEtpReelOfClientMission(params.data.id);
+          return (
+            <span className="text-sm text-slate-400">{known.length > 0 ? `${total}%` : '—'}</span>
+          );
+        },
+      },
+      {
         headerName: '',
         width: 56,
         sortable: false,
@@ -105,7 +164,7 @@ export function ClientsMissionsGrid() {
         ),
       },
     ],
-    [handleDelete, comparatorFor],
+    [handleDelete, comparatorFor, assignmentsOfClientMission, totalEtpOfClientMission, totalEtpReelOfClientMission],
   );
 
   const handleAdd = useCallback(async () => {
@@ -141,6 +200,19 @@ export function ClientsMissionsGrid() {
           animateRows
         />
       </div>
+      {viewingAssignmentsFor && (
+        <ClientAssignmentsModal
+          clientMission={viewingAssignmentsFor}
+          assignments={assignmentsOfClientMission(viewingAssignmentsFor.id)}
+          employees={employees}
+          createAssignment={createAssignment}
+          updateAssignmentEtpVendu={updateAssignmentEtpVendu}
+          updateAssignmentEtpReel={updateAssignmentEtpReel}
+          updateAssignmentRemuneration={updateAssignmentRemuneration}
+          deleteAssignment={deleteAssignment}
+          onClose={() => setViewingAssignmentsFor(null)}
+        />
+      )}
     </div>
   );
 }

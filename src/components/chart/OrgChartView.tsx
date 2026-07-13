@@ -12,11 +12,14 @@ import { useEmployees } from '../../hooks/useEmployees';
 import { useReportingGraph } from '../../hooks/useReportingGraph';
 import { useAssignments } from '../../hooks/useAssignments';
 import { useJobTitles } from '../../hooks/useJobTitles';
+import { useDepartments } from '../../hooks/useDepartments';
+import { departmentColorMap } from '../../lib/departmentColor';
 import { useSelectionStore } from '../../stores/selectionStore';
 import { useVisibleGraph } from './useVisibleGraph';
 import { layoutWithDagre, NODE_WIDTH, NODE_HEIGHT } from './layoutEngine';
 import { EmployeeNode, type EmployeeNodeActions, type EmployeeNodeData } from './EmployeeNode';
 import { LinkExistingEmployeeModal } from '../shared/LinkExistingEmployeeModal';
+import { DepartmentLegend } from './DepartmentLegend';
 
 const nodeTypes = { employee: EmployeeNode };
 
@@ -42,6 +45,9 @@ export function OrgChartView() {
   const { assignmentsOf, totalEtpOf } = useAssignments();
   const { jobTitles } = useJobTitles();
   const jobTitleNames = useMemo(() => jobTitles.map((jt) => jt.name), [jobTitles]);
+  const { departments } = useDepartments();
+  const departmentNames = useMemo(() => departments.map((d) => d.name), [departments]);
+  const departmentColorByName = useMemo(() => departmentColorMap(departments), [departments]);
 
   const expandedNodeIds = useSelectionStore((s) => s.expandedNodeIds);
   const setExpandedNodeIds = useSelectionStore((s) => s.setExpandedNodeIds);
@@ -217,6 +223,10 @@ export function OrgChartView() {
         assignmentsCount: assignmentsOf(employee.id).length,
         assignmentsTotalEtp: totalEtpOf(employee.id),
         jobTitles: jobTitleNames,
+        departmentNames,
+        departmentColor: employee.department
+          ? (departmentColorByName.get(employee.department) ?? null)
+          : null,
         onToggleExpand: toggleExpanded,
         actions,
       },
@@ -255,6 +265,8 @@ export function OrgChartView() {
     assignmentsOf,
     totalEtpOf,
     jobTitleNames,
+    departmentNames,
+    departmentColorByName,
   ]);
 
   // Center on the selected node once it's laid out and visible.
@@ -278,7 +290,8 @@ export function OrgChartView() {
   }
 
   return (
-    <div className="h-full w-full">
+    <div className="relative h-full w-full">
+      <DepartmentLegend departments={departments} colorByName={departmentColorByName} />
       <ReactFlow
         nodeTypes={nodeTypes}
         nodes={nodes}

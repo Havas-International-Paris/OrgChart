@@ -23,6 +23,9 @@ Application interne pour visualiser et éditer l'organigramme de Havas Internati
    - `0003_cycle_check_function.sql` — trigger anti-cycle pour le multi-reporting
    - `0004_enable_realtime.sql` — active la diffusion temps réel sur les 4 tables (indispensable : sans ce fichier, les modifications d'un utilisateur n'apparaissent jamais en direct chez les autres)
    - `0005_job_titles.sql` — catalogue des postes (pré-rempli à partir des postes déjà utilisés par les employés existants)
+   - `0006_split_etp_vendu_reel.sql` — sépare `etp_percent` en `etp_vendu` (engagement commercial) et `etp_reel` (%ETP réel, renseigné manuellement plus tard)
+   - `0007_remuneration_model.sql` — ajoute `remuneration_model` (retainer/commission) sur les affectations ; rend `etp_vendu` optionnel et interdit toute valeur vendu sur une ligne en commission
+   - `0008_departments.sql` — catalogue des Business Units (`departments`) et colonne `department` sur `employees`, pour le tagging couleur du chart
 3. Créez au moins un utilisateur dans **Authentication → Users → Add user** pour pouvoir vous connecter.
 4. Récupérez l'URL du projet et la clé **publishable** (ou `anon`) dans **Project Settings → API**.
 

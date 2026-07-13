@@ -1,17 +1,10 @@
 import { useState } from 'react';
-import type {
-  Assignment,
-  ClientMission,
-  ClientMissionType,
-  Employee,
-  RemunerationModel,
-} from '../../types/domain';
+import type { Assignment, ClientMission, Employee, RemunerationModel } from '../../types/domain';
 
-interface AssignmentEditorModalProps {
-  employee: Employee;
+interface ClientAssignmentsModalProps {
+  clientMission: ClientMission;
   assignments: Assignment[];
-  clientsMissions: ClientMission[];
-  findOrCreate: (name: string, type: ClientMissionType) => Promise<ClientMission>;
+  employees: Employee[];
   createAssignment: (
     employeeId: string,
     clientMissionId: string,
@@ -30,37 +23,36 @@ interface AssignmentEditorModalProps {
   onClose: () => void;
 }
 
-export function AssignmentEditorModal({
-  employee,
+function employeeName(employee: Employee | undefined): string {
+  return employee ? `${employee.first_name} ${employee.last_name}` : '?';
+}
+
+export function ClientAssignmentsModal({
+  clientMission,
   assignments,
-  clientsMissions,
-  findOrCreate,
+  employees,
   createAssignment,
   updateAssignmentEtpVendu,
   updateAssignmentEtpReel,
   updateAssignmentRemuneration,
   deleteAssignment,
   onClose,
-}: AssignmentEditorModalProps) {
-  const [newName, setNewName] = useState('');
-  const [newType, setNewType] = useState<ClientMissionType>('client');
+}: ClientAssignmentsModalProps) {
+  const [newEmployeeName, setNewEmployeeName] = useState('');
   const [newEtp, setNewEtp] = useState('');
   const [newReel, setNewReel] = useState('');
   const [newRemuneration, setNewRemuneration] = useState<RemunerationModel | ''>('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const clientMissionById = new Map(clientsMissions.map((cm) => [cm.id, cm]));
+  const employeeById = new Map(employees.map((e) => [e.id, e]));
+  const assignedEmployeeIds = new Set(assignments.map((a) => a.employee_id));
+  const availableEmployees = employees.filter((e) => !assignedEmployeeIds.has(e.id));
+
   const venduKnown = assignments.filter((a) => a.etp_vendu !== null);
   const totalVendu = venduKnown.reduce((sum, a) => sum + (a.etp_vendu ?? 0), 0);
   const reelKnown = assignments.filter((a) => a.etp_reel !== null);
   const totalReel = reelKnown.reduce((sum, a) => sum + (a.etp_reel ?? 0), 0);
-
-  function handleNameChange(value: string) {
-    setNewName(value);
-    const matches = clientsMissions.filter((cm) => cm.name.toLowerCase() === value.trim().toLowerCase());
-    if (matches.length === 1) setNewType(matches[0].type);
-  }
 
   async function runMutation(action: () => Promise<void>) {
     try {
@@ -78,8 +70,13 @@ export function AssignmentEditorModal({
   }
 
   async function handleAdd() {
-    const name = newName.trim();
+    const name = newEmployeeName.trim().toLowerCase();
     if (!name) return;
+    const match = availableEmployees.find((e) => employeeName(e).toLowerCase() === name);
+    if (!match) {
+      setError('Employé introuvable (ou déjà assigné à ce client/mission)');
+      return;
+    }
     const rawVendu = newEtp.trim();
     const etpVendu = rawVendu === '' ? null : Number(rawVendu);
     if (etpVendu !== null && (!Number.isFinite(etpVendu) || etpVendu < 0 || etpVendu > 100)) {
@@ -96,9 +93,8 @@ export function AssignmentEditorModal({
     const finalVendu = model === 'commission' ? null : etpVendu;
     setSubmitting(true);
     await runMutation(async () => {
-      const cm = await findOrCreate(name, newType);
-      await createAssignment(employee.id, cm.id, finalVendu, etpReel, model);
-      setNewName('');
+      await createAssignment(match.id, clientMission.id, finalVendu, etpReel, model);
+      setNewEmployeeName('');
       setNewEtp('');
       setNewReel('');
       setNewRemuneration('');
@@ -110,7 +106,10 @@ export function AssignmentEditorModal({
     <div data-row-stabilizer-ignore className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
       <div className="w-full max-w-2xl rounded-lg bg-white p-5 shadow-lg">
         <h2 className="mb-1 text-sm font-semibold text-slate-900">
-          Clients / missions de {employee.first_name} {employee.last_name}
+          Employés sur {clientMission.name}{' '}
+          <span className="text-xs font-normal text-slate-400">
+            ({clientMission.type === 'mission' ? 'mission' : 'client'})
+          </span>
         </h2>
         <p className="text-xs text-slate-500">
           Total vendu : {venduKnown.length > 0 ? `${totalVendu}%` : '—'} ETP
@@ -119,25 +118,18 @@ export function AssignmentEditorModal({
           Total réel : {reelKnown.length > 0 ? `${totalReel}%` : '—'} ETP
         </p>
 
-        {error && (
-          <p className="mb-3 rounded bg-red-50 px-2 py-1 text-xs text-red-600">{error}</p>
-        )}
+        {error && <p className="mb-3 rounded bg-red-50 px-2 py-1 text-xs text-red-600">{error}</p>}
 
         <div className="mb-4 max-h-64 space-y-1 overflow-auto">
           {assignments.length === 0 && (
-            <p className="text-sm text-slate-400">Aucune affectation pour le moment.</p>
+            <p className="text-sm text-slate-400">Aucun employé assigné pour le moment.</p>
           )}
           {assignments.map((a) => {
-            const cm = clientMissionById.get(a.client_mission_id);
+            const employee = employeeById.get(a.employee_id);
             const isCommission = a.remuneration_model === 'commission';
             return (
               <div key={a.id} className="flex items-center gap-2 rounded px-2 py-1 hover:bg-slate-50">
-                <span className="flex-1 truncate text-sm text-slate-700">
-                  {cm?.name ?? '?'}{' '}
-                  <span className="text-xs text-slate-400">
-                    ({cm?.type === 'mission' ? 'mission' : 'client'})
-                  </span>
-                </span>
+                <span className="flex-1 truncate text-sm text-slate-700">{employeeName(employee)}</span>
                 <div className="flex flex-col items-center">
                   <span className="text-[10px] text-slate-400">modèle</span>
                   <select
@@ -211,7 +203,7 @@ export function AssignmentEditorModal({
                 <button
                   onClick={() => runMutation(() => deleteAssignment(a.id))}
                   className="text-slate-400 hover:text-red-600"
-                  title="Supprimer"
+                  title="Retirer"
                 >
                   ✕
                 </button>
@@ -222,31 +214,20 @@ export function AssignmentEditorModal({
 
         <div className="flex items-end gap-2 border-t border-slate-100 pt-3">
           <div className="flex-1">
-            <label className="mb-1 block text-xs text-slate-500">Client ou mission</label>
+            <label className="mb-1 block text-xs text-slate-500">Employé</label>
             <input
               type="text"
-              list="clients-missions-suggestions"
-              value={newName}
-              onChange={(e) => handleNameChange(e.target.value)}
+              list="available-employees-suggestions"
+              value={newEmployeeName}
+              onChange={(e) => setNewEmployeeName(e.target.value)}
               placeholder="Nom…"
               className="h-8 w-full rounded border border-slate-300 px-2 text-sm"
             />
-            <datalist id="clients-missions-suggestions">
-              {clientsMissions.map((cm) => (
-                <option key={cm.id} value={cm.name} />
+            <datalist id="available-employees-suggestions">
+              {availableEmployees.map((e) => (
+                <option key={e.id} value={employeeName(e)} />
               ))}
             </datalist>
-          </div>
-          <div>
-            <label className="mb-1 block text-xs text-slate-500">Type</label>
-            <select
-              value={newType}
-              onChange={(e) => setNewType(e.target.value as ClientMissionType)}
-              className="h-8 rounded border border-slate-300 px-2 text-sm"
-            >
-              <option value="client">Client</option>
-              <option value="mission">Mission</option>
-            </select>
           </div>
           <div>
             <label className="mb-1 block text-xs text-slate-500">Modèle</label>
@@ -291,7 +272,7 @@ export function AssignmentEditorModal({
           </div>
           <button
             onClick={handleAdd}
-            disabled={submitting || !newName.trim()}
+            disabled={submitting || !newEmployeeName.trim()}
             className="h-8 rounded bg-slate-900 px-3 text-sm font-medium text-white disabled:opacity-50"
           >
             Ajouter
