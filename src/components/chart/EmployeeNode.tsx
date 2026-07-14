@@ -44,7 +44,10 @@ function AddButton({
   const [open, setOpen] = useState(false);
 
   return (
-    <div className={`absolute left-1/2 -translate-x-1/2 ${position === 'top' ? '-top-3' : '-bottom-3'}`}>
+    <div
+      data-export-hide
+      className={`absolute left-1/2 -translate-x-1/2 ${position === 'top' ? '-top-3' : '-bottom-3'}`}
+    >
       <button
         onClick={(e) => {
           e.stopPropagation();

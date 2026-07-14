@@ -3,6 +3,7 @@ import ReactFlow, {
   Background,
   Controls,
   MiniMap,
+  Panel,
   type Edge,
   type Node,
   type ReactFlowInstance,
@@ -20,6 +21,7 @@ import { layoutWithDagre, NODE_WIDTH, NODE_HEIGHT } from './layoutEngine';
 import { EmployeeNode, type EmployeeNodeActions, type EmployeeNodeData } from './EmployeeNode';
 import { LinkExistingEmployeeModal } from '../shared/LinkExistingEmployeeModal';
 import { DepartmentLegend } from './DepartmentLegend';
+import { exportChartAsPng } from './exportChartImage';
 
 const nodeTypes = { employee: EmployeeNode };
 
@@ -60,6 +62,8 @@ export function OrgChartView() {
 
   const reactFlowInstanceRef = useRef<ReactFlowInstance | null>(null);
   const [linkModal, setLinkModal] = useState<LinkModalState | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   const employeeById = useMemo(() => new Map(employees.map((e) => [e.id, e])), [employees]);
 
@@ -289,6 +293,29 @@ export function OrgChartView() {
     );
   }
 
+  async function handleExport() {
+    setExporting(true);
+    setExportError(null);
+    try {
+      // Let the "Export…" state paint before capturing — calling toPng
+      // synchronously right after setExporting races React's re-render and
+      // produces a blank image (html-to-image reads the DOM mid-flight).
+      await new Promise(requestAnimationFrame);
+      await new Promise(requestAnimationFrame);
+      const date = new Date().toISOString().slice(0, 10);
+      // Use the live instance's nodes (auto-measured width/height once
+      // mounted), not the local `nodes` array — that one only carries the
+      // dagre layout's approximate NODE_WIDTH/NODE_HEIGHT, which under-counts
+      // actual card size and clips the rightmost/bottommost nodes.
+      const measuredNodes = reactFlowInstanceRef.current?.getNodes() ?? nodes;
+      await exportChartAsPng(measuredNodes, `organigramme_${date}.png`);
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     <div className="relative h-full w-full">
       <DepartmentLegend departments={departments} colorByName={departmentColorByName} />
@@ -304,6 +331,20 @@ export function OrgChartView() {
         onNodeClick={(_, node) => setSelectedEmployee(node.id)}
         onPaneClick={() => setSelectedEmployee(null)}
       >
+        <Panel position="top-right" className="flex flex-col items-end gap-1">
+          <button
+            onClick={handleExport}
+            disabled={exporting}
+            className="rounded border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+          >
+            {exporting ? 'Export…' : 'Exporter en image'}
+          </button>
+          {exportError && (
+            <p className="max-w-[220px] rounded bg-red-50 px-2 py-1 text-right text-xs text-red-600">
+              {exportError}
+            </p>
+          )}
+        </Panel>
         <Background />
         <Controls />
         <MiniMap />
