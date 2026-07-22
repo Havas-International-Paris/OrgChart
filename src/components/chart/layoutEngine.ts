@@ -2,7 +2,10 @@ import dagre from 'dagre';
 import type { Node, Edge } from 'reactflow';
 
 export const NODE_WIDTH = 220;
-export const NODE_HEIGHT = 84;
+// Approximate spacing hint for dagre only — actual card height is
+// content-driven (avatar row, dept pill, two ETP bars, advertisers,
+// badge) and auto-measured by React Flow once mounted, same as NODE_WIDTH.
+export const NODE_HEIGHT = 190;
 
 export function layoutWithDagre<T extends Node>(nodes: T[], edges: Edge[]): T[] {
   const g = new dagre.graphlib.Graph();

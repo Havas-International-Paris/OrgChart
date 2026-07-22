@@ -22,3 +22,17 @@ export function departmentColorMap(departments: Department[]): Map<string, strin
   departments.forEach((d, i) => map.set(d.name, PALETTE[i % PALETTE.length]));
   return map;
 }
+
+// Neutral fallback for chart nodes with no department set — kept out of
+// PALETTE so it's never assigned to an actual department.
+export const NEUTRAL_DEPARTMENT_COLOR = '#94a3b8'; // slate-400
+
+// Appends an alpha channel to a 6-digit hex color, e.g. for pill/track tints
+// derived from a department's solid color instead of storing a second
+// "light" color per department.
+export function withAlpha(hex: string, alpha: number): string {
+  const a = Math.round(Math.max(0, Math.min(1, alpha)) * 255)
+    .toString(16)
+    .padStart(2, '0');
+  return `${hex}${a}`;
+}

@@ -5,6 +5,7 @@ export interface VisibleGraphResult {
   visibleEmployees: Employee[];
   childrenOf: Map<string, string[]>;
   roots: Employee[];
+  totalDescendantCountOf: (employeeId: string) => number;
 }
 
 export function useVisibleGraph(
@@ -43,6 +44,25 @@ export function useVisibleGraph(
       }
     }
 
-    return { visibleEmployees: [...visible.values()], childrenOf, roots };
+    // Recursive headcount under a person, over the full primary tree — not
+    // just currently-visible descendants — so the count on a collapsed
+    // node's badge doesn't change as the user expands/collapses elsewhere.
+    const totalDescendantCount = new Map<string, number>();
+    const countDescendants = (id: string): number => {
+      if (totalDescendantCount.has(id)) return totalDescendantCount.get(id)!;
+      const children = childrenOf.get(id) ?? [];
+      let total = children.length;
+      for (const childId of children) total += countDescendants(childId);
+      totalDescendantCount.set(id, total);
+      return total;
+    };
+    for (const employee of employees) countDescendants(employee.id);
+
+    return {
+      visibleEmployees: [...visible.values()],
+      childrenOf,
+      roots,
+      totalDescendantCountOf: (id: string) => totalDescendantCount.get(id) ?? 0,
+    };
   }, [employees, primaryEdges, expandedNodeIds]);
 }

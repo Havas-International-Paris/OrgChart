@@ -1,6 +1,6 @@
 import { memo, useState } from 'react';
 import { Handle, Position, type NodeProps } from 'reactflow';
-import { etpStatus } from '../../lib/etpStatus';
+import { NEUTRAL_DEPARTMENT_COLOR, withAlpha } from '../../lib/departmentColor';
 import type { Employee } from '../../types/domain';
 
 export interface EmployeeNodeActions {
@@ -21,8 +21,14 @@ export interface EmployeeNodeData {
   isExpanded: boolean;
   isSelected: boolean;
   isMatch: boolean;
+  isDimmed: boolean;
   assignmentsCount: number;
-  assignmentsTotalEtp: number;
+  assignmentsTotalEtpVendu: number;
+  assignmentsTotalEtpReel: number;
+  advertiserNames: string[];
+  directReportsCount: number;
+  totalDescendantCount: number;
+  functionalManagerCount: number;
   jobTitles: string[];
   departmentNames: string[];
   departmentColor: string | null;
@@ -32,36 +38,34 @@ export interface EmployeeNodeData {
 
 function AddButton({
   label,
-  position,
+  corner,
   onCreateNew,
   onLinkExisting,
 }: {
   label: string;
-  position: 'top' | 'bottom';
+  corner: 'top-right' | 'bottom-right';
   onCreateNew: () => void;
   onLinkExisting: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const isTop = corner === 'top-right';
 
   return (
-    <div
-      data-export-hide
-      className={`absolute left-1/2 -translate-x-1/2 ${position === 'top' ? '-top-3' : '-bottom-3'}`}
-    >
+    <div data-export-hide className={`absolute right-[-9px] ${isTop ? 'top-[-9px]' : 'bottom-[-9px]'}`}>
       <button
         onClick={(e) => {
           e.stopPropagation();
           setOpen((o) => !o);
         }}
         title={label}
-        className="flex h-6 w-6 items-center justify-center rounded-full border border-slate-300 bg-white text-xs text-slate-500 shadow-sm hover:bg-slate-50"
+        className="flex h-[18px] w-[18px] items-center justify-center rounded-full border border-dashed border-slate-300 bg-white text-[11px] font-bold leading-none text-slate-400 shadow-sm hover:bg-slate-50"
       >
         +
       </button>
       {open && (
         <div
-          className={`absolute left-1/2 z-10 w-48 -translate-x-1/2 rounded-md border border-slate-200 bg-white py-1 shadow-lg ${
-            position === 'top' ? 'bottom-7' : 'top-7'
+          className={`absolute right-0 z-10 w-48 rounded-md border border-slate-200 bg-white py-1 shadow-lg ${
+            isTop ? 'top-6' : 'bottom-6'
           }`}
         >
           <button
@@ -90,6 +94,70 @@ function AddButton({
   );
 }
 
+function initialsOf(firstName: string, lastName: string) {
+  return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase();
+}
+
+function Avatar({ firstName, lastName, color }: { firstName: string; lastName: string; color: string }) {
+  return (
+    <div
+      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white"
+      style={{ backgroundColor: color }}
+    >
+      {initialsOf(firstName, lastName)}
+    </div>
+  );
+}
+
+function MetricRow({
+  label,
+  pct,
+  trackColor,
+  fillColor,
+}: {
+  label: string;
+  pct: number;
+  trackColor: string;
+  fillColor: string;
+}) {
+  return (
+    <div className="mt-1 flex items-center gap-1.5">
+      <span className="w-10 shrink-0 text-[9px] font-semibold text-slate-500">{label}</span>
+      <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full" style={{ backgroundColor: trackColor }}>
+        <div
+          className="h-full rounded-full"
+          style={{ width: `${Math.min(100, Math.max(0, pct))}%`, backgroundColor: fillColor }}
+        />
+      </div>
+      <span className="w-8 shrink-0 text-right text-[9px] font-bold text-slate-600">{pct}%</span>
+    </div>
+  );
+}
+
+function AdvertisersRow({ names }: { names: string[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const truncated = names.length > 2;
+  const text = expanded ? names.join(', ') : names.slice(0, 2).join(', ');
+
+  return (
+    <div className="mt-1.5 flex items-start gap-1">
+      <span className={`min-w-0 flex-1 text-[10px] text-slate-500 ${expanded ? '' : 'truncate'}`}>{text}</span>
+      {truncated && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setExpanded((v) => !v);
+          }}
+          className="shrink-0 rounded-full bg-slate-100 px-1.5 text-[9px] font-bold leading-4 text-slate-500 hover:bg-slate-200"
+        >
+          {expanded ? '−' : `+${names.length - 2}`}
+        </button>
+      )}
+    </div>
+  );
+}
+
 type EditableField = 'first_name' | 'last_name' | 'job_title' | 'department';
 
 function EmployeeNodeImpl({ data }: NodeProps<EmployeeNodeData>) {
@@ -99,8 +167,13 @@ function EmployeeNodeImpl({ data }: NodeProps<EmployeeNodeData>) {
     isExpanded,
     isSelected,
     isMatch,
-    assignmentsCount,
-    assignmentsTotalEtp,
+    isDimmed,
+    assignmentsTotalEtpVendu,
+    assignmentsTotalEtpReel,
+    advertiserNames,
+    directReportsCount,
+    totalDescendantCount,
+    functionalManagerCount,
     jobTitles,
     departmentNames,
     departmentColor,
@@ -141,113 +214,132 @@ function EmployeeNodeImpl({ data }: NodeProps<EmployeeNodeData>) {
   const textInputClass =
     'min-w-0 flex-1 rounded border border-slate-300 px-1 py-0.5 text-sm font-semibold text-slate-900';
 
+  const swatch = departmentColor ?? NEUTRAL_DEPARTMENT_COLOR;
+  const trackColor = withAlpha(swatch, 0.15);
+  const showBadge = directReportsCount > 0 || functionalManagerCount > 0;
+  const badgeText =
+    directReportsCount > 0
+      ? `${totalDescendantCount} au total · ${directReportsCount} direct${directReportsCount > 1 ? 's' : ''}`
+      : `+${functionalManagerCount} fonc.`;
+
   return (
     <div
-      className={`relative w-[220px] rounded-lg border bg-white px-3 py-2 shadow-sm ${borderClass}`}
-      style={departmentColor ? { borderLeftColor: departmentColor, borderLeftWidth: 4 } : undefined}
+      className={`relative w-[220px] rounded-lg border bg-white px-3 pb-6 pt-3 shadow-sm ${borderClass}`}
+      style={{ opacity: isDimmed ? 0.3 : 1 }}
     >
       <Handle type="target" position={Position.Top} className="!bg-slate-400" />
 
       <AddButton
         label="Ajouter un manager"
-        position="top"
+        corner="top-right"
         onCreateNew={() => actions.quickAddManager(employee.id)}
         onLinkExisting={() => actions.openLinkManager(employee.id)}
       />
+      <AddButton
+        label="Ajouter un subordonné"
+        corner="bottom-right"
+        onCreateNew={() => actions.quickAddSubordinate(employee.id)}
+        onLinkExisting={() => actions.openLinkSubordinate(employee.id)}
+      />
 
-      <div className="flex items-center gap-1 text-sm font-semibold text-slate-900">
-        {editingField === 'first_name' ? (
-          <input
-            autoFocus
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onBlur={commitEdit}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') commitEdit();
-              else if (e.key === 'Escape') cancelEdit();
-            }}
-            onMouseDown={(e) => e.stopPropagation()}
-            className={textInputClass}
-          />
-        ) : (
-          <span
-            className="truncate"
-            onDoubleClick={(e) => {
-              e.stopPropagation();
-              startEdit('first_name', employee.first_name);
-            }}
-          >
-            {employee.first_name}
-          </span>
-        )}
-        {editingField === 'last_name' ? (
-          <input
-            autoFocus
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onBlur={commitEdit}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') commitEdit();
-              else if (e.key === 'Escape') cancelEdit();
-            }}
-            onMouseDown={(e) => e.stopPropagation()}
-            className={textInputClass}
-          />
-        ) : (
-          <span
-            className="truncate"
-            onDoubleClick={(e) => {
-              e.stopPropagation();
-              startEdit('last_name', employee.last_name);
-            }}
-          >
-            {employee.last_name}
-          </span>
-        )}
+      <div className="flex items-center gap-2">
+        <Avatar firstName={employee.first_name} lastName={employee.last_name} color={swatch} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1 text-sm font-semibold text-slate-900">
+            {editingField === 'first_name' ? (
+              <input
+                autoFocus
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onBlur={commitEdit}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') commitEdit();
+                  else if (e.key === 'Escape') cancelEdit();
+                }}
+                onMouseDown={(e) => e.stopPropagation()}
+                className={textInputClass}
+              />
+            ) : (
+              <span
+                className="truncate"
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  startEdit('first_name', employee.first_name);
+                }}
+              >
+                {employee.first_name}
+              </span>
+            )}
+            {editingField === 'last_name' ? (
+              <input
+                autoFocus
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onBlur={commitEdit}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') commitEdit();
+                  else if (e.key === 'Escape') cancelEdit();
+                }}
+                onMouseDown={(e) => e.stopPropagation()}
+                className={textInputClass}
+              />
+            ) : (
+              <span
+                className="truncate"
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  startEdit('last_name', employee.last_name);
+                }}
+              >
+                {employee.last_name}
+              </span>
+            )}
+          </div>
+
+          {editingField === 'job_title' ? (
+            <select
+              autoFocus
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={commitEdit}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') cancelEdit();
+              }}
+              onMouseDown={(e) => e.stopPropagation()}
+              className="mt-0.5 w-full rounded border border-slate-300 px-1 py-0.5 text-xs text-slate-700"
+            >
+              <option value="" disabled>
+                Choisir un poste…
+              </option>
+              {jobTitles.map((title) => (
+                <option key={title} value={title}>
+                  {title}
+                </option>
+              ))}
+            </select>
+          ) : employee.job_title ? (
+            <div
+              className="truncate text-xs text-slate-500"
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                startEdit('job_title', employee.job_title ?? '');
+              }}
+            >
+              {employee.job_title}
+            </div>
+          ) : (
+            <div
+              className="truncate text-xs text-slate-300"
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                startEdit('job_title', '');
+              }}
+            >
+              + poste
+            </div>
+          )}
+        </div>
       </div>
-
-      {editingField === 'job_title' ? (
-        <select
-          autoFocus
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={commitEdit}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') cancelEdit();
-          }}
-          onMouseDown={(e) => e.stopPropagation()}
-          className="mt-0.5 w-full rounded border border-slate-300 px-1 py-0.5 text-xs text-slate-700"
-        >
-          <option value="" disabled>
-            Choisir un poste…
-          </option>
-          {jobTitles.map((title) => (
-            <option key={title} value={title}>
-              {title}
-            </option>
-          ))}
-        </select>
-      ) : employee.job_title ? (
-        <div
-          className="truncate text-xs text-slate-500"
-          onDoubleClick={(e) => {
-            e.stopPropagation();
-            startEdit('job_title', employee.job_title ?? '');
-          }}
-        >
-          {employee.job_title}
-        </div>
-      ) : (
-        <div
-          className="truncate text-xs text-slate-300"
-          onDoubleClick={(e) => {
-            e.stopPropagation();
-            startEdit('job_title', '');
-          }}
-        >
-          + poste
-        </div>
-      )}
 
       {editingField === 'department' ? (
         <select
@@ -259,7 +351,7 @@ function EmployeeNodeImpl({ data }: NodeProps<EmployeeNodeData>) {
             if (e.key === 'Escape') cancelEdit();
           }}
           onMouseDown={(e) => e.stopPropagation()}
-          className="mt-0.5 w-full rounded border border-slate-300 px-1 py-0.5 text-xs text-slate-700"
+          className="mt-2 w-full rounded border border-slate-300 px-1 py-0.5 text-xs text-slate-700"
         >
           <option value="" disabled>
             Choisir une business unit…
@@ -271,22 +363,19 @@ function EmployeeNodeImpl({ data }: NodeProps<EmployeeNodeData>) {
           ))}
         </select>
       ) : employee.department ? (
-        <div
-          className="mt-0.5 flex items-center gap-1 text-xs text-slate-500"
+        <span
+          className="mt-2 inline-block rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide"
+          style={{ backgroundColor: trackColor, color: swatch }}
           onDoubleClick={(e) => {
             e.stopPropagation();
             startEdit('department', employee.department ?? '');
           }}
         >
-          <span
-            className="h-1.5 w-1.5 shrink-0 rounded-full"
-            style={{ backgroundColor: departmentColor ?? undefined }}
-          />
-          <span className="truncate">{employee.department}</span>
-        </div>
+          {employee.department}
+        </span>
       ) : (
         <div
-          className="mt-0.5 truncate text-xs text-slate-300"
+          className="mt-2 truncate text-xs text-slate-300"
           onDoubleClick={(e) => {
             e.stopPropagation();
             startEdit('department', '');
@@ -296,41 +385,41 @@ function EmployeeNodeImpl({ data }: NodeProps<EmployeeNodeData>) {
         </div>
       )}
 
-      {assignmentsCount > 0 && (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            actions.openAssignments(employee.id);
-          }}
-          className={`mt-1 block rounded px-1.5 py-0.5 text-xs ${
-            etpStatus(assignmentsTotalEtp) === 'green'
-              ? 'bg-emerald-50 text-emerald-700'
-              : etpStatus(assignmentsTotalEtp) === 'amber'
-                ? 'bg-amber-50 text-amber-700'
-                : 'bg-red-50 text-red-700'
-          }`}
-        >
-          {assignmentsCount} · {assignmentsTotalEtp}% ETP
-        </button>
-      )}
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          actions.openAssignments(employee.id);
+        }}
+        title="Modifier les missions"
+        className="mt-2 block w-full text-left"
+      >
+        <MetricRow
+          label="Vendu"
+          pct={assignmentsTotalEtpVendu}
+          trackColor={trackColor}
+          fillColor={withAlpha(swatch, 0.55)}
+        />
+        <MetricRow label="Réel" pct={assignmentsTotalEtpReel} trackColor={trackColor} fillColor={swatch} />
+      </button>
+
+      {advertiserNames.length > 0 && <AdvertisersRow names={advertiserNames} />}
+
       {hasChildren && (
         <button
           onClick={(e) => {
             e.stopPropagation();
             onToggleExpand(employee.id);
           }}
-          className="mt-1 text-xs text-slate-400 hover:text-slate-700"
+          className="mt-1.5 text-xs text-slate-400 hover:text-slate-700"
         >
           {isExpanded ? '▾ Réduire' : '▸ Déplier'}
         </button>
       )}
 
-      <AddButton
-        label="Ajouter un subordonné"
-        position="bottom"
-        onCreateNew={() => actions.quickAddSubordinate(employee.id)}
-        onLinkExisting={() => actions.openLinkSubordinate(employee.id)}
-      />
+      {showBadge && (
+        <div className="absolute bottom-1.5 right-2.5 text-[9px] font-medium text-slate-400">{badgeText}</div>
+      )}
 
       <Handle type="source" position={Position.Bottom} className="!bg-slate-400" />
     </div>

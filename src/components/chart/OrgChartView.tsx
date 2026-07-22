@@ -14,6 +14,7 @@ import { useReportingGraph } from '../../hooks/useReportingGraph';
 import { useAssignments } from '../../hooks/useAssignments';
 import { useJobTitles } from '../../hooks/useJobTitles';
 import { useDepartments } from '../../hooks/useDepartments';
+import { useClientsMissions } from '../../hooks/useClientsMissions';
 import { departmentColorMap } from '../../lib/departmentColor';
 import { useSelectionStore } from '../../stores/selectionStore';
 import { useVisibleGraph } from './useVisibleGraph';
@@ -35,7 +36,8 @@ interface LinkModalState {
 }
 
 export function OrgChartView() {
-  const { employees, loading: employeesLoading, createEmployee, updateEmployee } = useEmployees();
+  const currentOrgChartId = useSelectionStore((s) => s.currentOrgChartId);
+  const { employees, loading: employeesLoading, createEmployee, updateEmployee } = useEmployees(currentOrgChartId);
   const {
     relationships,
     loading: relationshipsLoading,
@@ -43,13 +45,32 @@ export function OrgChartView() {
     directReportsOf,
     addRelationship,
     wouldCreateCycle,
-  } = useReportingGraph();
-  const { assignmentsOf, totalEtpOf } = useAssignments();
+  } = useReportingGraph(currentOrgChartId);
+  const { assignmentsOf, totalEtpOf, totalEtpReelOf } = useAssignments(currentOrgChartId);
   const { jobTitles } = useJobTitles();
   const jobTitleNames = useMemo(() => jobTitles.map((jt) => jt.name), [jobTitles]);
   const { departments } = useDepartments();
   const departmentNames = useMemo(() => departments.map((d) => d.name), [departments]);
   const departmentColorByName = useMemo(() => departmentColorMap(departments), [departments]);
+  const { clientsMissions } = useClientsMissions();
+  const clientMissionNameById = useMemo(
+    () => new Map(clientsMissions.map((cm) => [cm.id, cm.name])),
+    [clientsMissions],
+  );
+
+  const [deptFilter, setDeptFilter] = useState<string | null>(null);
+  const toggleDeptFilter = useCallback(
+    (name: string) => setDeptFilter((current) => (current === name ? null : name)),
+    [],
+  );
+  const departmentCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const e of employees) {
+      if (!e.department) continue;
+      counts.set(e.department, (counts.get(e.department) ?? 0) + 1);
+    }
+    return counts;
+  }, [employees]);
 
   const expandedNodeIds = useSelectionStore((s) => s.expandedNodeIds);
   const setExpandedNodeIds = useSelectionStore((s) => s.setExpandedNodeIds);
@@ -61,6 +82,9 @@ export function OrgChartView() {
   const setAssignmentsEmployeeId = useSelectionStore((s) => s.setAssignmentsEmployeeId);
 
   const reactFlowInstanceRef = useRef<ReactFlowInstance | null>(null);
+  // Whether the initial auto-fit has run for the currently-loaded chart —
+  // see the effect below for why this can't just be the `fitView` prop.
+  const hasAutoFitRef = useRef(false);
   const [linkModal, setLinkModal] = useState<LinkModalState | null>(null);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -90,7 +114,11 @@ export function OrgChartView() {
     );
   }, [employees, searchQuery]);
 
-  const { visibleEmployees, childrenOf } = useVisibleGraph(employees, primaryEdges, expandedNodeIds);
+  const { visibleEmployees, childrenOf, totalDescendantCountOf } = useVisibleGraph(
+    employees,
+    primaryEdges,
+    expandedNodeIds,
+  );
 
   // Default expand state once employees AND relationships have both finished
   // their initial load: fully expanded for small teams (nothing to gain by
@@ -214,27 +242,40 @@ export function OrgChartView() {
   const { nodes, edges } = useMemo(() => {
     const visibleIds = new Set(visibleEmployees.map((e) => e.id));
 
-    const rawNodes: Node<EmployeeNodeData>[] = visibleEmployees.map((employee) => ({
-      id: employee.id,
-      type: 'employee',
-      position: { x: 0, y: 0 },
-      data: {
-        employee,
-        hasChildren: (childrenOf.get(employee.id)?.length ?? 0) > 0,
-        isExpanded: expandedNodeIds.has(employee.id),
-        isSelected: employee.id === selectedEmployeeId,
-        isMatch: matchedIds.has(employee.id),
-        assignmentsCount: assignmentsOf(employee.id).length,
-        assignmentsTotalEtp: totalEtpOf(employee.id),
-        jobTitles: jobTitleNames,
-        departmentNames,
-        departmentColor: employee.department
-          ? (departmentColorByName.get(employee.department) ?? null)
-          : null,
-        onToggleExpand: toggleExpanded,
-        actions,
-      },
-    }));
+    const rawNodes: Node<EmployeeNodeData>[] = visibleEmployees.map((employee) => {
+      const directReportsCount = childrenOf.get(employee.id)?.length ?? 0;
+      const advertiserNames = assignmentsOf(employee.id)
+        .map((a) => clientMissionNameById.get(a.client_mission_id))
+        .filter((name): name is string => Boolean(name));
+
+      return {
+        id: employee.id,
+        type: 'employee',
+        position: { x: 0, y: 0 },
+        data: {
+          employee,
+          hasChildren: directReportsCount > 0,
+          isExpanded: expandedNodeIds.has(employee.id),
+          isSelected: employee.id === selectedEmployeeId,
+          isMatch: matchedIds.has(employee.id),
+          isDimmed: deptFilter !== null && employee.department !== deptFilter,
+          assignmentsCount: assignmentsOf(employee.id).length,
+          assignmentsTotalEtpVendu: totalEtpOf(employee.id),
+          assignmentsTotalEtpReel: totalEtpReelOf(employee.id),
+          advertiserNames,
+          directReportsCount,
+          totalDescendantCount: totalDescendantCountOf(employee.id),
+          functionalManagerCount: managersOf(employee.id).filter((r) => !r.is_primary).length,
+          jobTitles: jobTitleNames,
+          departmentNames,
+          departmentColor: employee.department
+            ? (departmentColorByName.get(employee.department) ?? null)
+            : null,
+          onToggleExpand: toggleExpanded,
+          actions,
+        },
+      };
+    });
 
     const visiblePrimaryEdges: Edge[] = primaryEdges
       .filter((r) => visibleIds.has(r.employee_id) && visibleIds.has(r.manager_id))
@@ -268,10 +309,52 @@ export function OrgChartView() {
     actions,
     assignmentsOf,
     totalEtpOf,
+    totalEtpReelOf,
+    totalDescendantCountOf,
+    managersOf,
+    clientMissionNameById,
+    deptFilter,
     jobTitleNames,
     departmentNames,
     departmentColorByName,
   ]);
+
+  // Re-arm the auto-fit whenever the user switches to a different chart —
+  // otherwise the view would stay wherever it was left on the previous
+  // chart's (unrelated) node layout.
+  useEffect(() => {
+    hasAutoFitRef.current = false;
+  }, [currentOrgChartId]);
+
+  // Fit the view once, the first time real data is on screen. `<ReactFlow
+  // fitView>` only fits on ReactFlow's own mount, which in practice happens
+  // immediately — before employees/relationships have finished their async
+  // load — so it was fitting an empty (or stale, pre-expand) node set and
+  // never refitting once the real data arrived. Doing it imperatively here,
+  // gated on both loading flags and the default-expand effect above having
+  // already populated expandedNodeIds, waits for the node set React Flow
+  // will actually render. The two rAF waits mirror the same "let the
+  // re-render paint before touching the DOM" trick used in handleExport
+  // below, giving React Flow's ResizeObserver a tick to measure the newly
+  // mounted cards before fitView reads their real width/height.
+  useEffect(() => {
+    if (hasAutoFitRef.current) return;
+    if (employeesLoading || relationshipsLoading) return;
+    if (expandedNodeIds.size === 0 || nodes.length === 0) return;
+    const instance = reactFlowInstanceRef.current;
+    if (!instance) return;
+
+    hasAutoFitRef.current = true;
+    let cancelled = false;
+    (async () => {
+      await new Promise(requestAnimationFrame);
+      await new Promise(requestAnimationFrame);
+      if (!cancelled) instance.fitView({ padding: 0.08 });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [employeesLoading, relationshipsLoading, expandedNodeIds, nodes]);
 
   // Center on the selected node once it's laid out and visible.
   useEffect(() => {
@@ -318,12 +401,17 @@ export function OrgChartView() {
 
   return (
     <div className="relative h-full w-full">
-      <DepartmentLegend departments={departments} colorByName={departmentColorByName} />
+      <DepartmentLegend
+        departments={departments}
+        colorByName={departmentColorByName}
+        counts={departmentCounts}
+        activeFilter={deptFilter}
+        onToggle={toggleDeptFilter}
+      />
       <ReactFlow
         nodeTypes={nodeTypes}
         nodes={nodes}
         edges={edges}
-        fitView
         minZoom={0.1}
         onInit={(instance) => {
           reactFlowInstanceRef.current = instance;

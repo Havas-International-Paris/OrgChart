@@ -3,34 +3,44 @@ import { supabase } from '../lib/supabaseClient';
 import * as assignmentService from '../services/assignmentService';
 import type { Assignment, RemunerationModel } from '../types/domain';
 
-export function useAssignments() {
+export function useAssignments(orgChartId: string | null) {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
+    if (!orgChartId) return;
     try {
-      setAssignments(await assignmentService.fetchAssignments());
+      setAssignments(await assignmentService.fetchAssignments(orgChartId));
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [orgChartId]);
 
   useEffect(() => {
+    if (!orgChartId) return;
+    // Reset to a clean loading state before fetching the new chart's data —
+    // see useEmployees.ts for why.
+    setAssignments([]);
+    setLoading(true);
     refresh();
 
     const channel = supabase
       .channel(`assignments-changes-${crypto.randomUUID()}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'assignments' }, () => refresh())
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'assignments', filter: `org_chart_id=eq.${orgChartId}` },
+        () => refresh(),
+      )
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [refresh]);
+  }, [orgChartId, refresh]);
 
   const assignmentsOf = useCallback(
     (employeeId: string) => assignments.filter((a) => a.employee_id === employeeId),
@@ -39,6 +49,11 @@ export function useAssignments() {
 
   const totalEtpOf = useCallback(
     (employeeId: string) => assignmentsOf(employeeId).reduce((sum, a) => sum + (a.etp_vendu ?? 0), 0),
+    [assignmentsOf],
+  );
+
+  const totalEtpReelOf = useCallback(
+    (employeeId: string) => assignmentsOf(employeeId).reduce((sum, a) => sum + (a.etp_reel ?? 0), 0),
     [assignmentsOf],
   );
 
@@ -67,10 +82,18 @@ export function useAssignments() {
       etpReel: number | null,
       remunerationModel: RemunerationModel | null,
     ) => {
-      await assignmentService.createAssignment(employeeId, clientMissionId, etpVendu, etpReel, remunerationModel);
+      if (!orgChartId) throw new Error('No active org chart');
+      await assignmentService.createAssignment(
+        orgChartId,
+        employeeId,
+        clientMissionId,
+        etpVendu,
+        etpReel,
+        remunerationModel,
+      );
       await refresh();
     },
-    [refresh],
+    [refresh, orgChartId],
   );
 
   const updateAssignmentEtpVendu = useCallback(
@@ -111,6 +134,7 @@ export function useAssignments() {
     error,
     assignmentsOf,
     totalEtpOf,
+    totalEtpReelOf,
     assignmentsOfClientMission,
     totalEtpOfClientMission,
     totalEtpReelOfClientMission,
