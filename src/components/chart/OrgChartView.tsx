@@ -251,19 +251,51 @@ export function OrgChartView() {
     };
   }, [linkModal, employeeById, employees, managersOf, directReportsOf, wouldCreateCycle, addRelationship]);
 
-  const { nodes, edges } = useMemo(() => {
+  // Layout only depends on *which* employees/edges are visible — never on
+  // hover, selection, search, or the dept filter. Splitting it out from the
+  // styling step below means hovering a card (which changes on every
+  // mouseenter/leave) no longer re-runs dagre on the whole graph; it used
+  // to, and combined with React StrictMode's double-render in dev, rapid
+  // hovering across cards could visibly stutter/flash. Position identity
+  // is also what `edges` needs to stay stable — recreating it per hover
+  // was pure waste, not something any style change actually needed.
+  const { layoutedNodes, primaryEdgeBase, secondaryEdgeBase } = useMemo(() => {
     const visibleIds = new Set(visibleEmployees.map((e) => e.id));
 
-    const rawNodes: Node<EmployeeNodeData>[] = visibleEmployees.map((employee) => {
+    const rawNodes: Node[] = visibleEmployees.map((employee) => ({
+      id: employee.id,
+      type: 'employee',
+      position: { x: 0, y: 0 },
+      data: null,
+    }));
+
+    const primaryEdgeBase = primaryEdges
+      .filter((r) => visibleIds.has(r.employee_id) && visibleIds.has(r.manager_id))
+      .map((r) => ({ id: r.id, source: r.manager_id, target: r.employee_id }));
+
+    const secondaryEdgeBase = secondaryEdges
+      .filter((r) => visibleIds.has(r.employee_id) && visibleIds.has(r.manager_id))
+      .map((r) => ({ id: r.id, source: r.manager_id, target: r.employee_id }));
+
+    return {
+      layoutedNodes: layoutWithDagre(rawNodes, primaryEdgeBase),
+      primaryEdgeBase,
+      secondaryEdgeBase,
+    };
+  }, [visibleEmployees, primaryEdges, secondaryEdges]);
+
+  const { nodes, edges } = useMemo(() => {
+    const nodes: Node<EmployeeNodeData>[] = layoutedNodes.map((baseNode) => {
+      const employee = employeeById.get(baseNode.id);
+      if (!employee) return baseNode as Node<EmployeeNodeData>;
+
       const directReportsCount = childrenOf.get(employee.id)?.length ?? 0;
       const advertiserNames = assignmentsOf(employee.id)
         .map((a) => clientMissionNameById.get(a.client_mission_id))
         .filter((name): name is string => Boolean(name));
 
       return {
-        id: employee.id,
-        type: 'employee',
-        position: { x: 0, y: 0 },
+        ...baseNode,
         data: {
           employee,
           hasChildren: directReportsCount > 0,
@@ -302,45 +334,38 @@ export function OrgChartView() {
       return 'dimmed';
     };
 
-    const visiblePrimaryEdges: Edge[] = primaryEdges
-      .filter((r) => visibleIds.has(r.employee_id) && visibleIds.has(r.manager_id))
-      .map((r) => {
-        const state = edgeHighlight(r.manager_id, r.employee_id);
-        return {
-          id: r.id,
-          source: r.manager_id,
-          target: r.employee_id,
-          style:
-            state === 'highlighted'
-              ? { stroke: '#0f172a', strokeWidth: 2.5 }
-              : state === 'dimmed'
-                ? { opacity: 0.08 }
-                : undefined,
-        };
-      });
+    const primaryEdges: Edge[] = primaryEdgeBase.map((e) => {
+      const state = edgeHighlight(e.source, e.target);
+      return {
+        ...e,
+        style:
+          state === 'highlighted'
+            ? { stroke: '#0f172a', strokeWidth: 2.5 }
+            : state === 'dimmed'
+              ? { opacity: 0.08 }
+              : undefined,
+      };
+    });
 
-    const layoutedNodes = layoutWithDagre(rawNodes, visiblePrimaryEdges);
+    const secondaryEdges: Edge[] = secondaryEdgeBase.map((e) => {
+      const state = edgeHighlight(e.source, e.target);
+      return {
+        ...e,
+        style:
+          state === 'highlighted'
+            ? { stroke: '#0f172a', strokeWidth: 2.5, strokeDasharray: '2 4' }
+            : state === 'dimmed'
+              ? { opacity: 0.08, strokeDasharray: '6 4' }
+              : { strokeDasharray: '6 4' },
+      };
+    });
 
-    const visibleSecondaryEdges: Edge[] = secondaryEdges
-      .filter((r) => visibleIds.has(r.employee_id) && visibleIds.has(r.manager_id))
-      .map((r) => {
-        const state = edgeHighlight(r.manager_id, r.employee_id);
-        return {
-          id: r.id,
-          source: r.manager_id,
-          target: r.employee_id,
-          style:
-            state === 'highlighted'
-              ? { stroke: '#0f172a', strokeWidth: 2.5, strokeDasharray: '2 4' }
-              : state === 'dimmed'
-                ? { opacity: 0.08, strokeDasharray: '6 4' }
-                : { strokeDasharray: '6 4' },
-        };
-      });
-
-    return { nodes: layoutedNodes, edges: [...visiblePrimaryEdges, ...visibleSecondaryEdges] };
+    return { nodes, edges: [...primaryEdges, ...secondaryEdges] };
   }, [
-    visibleEmployees,
+    layoutedNodes,
+    primaryEdgeBase,
+    secondaryEdgeBase,
+    employeeById,
     childrenOf,
     expandedNodeIds,
     selectedEmployeeId,
@@ -348,8 +373,6 @@ export function OrgChartView() {
     relatedIds,
     chainIds,
     matchedIds,
-    primaryEdges,
-    secondaryEdges,
     toggleExpanded,
     actions,
     assignmentsOf,
@@ -401,16 +424,17 @@ export function OrgChartView() {
     };
   }, [employeesLoading, relationshipsLoading, expandedNodeIds, nodes]);
 
-  // Center on the selected node once it's laid out and visible. Re-centers
-  // at most once per selection, tracked via lastCenteredIdRef rather than
-  // just reacting to `selectedEmployeeId` changing — `nodes` is a
-  // dependency too (a freshly-created node isn't laid out yet on the same
-  // render that selects it, so this needs to retry once dagre positions
-  // it), but `nodes` also gets a new reference on every hover (dimming
-  // recomputes it) or dept-filter toggle. Without the ref guard, hovering
-  // around while someone is pinned would re-run `setCenter(..., {zoom:1})`
-  // on every hover, progressively zooming the view in until only the
-  // pinned card was visible — looking like the rest of the chart vanished.
+  // Pan to the selected node once it's laid out and visible, without
+  // changing the user's current zoom level (React Flow's setCenter zooms to
+  // `maxZoom` if `zoom` is omitted, not the current zoom — has to be passed
+  // explicitly via getZoom()). Re-centers at most once per selection,
+  // tracked via lastCenteredIdRef rather than just reacting to
+  // `selectedEmployeeId` changing — `nodes` is a dependency too (a
+  // freshly-created node isn't laid out yet on the same render that selects
+  // it, so this needs to retry once dagre positions it), but `nodes` also
+  // gets a new reference on every hover (dimming recomputes it) or
+  // dept-filter toggle. Without the ref guard, hovering around while
+  // someone is pinned would re-run setCenter on every hover.
   useEffect(() => {
     if (!selectedEmployeeId) {
       lastCenteredIdRef.current = null;
@@ -423,7 +447,7 @@ export function OrgChartView() {
     reactFlowInstanceRef.current.setCenter(
       node.position.x + NODE_WIDTH / 2,
       node.position.y + NODE_HEIGHT / 2,
-      { zoom: 1, duration: 400 },
+      { zoom: reactFlowInstanceRef.current.getZoom(), duration: 400 },
     );
   }, [selectedEmployeeId, nodes]);
 
