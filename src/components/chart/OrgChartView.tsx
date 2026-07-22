@@ -86,6 +86,9 @@ export function OrgChartView() {
   // Whether the initial auto-fit has run for the currently-loaded chart —
   // see the effect below for why this can't just be the `fitView` prop.
   const hasAutoFitRef = useRef(false);
+  // Which employee we last recentered the view on — see the "Center on the
+  // selected node" effect below for why this can't just be a `nodes` dep.
+  const lastCenteredIdRef = useRef<string | null>(null);
   const [linkModal, setLinkModal] = useState<LinkModalState | null>(null);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -398,11 +401,25 @@ export function OrgChartView() {
     };
   }, [employeesLoading, relationshipsLoading, expandedNodeIds, nodes]);
 
-  // Center on the selected node once it's laid out and visible.
+  // Center on the selected node once it's laid out and visible. Re-centers
+  // at most once per selection, tracked via lastCenteredIdRef rather than
+  // just reacting to `selectedEmployeeId` changing — `nodes` is a
+  // dependency too (a freshly-created node isn't laid out yet on the same
+  // render that selects it, so this needs to retry once dagre positions
+  // it), but `nodes` also gets a new reference on every hover (dimming
+  // recomputes it) or dept-filter toggle. Without the ref guard, hovering
+  // around while someone is pinned would re-run `setCenter(..., {zoom:1})`
+  // on every hover, progressively zooming the view in until only the
+  // pinned card was visible — looking like the rest of the chart vanished.
   useEffect(() => {
-    if (!selectedEmployeeId || !reactFlowInstanceRef.current) return;
+    if (!selectedEmployeeId) {
+      lastCenteredIdRef.current = null;
+      return;
+    }
+    if (lastCenteredIdRef.current === selectedEmployeeId || !reactFlowInstanceRef.current) return;
     const node = nodes.find((n) => n.id === selectedEmployeeId);
     if (!node) return;
+    lastCenteredIdRef.current = selectedEmployeeId;
     reactFlowInstanceRef.current.setCenter(
       node.position.x + NODE_WIDTH / 2,
       node.position.y + NODE_HEIGHT / 2,
