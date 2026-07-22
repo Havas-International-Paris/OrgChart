@@ -1,14 +1,22 @@
 import { supabase } from '../lib/supabaseClient';
 import type { Employee, EmployeeInput } from '../types/domain';
 
-export async function fetchEmployees(): Promise<Employee[]> {
-  const { data, error } = await supabase.from('employees').select('*').order('last_name');
+export async function fetchEmployees(orgChartId: string): Promise<Employee[]> {
+  const { data, error } = await supabase
+    .from('employees')
+    .select('*')
+    .eq('org_chart_id', orgChartId)
+    .order('last_name');
   if (error) throw error;
   return data as Employee[];
 }
 
-export async function createEmployee(input: EmployeeInput): Promise<Employee> {
-  const { data, error } = await supabase.from('employees').insert(input).select().single();
+export async function createEmployee(orgChartId: string, input: EmployeeInput): Promise<Employee> {
+  const { data, error } = await supabase
+    .from('employees')
+    .insert({ ...input, org_chart_id: orgChartId })
+    .select()
+    .single();
   if (error) throw error;
   return data as Employee;
 }

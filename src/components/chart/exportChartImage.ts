@@ -4,6 +4,12 @@ import { toPng } from 'html-to-image';
 // Padding (px) around the exported nodes so borders/shadows aren't clipped.
 const EXPORT_PADDING = 40;
 
+// SVG presentation properties html-to-image needs inlined as attributes on
+// edge paths — it doesn't reliably carry over stroke/fill from CSS classes
+// for SVG elements, so a class-styled path silently renders as a black
+// filled blob (SVG's default fill) instead of a thin stroked line.
+const EDGE_PATH_PROPS = ['fill', 'stroke', 'stroke-width', 'stroke-dasharray'] as const;
+
 // Exports at 1:1 scale (not fit into a fixed canvas) so large org charts stay
 // legible — the output image grows with the content instead of shrinking it.
 export async function exportChartAsPng(nodes: Node[], filename: string): Promise<void> {
@@ -22,6 +28,14 @@ export async function exportChartAsPng(nodes: Node[], filename: string): Promise
   const previousDisplay = hiddenEls.map((el) => el.style.display);
   hiddenEls.forEach((el) => {
     el.style.display = 'none';
+  });
+
+  const edgePaths = Array.from(viewportEl.querySelectorAll<SVGPathElement>('.react-flow__edge-path'));
+  const previousPathAttrs = edgePaths.map((path) => {
+    const computed = getComputedStyle(path);
+    const previous = EDGE_PATH_PROPS.map((prop) => path.getAttribute(prop));
+    EDGE_PATH_PROPS.forEach((prop) => path.setAttribute(prop, computed.getPropertyValue(prop)));
+    return previous;
   });
 
   try {
@@ -45,6 +59,13 @@ export async function exportChartAsPng(nodes: Node[], filename: string): Promise
   } finally {
     hiddenEls.forEach((el, i) => {
       el.style.display = previousDisplay[i];
+    });
+    edgePaths.forEach((path, i) => {
+      EDGE_PATH_PROPS.forEach((prop, j) => {
+        const previous = previousPathAttrs[i][j];
+        if (previous === null) path.removeAttribute(prop);
+        else path.setAttribute(prop, previous);
+      });
     });
   }
 }

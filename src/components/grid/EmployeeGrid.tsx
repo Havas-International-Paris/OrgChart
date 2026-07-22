@@ -28,9 +28,11 @@ import type { Employee } from '../../types/domain';
 ModuleRegistry.registerModules([AllCommunityModule]);
 
 export function EmployeeGrid() {
-  const { employees, loading, error, createEmployee, updateEmployee, deleteEmployee } = useEmployees();
-  const { managersOf, wouldCreateCycle, replaceManagersForEmployee } = useReportingGraph();
-  const { assignmentsOf, totalEtpOf } = useAssignments();
+  const currentOrgChartId = useSelectionStore((s) => s.currentOrgChartId);
+  const { employees, loading, error, createEmployee, updateEmployee, deleteEmployee } =
+    useEmployees(currentOrgChartId);
+  const { managersOf, wouldCreateCycle, replaceManagersForEmployee } = useReportingGraph(currentOrgChartId);
+  const { assignmentsOf, totalEtpOf } = useAssignments(currentOrgChartId);
   const { clientsMissions } = useClientsMissions();
   const { jobTitles } = useJobTitles();
   const { departments } = useDepartments();

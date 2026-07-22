@@ -15,6 +15,7 @@ export interface Database {
           job_title: string | null;
           role_desc: string | null;
           department: string | null;
+          org_chart_id: string;
           created_at: string;
           updated_at: string;
           created_by: string | null;
@@ -27,6 +28,7 @@ export interface Database {
           job_title?: string | null;
           role_desc?: string | null;
           department?: string | null;
+          org_chart_id: string;
         };
         Update: {
           first_name?: string;
@@ -43,6 +45,7 @@ export interface Database {
           employee_id: string;
           manager_id: string;
           is_primary: boolean;
+          org_chart_id: string;
           created_at: string;
           updated_at: string;
         };
@@ -51,6 +54,7 @@ export interface Database {
           employee_id: string;
           manager_id: string;
           is_primary?: boolean;
+          org_chart_id: string;
         };
         Update: {
           is_primary?: boolean;
@@ -83,6 +87,7 @@ export interface Database {
           etp_vendu: number | null;
           etp_reel: number | null;
           remuneration_model: RemunerationModel | null;
+          org_chart_id: string;
           created_at: string;
           updated_at: string;
         };
@@ -93,6 +98,7 @@ export interface Database {
           etp_vendu?: number | null;
           etp_reel?: number | null;
           remuneration_model?: RemunerationModel | null;
+          org_chart_id: string;
         };
         Update: {
           etp_vendu?: number | null;
@@ -131,8 +137,34 @@ export interface Database {
         };
         Relationships: [];
       };
+      org_charts: {
+        Row: {
+          id: string;
+          name: string;
+          short_label: string;
+          created_at: string;
+          updated_at: string;
+          created_by: string | null;
+          updated_by: string | null;
+        };
+        Insert: {
+          id?: string;
+          name: string;
+          short_label?: string;
+        };
+        Update: {
+          name?: string;
+          short_label?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
-    Functions: Record<string, never>;
+    Functions: {
+      duplicate_org_chart: {
+        Args: { source_id: string; new_name: string; new_short_label: string };
+        Returns: string;
+      };
+    };
   };
 }

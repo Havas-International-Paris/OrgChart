@@ -5,6 +5,7 @@ export interface Employee {
   job_title: string | null;
   role_desc: string | null;
   department: string | null;
+  org_chart_id: string;
   created_at: string;
   updated_at: string;
   created_by: string | null;
@@ -19,9 +20,22 @@ export interface ReportingRelationship {
   employee_id: string;
   manager_id: string;
   is_primary: boolean;
+  org_chart_id: string;
   created_at: string;
   updated_at: string;
 }
+
+export interface OrgChart {
+  id: string;
+  name: string;
+  short_label: string;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+}
+
+export type OrgChartInput = Pick<OrgChart, 'name'> & Partial<Pick<OrgChart, 'short_label'>>;
 
 export type ClientMissionType = 'client' | 'mission';
 
@@ -41,6 +55,7 @@ export interface Assignment {
   etp_vendu: number | null;
   etp_reel: number | null;
   remuneration_model: RemunerationModel | null;
+  org_chart_id: string;
   created_at: string;
   updated_at: string;
 }

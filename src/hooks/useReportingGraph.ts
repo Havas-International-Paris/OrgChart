@@ -33,23 +33,29 @@ export interface DesiredManager {
   isPrimary: boolean;
 }
 
-export function useReportingGraph() {
+export function useReportingGraph(orgChartId: string | null) {
   const [relationships, setRelationships] = useState<ReportingRelationship[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
+    if (!orgChartId) return;
     try {
-      setRelationships(await reportingService.fetchReportingRelationships());
+      setRelationships(await reportingService.fetchReportingRelationships(orgChartId));
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [orgChartId]);
 
   useEffect(() => {
+    if (!orgChartId) return;
+    // Reset to a clean loading state before fetching the new chart's data —
+    // see useEmployees.ts for why.
+    setRelationships([]);
+    setLoading(true);
     refresh();
 
     // Unique per mount: see useEmployees.ts for why a fixed channel name breaks.
@@ -57,7 +63,12 @@ export function useReportingGraph() {
       .channel(`reporting-relationships-changes-${crypto.randomUUID()}`)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'reporting_relationships' },
+        {
+          event: '*',
+          schema: 'public',
+          table: 'reporting_relationships',
+          filter: `org_chart_id=eq.${orgChartId}`,
+        },
         () => refresh(),
       )
       .subscribe();
@@ -65,7 +76,7 @@ export function useReportingGraph() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [refresh]);
+  }, [orgChartId, refresh]);
 
   const managersOf = useCallback(
     (employeeId: string) => relationships.filter((r) => r.employee_id === employeeId),
@@ -102,9 +113,10 @@ export function useReportingGraph() {
       ]);
 
       await Promise.all([
-        ...toInsert.map((d) =>
-          reportingService.createRelationship(employeeId, d.managerId, d.isPrimary),
-        ),
+        ...toInsert.map((d) => {
+          if (!orgChartId) throw new Error('No active org chart');
+          return reportingService.createRelationship(orgChartId, employeeId, d.managerId, d.isPrimary);
+        }),
         ...toUpdate
           .filter((d) => d.isPrimary)
           .map((d) =>
@@ -114,15 +126,16 @@ export function useReportingGraph() {
 
       await refresh();
     },
-    [relationships, refresh],
+    [relationships, refresh, orgChartId],
   );
 
   const addRelationship = useCallback(
     async (employeeId: string, managerId: string, isPrimary: boolean) => {
-      await reportingService.createRelationship(employeeId, managerId, isPrimary);
+      if (!orgChartId) throw new Error('No active org chart');
+      await reportingService.createRelationship(orgChartId, employeeId, managerId, isPrimary);
       await refresh();
     },
-    [refresh],
+    [refresh, orgChartId],
   );
 
   return {

@@ -1,20 +1,27 @@
 import { supabase } from '../lib/supabaseClient';
 import type { ReportingRelationship } from '../types/domain';
 
-export async function fetchReportingRelationships(): Promise<ReportingRelationship[]> {
-  const { data, error } = await supabase.from('reporting_relationships').select('*');
+export async function fetchReportingRelationships(orgChartId: string): Promise<ReportingRelationship[]> {
+  const { data, error } = await supabase
+    .from('reporting_relationships')
+    .select('*')
+    .eq('org_chart_id', orgChartId);
   if (error) throw error;
   return data as ReportingRelationship[];
 }
 
 export async function createRelationship(
+  orgChartId: string,
   employeeId: string,
   managerId: string,
   isPrimary: boolean,
 ): Promise<void> {
-  const { error } = await supabase
-    .from('reporting_relationships')
-    .insert({ employee_id: employeeId, manager_id: managerId, is_primary: isPrimary });
+  const { error } = await supabase.from('reporting_relationships').insert({
+    employee_id: employeeId,
+    manager_id: managerId,
+    is_primary: isPrimary,
+    org_chart_id: orgChartId,
+  });
   if (error) throw error;
 }
 

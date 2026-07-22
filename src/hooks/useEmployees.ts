@@ -3,23 +3,30 @@ import { supabase } from '../lib/supabaseClient';
 import * as employeeService from '../services/employeeService';
 import type { Employee, EmployeeInput } from '../types/domain';
 
-export function useEmployees() {
+export function useEmployees(orgChartId: string | null) {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
+    if (!orgChartId) return;
     try {
-      setEmployees(await employeeService.fetchEmployees());
+      setEmployees(await employeeService.fetchEmployees(orgChartId));
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [orgChartId]);
 
   useEffect(() => {
+    if (!orgChartId) return;
+    // Reset to a clean loading state before fetching the new chart's data,
+    // so consumers see a real loading:true→false transition on every switch
+    // instead of briefly showing the previous chart's stale employees.
+    setEmployees([]);
+    setLoading(true);
     refresh();
 
     // Unique per mount: this hook can have multiple simultaneous consumers
@@ -27,22 +34,27 @@ export function useEmployees() {
     // fixed channel name would collide with `.on()` after `.subscribe()`.
     const channel = supabase
       .channel(`employees-changes-${crypto.randomUUID()}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'employees' }, () => {
-        refresh();
-      })
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'employees', filter: `org_chart_id=eq.${orgChartId}` },
+        () => {
+          refresh();
+        },
+      )
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [refresh]);
+  }, [orgChartId, refresh]);
 
   return {
     employees,
     loading,
     error,
     createEmployee: async (input: EmployeeInput) => {
-      const created = await employeeService.createEmployee(input);
+      if (!orgChartId) throw new Error('No active org chart');
+      const created = await employeeService.createEmployee(orgChartId, input);
       await refresh();
       return created;
     },

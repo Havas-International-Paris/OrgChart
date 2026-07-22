@@ -11,6 +11,7 @@ import {
 import { useClientsMissions } from '../../hooks/useClientsMissions';
 import { useAssignments } from '../../hooks/useAssignments';
 import { useEmployees } from '../../hooks/useEmployees';
+import { useSelectionStore } from '../../stores/selectionStore';
 import { useRowStabilizer } from './useRowStabilizer';
 import { etpStatus } from '../../lib/etpStatus';
 import { ClientAssignmentsModal } from '../shared/ClientAssignmentsModal';
@@ -19,6 +20,7 @@ import type { ClientMission } from '../../types/domain';
 ModuleRegistry.registerModules([AllCommunityModule]);
 
 export function ClientsMissionsGrid() {
+  const currentOrgChartId = useSelectionStore((s) => s.currentOrgChartId);
   const { clientsMissions, loading, error, createClientMission, updateClientMission, deleteClientMission } =
     useClientsMissions();
   const {
@@ -30,8 +32,8 @@ export function ClientsMissionsGrid() {
     updateAssignmentEtpReel,
     updateAssignmentRemuneration,
     deleteAssignment,
-  } = useAssignments();
-  const { employees } = useEmployees();
+  } = useAssignments(currentOrgChartId);
+  const { employees } = useEmployees(currentOrgChartId);
   const [actionError, setActionError] = useState<string | null>(null);
   const [viewingAssignmentsFor, setViewingAssignmentsFor] = useState<ClientMission | null>(null);
 

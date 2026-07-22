@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useAssignments } from '../../hooks/useAssignments';
 import { useEmployees } from '../../hooks/useEmployees';
 import { useClientsMissions } from '../../hooks/useClientsMissions';
+import { useSelectionStore } from '../../stores/selectionStore';
 import type { Assignment, Employee } from '../../types/domain';
 
 type GroupBy = 'client' | 'employee';
@@ -37,8 +38,9 @@ function remunerationLabel(model: Assignment['remuneration_model']): string {
 const ROW_GRID = 'grid grid-cols-[1fr_100px_70px_70px] gap-2 items-center';
 
 export function AllocationsView() {
-  const { assignments, loading: assignmentsLoading } = useAssignments();
-  const { employees, loading: employeesLoading } = useEmployees();
+  const currentOrgChartId = useSelectionStore((s) => s.currentOrgChartId);
+  const { assignments, loading: assignmentsLoading } = useAssignments(currentOrgChartId);
+  const { employees, loading: employeesLoading } = useEmployees(currentOrgChartId);
   const { clientsMissions, loading: clientsMissionsLoading } = useClientsMissions();
   const [groupBy, setGroupBy] = useState<GroupBy>('client');
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());

@@ -1,13 +1,14 @@
 import { supabase } from '../lib/supabaseClient';
 import type { Assignment, RemunerationModel } from '../types/domain';
 
-export async function fetchAssignments(): Promise<Assignment[]> {
-  const { data, error } = await supabase.from('assignments').select('*');
+export async function fetchAssignments(orgChartId: string): Promise<Assignment[]> {
+  const { data, error } = await supabase.from('assignments').select('*').eq('org_chart_id', orgChartId);
   if (error) throw error;
   return data as Assignment[];
 }
 
 export async function createAssignment(
+  orgChartId: string,
   employeeId: string,
   clientMissionId: string,
   etpVendu: number | null,
@@ -22,6 +23,7 @@ export async function createAssignment(
       etp_vendu: etpVendu,
       etp_reel: etpReel,
       remuneration_model: remunerationModel,
+      org_chart_id: orgChartId,
     })
     .select()
     .single();

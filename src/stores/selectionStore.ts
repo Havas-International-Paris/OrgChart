@@ -1,10 +1,12 @@
 import { create } from 'zustand';
 
 interface SelectionState {
+  currentOrgChartId: string | null;
   selectedEmployeeId: string | null;
   searchQuery: string;
   expandedNodeIds: Set<string>;
   assignmentsEmployeeId: string | null;
+  setCurrentOrgChartId: (id: string) => void;
   setSelectedEmployee: (id: string | null) => void;
   setSearchQuery: (query: string) => void;
   toggleExpanded: (id: string) => void;
@@ -14,11 +16,22 @@ interface SelectionState {
 }
 
 export const useSelectionStore = create<SelectionState>((set) => ({
+  currentOrgChartId: null,
   selectedEmployeeId: null,
   searchQuery: '',
   expandedNodeIds: new Set(),
   assignmentsEmployeeId: null,
 
+  // Every field reset here is chart-relative and would otherwise leak
+  // selections/expansions from one org chart into another after a switch.
+  setCurrentOrgChartId: (id) =>
+    set({
+      currentOrgChartId: id,
+      selectedEmployeeId: null,
+      expandedNodeIds: new Set(),
+      searchQuery: '',
+      assignmentsEmployeeId: null,
+    }),
   setSelectedEmployee: (id) => set({ selectedEmployeeId: id }),
   setSearchQuery: (query) => set({ searchQuery: query }),
   setAssignmentsEmployeeId: (id) => set({ assignmentsEmployeeId: id }),
