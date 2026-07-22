@@ -29,10 +29,14 @@ export interface EmployeeNodeData {
   directReportsCount: number;
   totalDescendantCount: number;
   functionalManagerCount: number;
+  hasManager: boolean;
+  isFocused: boolean;
+  focusHiddenCount: number;
   jobTitles: string[];
   departmentNames: string[];
   departmentColor: string | null;
   onToggleExpand: (employeeId: string) => void;
+  onToggleFocus: (employeeId: string) => void;
   actions: EmployeeNodeActions;
 }
 
@@ -91,6 +95,40 @@ function AddButton({
         </div>
       )}
     </div>
+  );
+}
+
+function CollapseBadge({
+  position,
+  label,
+  swatch,
+  trackColor,
+  onToggle,
+  title,
+}: {
+  position: 'top' | 'bottom';
+  label: string;
+  swatch: string;
+  trackColor: string;
+  onToggle: () => void;
+  title: string;
+}) {
+  const isCount = label.startsWith('+');
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggle();
+      }}
+      title={title}
+      className={`absolute left-1/2 z-[6] flex h-[22px] w-[22px] -translate-x-1/2 items-center justify-center rounded-full border bg-white font-bold leading-none shadow-sm hover:bg-slate-50 ${
+        isCount ? 'text-[8px]' : 'text-[13px]'
+      } ${position === 'top' ? '-top-[11px]' : '-bottom-[11px]'}`}
+      style={{ borderColor: trackColor, color: swatch }}
+    >
+      {label}
+    </button>
   );
 }
 
@@ -174,10 +212,14 @@ function EmployeeNodeImpl({ data }: NodeProps<EmployeeNodeData>) {
     directReportsCount,
     totalDescendantCount,
     functionalManagerCount,
+    hasManager,
+    isFocused,
+    focusHiddenCount,
     jobTitles,
     departmentNames,
     departmentColor,
     onToggleExpand,
+    onToggleFocus,
     actions,
   } = data;
 
@@ -241,6 +283,27 @@ function EmployeeNodeImpl({ data }: NodeProps<EmployeeNodeData>) {
         onCreateNew={() => actions.quickAddSubordinate(employee.id)}
         onLinkExisting={() => actions.openLinkSubordinate(employee.id)}
       />
+
+      {hasManager && (
+        <CollapseBadge
+          position="top"
+          label={isFocused ? `+${focusHiddenCount}` : '−'}
+          swatch={swatch}
+          trackColor={trackColor}
+          onToggle={() => onToggleFocus(employee.id)}
+          title={isFocused ? 'Afficher tout le monde' : 'Isoler cette personne et son équipe'}
+        />
+      )}
+      {hasChildren && (
+        <CollapseBadge
+          position="bottom"
+          label={isExpanded ? '−' : `+${totalDescendantCount}`}
+          swatch={swatch}
+          trackColor={trackColor}
+          onToggle={() => onToggleExpand(employee.id)}
+          title={isExpanded ? 'Réduire l’équipe' : 'Déplier l’équipe'}
+        />
+      )}
 
       <div className="flex items-center gap-2">
         <Avatar firstName={employee.first_name} lastName={employee.last_name} color={swatch} />
@@ -404,18 +467,6 @@ function EmployeeNodeImpl({ data }: NodeProps<EmployeeNodeData>) {
       </button>
 
       {advertiserNames.length > 0 && <AdvertisersRow names={advertiserNames} />}
-
-      {hasChildren && (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggleExpand(employee.id);
-          }}
-          className="mt-1.5 text-xs text-slate-400 hover:text-slate-700"
-        >
-          {isExpanded ? '▾ Réduire' : '▸ Déplier'}
-        </button>
-      )}
 
       {showBadge && (
         <div className="absolute bottom-1.5 right-2.5 text-[9px] font-medium text-slate-400">{badgeText}</div>

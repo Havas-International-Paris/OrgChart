@@ -23,6 +23,7 @@ import { layoutWithDagre, NODE_WIDTH, NODE_HEIGHT } from './layoutEngine';
 import { EmployeeNode, type EmployeeNodeActions, type EmployeeNodeData } from './EmployeeNode';
 import { LinkExistingEmployeeModal } from '../shared/LinkExistingEmployeeModal';
 import { DepartmentLegend } from './DepartmentLegend';
+import { EmployeeDetailPanel } from './EmployeeDetailPanel';
 import { exportChartAsPng } from './exportChartImage';
 
 const nodeTypes = { employee: EmployeeNode };
@@ -76,6 +77,8 @@ export function OrgChartView() {
   const expandedNodeIds = useSelectionStore((s) => s.expandedNodeIds);
   const setExpandedNodeIds = useSelectionStore((s) => s.setExpandedNodeIds);
   const toggleExpanded = useSelectionStore((s) => s.toggleExpanded);
+  const focusedNodeIds = useSelectionStore((s) => s.focusedNodeIds);
+  const toggleFocused = useSelectionStore((s) => s.toggleFocused);
   const selectedEmployeeId = useSelectionStore((s) => s.selectedEmployeeId);
   const setSelectedEmployee = useSelectionStore((s) => s.setSelectedEmployee);
   const searchQuery = useSelectionStore((s) => s.searchQuery);
@@ -123,6 +126,37 @@ export function OrgChartView() {
     primaryEdges,
     expandedNodeIds,
   );
+
+  // Focus mode ("isolate me + my team") is a filter layered on top of the
+  // normal expand/collapse visibility above, not a replacement for it — it
+  // only ever hides *already-visible* people, never force-reveals a
+  // collapsed subtree. Walking `childrenOf` (the full tree) but only
+  // recursing into ids already in `visibleEmployees` is what keeps that
+  // true. Multiple people can be focused at once (a Set), in which case
+  // everyone kept is the union of each focused person's own subtree.
+  const finalVisibleEmployees = useMemo(() => {
+    if (focusedNodeIds.size === 0) return visibleEmployees;
+
+    const visibleIds = new Set(visibleEmployees.map((e) => e.id));
+    const keep = new Set<string>();
+    const addWithVisibleDescendants = (id: string) => {
+      if (keep.has(id)) return;
+      keep.add(id);
+      for (const childId of childrenOf.get(id) ?? []) {
+        if (visibleIds.has(childId)) addWithVisibleDescendants(childId);
+      }
+    };
+    for (const id of focusedNodeIds) {
+      if (visibleIds.has(id)) addWithVisibleDescendants(id);
+    }
+
+    return visibleEmployees.filter((e) => keep.has(e.id));
+  }, [visibleEmployees, focusedNodeIds, childrenOf]);
+
+  // Global count shown on every active focus badge ("+N masqués") — matches
+  // the design spec, which counts everyone hidden across the whole chart by
+  // focus mode, not just this one person's own hidden ancestors.
+  const focusHiddenCount = employees.length - finalVisibleEmployees.length;
 
   // Hovering highlights the reporting chain the same way pinning (clicking)
   // a card does; hover takes priority while active, falling back to the
@@ -251,23 +285,66 @@ export function OrgChartView() {
     };
   }, [linkModal, employeeById, employees, managersOf, directReportsOf, wouldCreateCycle, addRelationship]);
 
-  // Layout only depends on *which* employees/edges are visible — never on
-  // hover, selection, search, or the dept filter. Splitting it out from the
-  // styling step below means hovering a card (which changes on every
-  // mouseenter/leave) no longer re-runs dagre on the whole graph; it used
-  // to, and combined with React StrictMode's double-render in dev, rapid
-  // hovering across cards could visibly stutter/flash. Position identity
-  // is also what `edges` needs to stay stable — recreating it per hover
-  // was pure waste, not something any style change actually needed.
-  const { layoutedNodes, primaryEdgeBase, secondaryEdgeBase } = useMemo(() => {
-    const visibleIds = new Set(visibleEmployees.map((e) => e.id));
+  const detailPanelProps = useMemo(() => {
+    if (!selectedEmployeeId) return null;
+    const employee = employeeById.get(selectedEmployeeId);
+    if (!employee) return null;
 
-    const rawNodes: Node[] = visibleEmployees.map((employee) => ({
+    const managerRelations = managersOf(selectedEmployeeId);
+    const primaryManagerId = managerRelations.find((r) => r.is_primary)?.manager_id;
+    const manager = primaryManagerId ? (employeeById.get(primaryManagerId) ?? null) : null;
+    const functionalManagers = managerRelations
+      .filter((r) => !r.is_primary)
+      .map((r) => employeeById.get(r.manager_id))
+      .filter((e): e is NonNullable<typeof e> => Boolean(e));
+
+    const reportRelations = directReportsOf(selectedEmployeeId);
+    const directReports = reportRelations
+      .filter((r) => r.is_primary)
+      .map((r) => employeeById.get(r.employee_id))
+      .filter((e): e is NonNullable<typeof e> => Boolean(e));
+    const functionalReports = reportRelations
+      .filter((r) => !r.is_primary)
+      .map((r) => employeeById.get(r.employee_id))
+      .filter((e): e is NonNullable<typeof e> => Boolean(e));
+
+    return {
+      employee,
+      departmentColor: employee.department ? (departmentColorByName.get(employee.department) ?? null) : null,
+      manager,
+      functionalManagers,
+      directReports,
+      functionalReports,
+    };
+  }, [selectedEmployeeId, employeeById, managersOf, directReportsOf, departmentColorByName]);
+
+  // Dagre lays out the *entire* org chart, every employee, regardless of
+  // what's currently expanded/collapsed/focused — never just the visible
+  // subset. Collapsing a team, isolating someone via focus mode, or
+  // hovering (dimming) must never shift anyone's position on screen; dagre
+  // isn't a stable/incremental layout, so re-running it on a smaller or
+  // larger node set reflows *everyone*, not just the nodes that
+  // appeared/disappeared. Laying out the full tree once and then simply
+  // filtering which nodes/edges get rendered (below) keeps every visible
+  // card's position fixed no matter how the visible subset changes. This
+  // also means dagre only re-runs when employees or primary reporting
+  // edges actually change — not on hover, selection, search, the dept
+  // filter, or any visibility toggle — which is what stops rapid hovering
+  // from stuttering (see the earlier fix for that).
+  const layoutedNodeById = useMemo(() => {
+    const rawNodes: Node[] = employees.map((employee) => ({
       id: employee.id,
       type: 'employee',
       position: { x: 0, y: 0 },
       data: null,
     }));
+    const primaryEdgeAll = primaryEdges.map((r) => ({ id: r.id, source: r.manager_id, target: r.employee_id }));
+    const laidOut = layoutWithDagre(rawNodes, primaryEdgeAll);
+    return new Map(laidOut.map((n) => [n.id, n]));
+  }, [employees, primaryEdges]);
+
+  const { nodes, edges } = useMemo(() => {
+    const visibleIds = new Set(finalVisibleEmployees.map((e) => e.id));
 
     const primaryEdgeBase = primaryEdges
       .filter((r) => visibleIds.has(r.employee_id) && visibleIds.has(r.manager_id))
@@ -277,50 +354,48 @@ export function OrgChartView() {
       .filter((r) => visibleIds.has(r.employee_id) && visibleIds.has(r.manager_id))
       .map((r) => ({ id: r.id, source: r.manager_id, target: r.employee_id }));
 
-    return {
-      layoutedNodes: layoutWithDagre(rawNodes, primaryEdgeBase),
-      primaryEdgeBase,
-      secondaryEdgeBase,
-    };
-  }, [visibleEmployees, primaryEdges, secondaryEdges]);
-
-  const { nodes, edges } = useMemo(() => {
-    const nodes: Node<EmployeeNodeData>[] = layoutedNodes.map((baseNode) => {
-      const employee = employeeById.get(baseNode.id);
-      if (!employee) return baseNode as Node<EmployeeNodeData>;
+    const nodes: Node<EmployeeNodeData>[] = finalVisibleEmployees.flatMap((employee) => {
+      const baseNode = layoutedNodeById.get(employee.id);
+      if (!baseNode) return [];
 
       const directReportsCount = childrenOf.get(employee.id)?.length ?? 0;
       const advertiserNames = assignmentsOf(employee.id)
         .map((a) => clientMissionNameById.get(a.client_mission_id))
         .filter((name): name is string => Boolean(name));
 
-      return {
-        ...baseNode,
-        data: {
-          employee,
-          hasChildren: directReportsCount > 0,
-          isExpanded: expandedNodeIds.has(employee.id),
-          isSelected: employee.id === selectedEmployeeId,
-          isMatch: matchedIds.has(employee.id),
-          isDimmed:
-            (deptFilter !== null && employee.department !== deptFilter) ||
-            (activeEmployeeId !== null && !relatedIds.has(employee.id)),
-          assignmentsCount: assignmentsOf(employee.id).length,
-          assignmentsTotalEtpVendu: totalEtpOf(employee.id),
-          assignmentsTotalEtpReel: totalEtpReelOf(employee.id),
-          advertiserNames,
-          directReportsCount,
-          totalDescendantCount: totalDescendantCountOf(employee.id),
-          functionalManagerCount: managersOf(employee.id).filter((r) => !r.is_primary).length,
-          jobTitles: jobTitleNames,
-          departmentNames,
-          departmentColor: employee.department
-            ? (departmentColorByName.get(employee.department) ?? null)
-            : null,
-          onToggleExpand: toggleExpanded,
-          actions,
+      return [
+        {
+          ...baseNode,
+          data: {
+            employee,
+            hasChildren: directReportsCount > 0,
+            isExpanded: expandedNodeIds.has(employee.id),
+            isSelected: employee.id === selectedEmployeeId,
+            isMatch: matchedIds.has(employee.id),
+            isDimmed:
+              (deptFilter !== null && employee.department !== deptFilter) ||
+              (activeEmployeeId !== null && !relatedIds.has(employee.id)),
+            assignmentsCount: assignmentsOf(employee.id).length,
+            assignmentsTotalEtpVendu: totalEtpOf(employee.id),
+            assignmentsTotalEtpReel: totalEtpReelOf(employee.id),
+            advertiserNames,
+            directReportsCount,
+            totalDescendantCount: totalDescendantCountOf(employee.id),
+            functionalManagerCount: managersOf(employee.id).filter((r) => !r.is_primary).length,
+            hasManager: primaryManagerOf.has(employee.id),
+            isFocused: focusedNodeIds.has(employee.id),
+            focusHiddenCount,
+            jobTitles: jobTitleNames,
+            departmentNames,
+            departmentColor: employee.department
+              ? (departmentColorByName.get(employee.department) ?? null)
+              : null,
+            onToggleExpand: toggleExpanded,
+            onToggleFocus: toggleFocused,
+            actions,
+          },
         },
-      };
+      ];
     });
 
     // An edge is part of the highlighted chain if it touches the active
@@ -334,7 +409,7 @@ export function OrgChartView() {
       return 'dimmed';
     };
 
-    const primaryEdges: Edge[] = primaryEdgeBase.map((e) => {
+    const styledPrimaryEdges: Edge[] = primaryEdgeBase.map((e) => {
       const state = edgeHighlight(e.source, e.target);
       return {
         ...e,
@@ -347,7 +422,7 @@ export function OrgChartView() {
       };
     });
 
-    const secondaryEdges: Edge[] = secondaryEdgeBase.map((e) => {
+    const styledSecondaryEdges: Edge[] = secondaryEdgeBase.map((e) => {
       const state = edgeHighlight(e.source, e.target);
       return {
         ...e,
@@ -360,12 +435,12 @@ export function OrgChartView() {
       };
     });
 
-    return { nodes, edges: [...primaryEdges, ...secondaryEdges] };
+    return { nodes, edges: [...styledPrimaryEdges, ...styledSecondaryEdges] };
   }, [
-    layoutedNodes,
-    primaryEdgeBase,
-    secondaryEdgeBase,
-    employeeById,
+    finalVisibleEmployees,
+    layoutedNodeById,
+    primaryEdges,
+    secondaryEdges,
     childrenOf,
     expandedNodeIds,
     selectedEmployeeId,
@@ -374,6 +449,10 @@ export function OrgChartView() {
     chainIds,
     matchedIds,
     toggleExpanded,
+    toggleFocused,
+    primaryManagerOf,
+    focusedNodeIds,
+    focusHiddenCount,
     actions,
     assignmentsOf,
     totalEtpOf,
@@ -432,9 +511,12 @@ export function OrgChartView() {
   // `selectedEmployeeId` changing — `nodes` is a dependency too (a
   // freshly-created node isn't laid out yet on the same render that selects
   // it, so this needs to retry once dagre positions it), but `nodes` also
-  // gets a new reference on every hover (dimming recomputes it) or
-  // dept-filter toggle. Without the ref guard, hovering around while
-  // someone is pinned would re-run setCenter on every hover.
+  // gets a new reference whenever the team-collapse or focus/isolate badge
+  // changes the visible set, or hover dims other cards. The ref guard is
+  // what keeps those from re-centering: toggling a badge on an
+  // already-selected card doesn't change `selectedEmployeeId`, so it still
+  // matches `lastCenteredIdRef.current` and the effect no-ops — only an
+  // actual change of *who* is selected re-centers.
   useEffect(() => {
     if (!selectedEmployeeId) {
       lastCenteredIdRef.current = null;
@@ -522,6 +604,18 @@ export function OrgChartView() {
         <Controls />
         <MiniMap />
       </ReactFlow>
+      {detailPanelProps && (
+        <EmployeeDetailPanel
+          employee={detailPanelProps.employee}
+          departmentColor={detailPanelProps.departmentColor}
+          manager={detailPanelProps.manager}
+          functionalManagers={detailPanelProps.functionalManagers}
+          directReports={detailPanelProps.directReports}
+          functionalReports={detailPanelProps.functionalReports}
+          onClose={() => setSelectedEmployee(null)}
+          onSelectEmployee={setSelectedEmployee}
+        />
+      )}
       {linkModalProps && (
         <LinkExistingEmployeeModal
           title={linkModalProps.title}
