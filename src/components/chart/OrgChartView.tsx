@@ -18,6 +18,7 @@ import { useClientsMissions } from '../../hooks/useClientsMissions';
 import { departmentColorMap } from '../../lib/departmentColor';
 import { useSelectionStore } from '../../stores/selectionStore';
 import { useVisibleGraph } from './useVisibleGraph';
+import { useReportingChain } from './useReportingChain';
 import { layoutWithDagre, NODE_WIDTH, NODE_HEIGHT } from './layoutEngine';
 import { EmployeeNode, type EmployeeNodeActions, type EmployeeNodeData } from './EmployeeNode';
 import { LinkExistingEmployeeModal } from '../shared/LinkExistingEmployeeModal';
@@ -119,6 +120,14 @@ export function OrgChartView() {
     primaryEdges,
     expandedNodeIds,
   );
+
+  // Hovering highlights the reporting chain the same way pinning (clicking)
+  // a card does; hover takes priority while active, falling back to the
+  // pinned selection once the mouse leaves — un-hovering never clears a
+  // pin, matching the design spec.
+  const [hoverEmployeeId, setHoverEmployeeId] = useState<string | null>(null);
+  const activeEmployeeId = hoverEmployeeId ?? selectedEmployeeId;
+  const { relatedIds, chainIds } = useReportingChain(activeEmployeeId, relationships, childrenOf);
 
   // Default expand state once employees AND relationships have both finished
   // their initial load: fully expanded for small teams (nothing to gain by
@@ -258,7 +267,9 @@ export function OrgChartView() {
           isExpanded: expandedNodeIds.has(employee.id),
           isSelected: employee.id === selectedEmployeeId,
           isMatch: matchedIds.has(employee.id),
-          isDimmed: deptFilter !== null && employee.department !== deptFilter,
+          isDimmed:
+            (deptFilter !== null && employee.department !== deptFilter) ||
+            (activeEmployeeId !== null && !relatedIds.has(employee.id)),
           assignmentsCount: assignmentsOf(employee.id).length,
           assignmentsTotalEtpVendu: totalEtpOf(employee.id),
           assignmentsTotalEtpReel: totalEtpReelOf(employee.id),
@@ -277,24 +288,52 @@ export function OrgChartView() {
       };
     });
 
+    // An edge is part of the highlighted chain if it touches the active
+    // person directly (covers incoming-dotted reporters, whose edge
+    // wouldn't otherwise qualify — see useReportingChain), or if both its
+    // ends sit inside the ancestor/descendant chain.
+    const edgeHighlight = (managerId: string, employeeId: string): 'highlighted' | 'dimmed' | 'normal' => {
+      if (!activeEmployeeId) return 'normal';
+      if (activeEmployeeId === managerId || activeEmployeeId === employeeId) return 'highlighted';
+      if (chainIds.has(managerId) && chainIds.has(employeeId)) return 'highlighted';
+      return 'dimmed';
+    };
+
     const visiblePrimaryEdges: Edge[] = primaryEdges
       .filter((r) => visibleIds.has(r.employee_id) && visibleIds.has(r.manager_id))
-      .map((r) => ({
-        id: r.id,
-        source: r.manager_id,
-        target: r.employee_id,
-      }));
+      .map((r) => {
+        const state = edgeHighlight(r.manager_id, r.employee_id);
+        return {
+          id: r.id,
+          source: r.manager_id,
+          target: r.employee_id,
+          style:
+            state === 'highlighted'
+              ? { stroke: '#0f172a', strokeWidth: 2.5 }
+              : state === 'dimmed'
+                ? { opacity: 0.08 }
+                : undefined,
+        };
+      });
 
     const layoutedNodes = layoutWithDagre(rawNodes, visiblePrimaryEdges);
 
     const visibleSecondaryEdges: Edge[] = secondaryEdges
       .filter((r) => visibleIds.has(r.employee_id) && visibleIds.has(r.manager_id))
-      .map((r) => ({
-        id: r.id,
-        source: r.manager_id,
-        target: r.employee_id,
-        style: { strokeDasharray: '6 4' },
-      }));
+      .map((r) => {
+        const state = edgeHighlight(r.manager_id, r.employee_id);
+        return {
+          id: r.id,
+          source: r.manager_id,
+          target: r.employee_id,
+          style:
+            state === 'highlighted'
+              ? { stroke: '#0f172a', strokeWidth: 2.5, strokeDasharray: '2 4' }
+              : state === 'dimmed'
+                ? { opacity: 0.08, strokeDasharray: '6 4' }
+                : { strokeDasharray: '6 4' },
+        };
+      });
 
     return { nodes: layoutedNodes, edges: [...visiblePrimaryEdges, ...visibleSecondaryEdges] };
   }, [
@@ -302,6 +341,9 @@ export function OrgChartView() {
     childrenOf,
     expandedNodeIds,
     selectedEmployeeId,
+    activeEmployeeId,
+    relatedIds,
+    chainIds,
     matchedIds,
     primaryEdges,
     secondaryEdges,
@@ -418,6 +460,8 @@ export function OrgChartView() {
         }}
         onNodeClick={(_, node) => setSelectedEmployee(node.id)}
         onPaneClick={() => setSelectedEmployee(null)}
+        onNodeMouseEnter={(_, node) => setHoverEmployeeId(node.id)}
+        onNodeMouseLeave={() => setHoverEmployeeId(null)}
       >
         <Panel position="top-right" className="flex flex-col items-end gap-1">
           <button
