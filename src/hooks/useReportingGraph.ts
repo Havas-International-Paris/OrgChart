@@ -58,7 +58,10 @@ export function useReportingGraph(orgChartId: string | null) {
     setLoading(true);
     refresh();
 
-    // Unique per mount: see useEmployees.ts for why a fixed channel name breaks.
+    // Unique per mount: see useEmployees.ts for why a fixed channel name
+    // breaks. Deliberately unfiltered (no org_chart_id filter) for the same
+    // reason documented there — a filter on a non-PK column silently drops
+    // DELETE events under Postgres's default replica identity.
     const channel = supabase
       .channel(`reporting-relationships-changes-${crypto.randomUUID()}`)
       .on(
@@ -67,7 +70,6 @@ export function useReportingGraph(orgChartId: string | null) {
           event: '*',
           schema: 'public',
           table: 'reporting_relationships',
-          filter: `org_chart_id=eq.${orgChartId}`,
         },
         () => refresh(),
       )
@@ -138,6 +140,33 @@ export function useReportingGraph(orgChartId: string | null) {
     [refresh, orgChartId],
   );
 
+  const removeRelationship = useCallback(
+    async (relationship: ReportingRelationship) => {
+      await reportingService.deleteRelationship(relationship.id);
+      // Mirrors ManagerEditorModal's existing toggle() behavior: if the
+      // deleted link was primary and other managers remain, auto-promote
+      // one of them rather than silently leaving the employee un-owned.
+      if (relationship.is_primary) {
+        const remaining = relationships.filter(
+          (r) => r.employee_id === relationship.employee_id && r.id !== relationship.id,
+        );
+        if (remaining.length > 0) {
+          await reportingService.updateRelationshipPrimary(remaining[0].id, true);
+        }
+      }
+      await refresh();
+    },
+    [relationships, refresh],
+  );
+
+  const reassignManager = useCallback(
+    async (relationship: ReportingRelationship, newManagerId: string) => {
+      await reportingService.updateRelationshipManager(relationship.id, newManagerId);
+      await refresh();
+    },
+    [refresh],
+  );
+
   return {
     relationships,
     loading,
@@ -148,5 +177,7 @@ export function useReportingGraph(orgChartId: string | null) {
       wouldCreateCycle(relationships, employeeId, managerId),
     replaceManagersForEmployee,
     addRelationship,
+    removeRelationship,
+    reassignManager,
   };
 }

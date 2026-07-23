@@ -28,11 +28,14 @@ export function useAssignments(orgChartId: string | null) {
     setLoading(true);
     refresh();
 
+    // Deliberately unfiltered — see useEmployees.ts's channel setup for why
+    // a filter on a non-PK column like org_chart_id silently drops DELETE
+    // events under Postgres's default replica identity.
     const channel = supabase
       .channel(`assignments-changes-${crypto.randomUUID()}`)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'assignments', filter: `org_chart_id=eq.${orgChartId}` },
+        { event: '*', schema: 'public', table: 'assignments' },
         () => refresh(),
       )
       .subscribe();

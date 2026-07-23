@@ -22,13 +22,16 @@ import { useVisibleGraph } from './useVisibleGraph';
 import { useReportingChain } from './useReportingChain';
 import { layoutWithDagre, NODE_WIDTH, NODE_HEIGHT } from './layoutEngine';
 import { EmployeeNode, type EmployeeNodeActions, type EmployeeNodeData } from './EmployeeNode';
+import { ReportingEdge, type ReportingEdgeData } from './ReportingEdge';
 import { LinkExistingEmployeeModal } from '../shared/LinkExistingEmployeeModal';
 import { PhotoEditorModal } from '../shared/PhotoEditorModal';
 import { DepartmentLegend } from './DepartmentLegend';
 import { EmployeeDetailPanel } from './EmployeeDetailPanel';
 import { exportChartAsPng } from './exportChartImage';
+import type { ReportingRelationship } from '../../types/domain';
 
 const nodeTypes = { employee: EmployeeNode };
+const edgeTypes = { reporting: ReportingEdge };
 
 // Above this headcount, default to roots + one level instead of fully
 // expanded — see the effect below for why.
@@ -46,6 +49,7 @@ export function OrgChartView() {
     loading: employeesLoading,
     createEmployee,
     updateEmployee,
+    deleteEmployee,
     updateEmployeePhoto,
     updateEmployeePhotoFrame,
   } = useEmployees(currentOrgChartId);
@@ -57,6 +61,8 @@ export function OrgChartView() {
     managersOf,
     directReportsOf,
     addRelationship,
+    removeRelationship,
+    reassignManager,
     wouldCreateCycle,
   } = useReportingGraph(currentOrgChartId);
   const { assignmentsOf, totalEtpOf, totalEtpReelOf } = useAssignments(currentOrgChartId);
@@ -174,6 +180,14 @@ export function OrgChartView() {
   // pinned selection once the mouse leaves — un-hovering never clears a
   // pin, matching the design spec.
   const [hoverEmployeeId, setHoverEmployeeId] = useState<string | null>(null);
+  // Set while a ReportingEdge grip drag is in progress — see the
+  // onNodeMouseEnter/Leave handlers on <ReactFlow> below for why hover
+  // updates must be suppressed during a drag. A ref, not state: it only
+  // gates a synchronous check inside those handlers and never needs to
+  // trigger a render itself — using state here left a real race, since a
+  // node crossed in the same tick as the grip's mousedown could still read
+  // the pre-update value before React's batched setState had flushed.
+  const isReassigningEdgeRef = useRef(false);
   const activeEmployeeId = hoverEmployeeId ?? selectedEmployeeId;
   const { relatedIds, chainIds } = useReportingChain(activeEmployeeId, relationships, childrenOf);
 
@@ -245,6 +259,43 @@ export function OrgChartView() {
     [],
   );
 
+  const handleDeleteEmployee = useCallback(
+    async (employeeId: string) => {
+      await deleteEmployee(employeeId);
+      // Avoid leaving the detail panel / assignments modal pointed at a
+      // record that no longer exists.
+      if (selectedEmployeeId === employeeId) setSelectedEmployee(null);
+    },
+    [deleteEmployee, selectedEmployeeId, setSelectedEmployee],
+  );
+
+  const handleDeleteRelationship = useCallback(
+    (relationship: ReportingRelationship) => removeRelationship(relationship),
+    [removeRelationship],
+  );
+
+  // Shared by the live drag-hover feedback and the drop itself, so a drop
+  // can never succeed on a target the hover pass would have rejected.
+  const computeDropValidity = useCallback(
+    (employeeId: string, targetId: string): 'valid' | 'invalid' => {
+      if (targetId === employeeId) return 'invalid';
+      // Covers dropping back on the current manager too — a no-op, not an
+      // error, but still routed through "invalid" so it's simply ignored.
+      if (managersOf(employeeId).some((m) => m.manager_id === targetId)) return 'invalid';
+      if (wouldCreateCycle(employeeId, targetId)) return 'invalid';
+      return 'valid';
+    },
+    [managersOf, wouldCreateCycle],
+  );
+
+  const handleReassignManager = useCallback(
+    (relationship: ReportingRelationship, newManagerId: string) => {
+      if (computeDropValidity(relationship.employee_id, newManagerId) !== 'valid') return;
+      reassignManager(relationship, newManagerId);
+    },
+    [computeDropValidity, reassignManager],
+  );
+
   const actions = useMemo<EmployeeNodeActions>(
     () => ({
       quickAddManager,
@@ -254,6 +305,7 @@ export function OrgChartView() {
       openAssignments: setAssignmentsEmployeeId,
       updateEmployee,
       openPhotoEditor: setPhotoEditEmployeeId,
+      deleteEmployee: handleDeleteEmployee,
     }),
     [
       quickAddManager,
@@ -262,6 +314,7 @@ export function OrgChartView() {
       openLinkSubordinate,
       setAssignmentsEmployeeId,
       updateEmployee,
+      handleDeleteEmployee,
     ],
   );
 
@@ -360,11 +413,11 @@ export function OrgChartView() {
 
     const primaryEdgeBase = primaryEdges
       .filter((r) => visibleIds.has(r.employee_id) && visibleIds.has(r.manager_id))
-      .map((r) => ({ id: r.id, source: r.manager_id, target: r.employee_id }));
+      .map((r) => ({ id: r.id, source: r.manager_id, target: r.employee_id, relationship: r }));
 
     const secondaryEdgeBase = secondaryEdges
       .filter((r) => visibleIds.has(r.employee_id) && visibleIds.has(r.manager_id))
-      .map((r) => ({ id: r.id, source: r.manager_id, target: r.employee_id }));
+      .map((r) => ({ id: r.id, source: r.manager_id, target: r.employee_id, relationship: r }));
 
     const nodes: Node<EmployeeNodeData>[] = finalVisibleEmployees.flatMap((employee) => {
       const baseNode = layoutedNodeById.get(employee.id);
@@ -421,10 +474,21 @@ export function OrgChartView() {
       return 'dimmed';
     };
 
-    const styledPrimaryEdges: Edge[] = primaryEdgeBase.map((e) => {
+    const edgeData = (relationship: ReportingRelationship): ReportingEdgeData => ({
+      onDelete: () => handleDeleteRelationship(relationship),
+      onReassignHover: (targetId) => computeDropValidity(relationship.employee_id, targetId),
+      onReassignDrop: (targetId) => handleReassignManager(relationship, targetId),
+      onDragStateChange: (dragging) => {
+        isReassigningEdgeRef.current = dragging;
+      },
+    });
+
+    const styledPrimaryEdges: Edge<ReportingEdgeData>[] = primaryEdgeBase.map(({ relationship, ...e }) => {
       const state = edgeHighlight(e.source, e.target);
       return {
         ...e,
+        type: 'reporting',
+        data: edgeData(relationship),
         style:
           state === 'highlighted'
             ? { stroke: '#0f172a', strokeWidth: 2.5 }
@@ -434,10 +498,12 @@ export function OrgChartView() {
       };
     });
 
-    const styledSecondaryEdges: Edge[] = secondaryEdgeBase.map((e) => {
+    const styledSecondaryEdges: Edge<ReportingEdgeData>[] = secondaryEdgeBase.map(({ relationship, ...e }) => {
       const state = edgeHighlight(e.source, e.target);
       return {
         ...e,
+        type: 'reporting',
+        data: edgeData(relationship),
         style:
           state === 'highlighted'
             ? { stroke: '#0f172a', strokeWidth: 2.5, strokeDasharray: '2 4' }
@@ -476,6 +542,9 @@ export function OrgChartView() {
     jobTitleNames,
     departmentNames,
     departmentColorByName,
+    handleDeleteRelationship,
+    computeDropValidity,
+    handleReassignManager,
   ]);
 
   // Re-arm the auto-fit whenever the user switches to a different chart —
@@ -587,6 +656,7 @@ export function OrgChartView() {
       />
       <ReactFlow
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         nodes={nodes}
         edges={edges}
         minZoom={0.1}
@@ -595,8 +665,12 @@ export function OrgChartView() {
         }}
         onNodeClick={(_, node) => setSelectedEmployee(node.id)}
         onPaneClick={() => setSelectedEmployee(null)}
-        onNodeMouseEnter={(_, node) => setHoverEmployeeId(node.id)}
-        onNodeMouseLeave={() => setHoverEmployeeId(null)}
+        onNodeMouseEnter={(_, node) => {
+          if (!isReassigningEdgeRef.current) setHoverEmployeeId(node.id);
+        }}
+        onNodeMouseLeave={() => {
+          if (!isReassigningEdgeRef.current) setHoverEmployeeId(null);
+        }}
       >
         <Panel position="top-right" className="flex flex-col items-end gap-1">
           <button

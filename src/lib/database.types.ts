@@ -69,6 +69,7 @@ export interface Database {
           org_chart_id: string;
         };
         Update: {
+          manager_id?: string;
           is_primary?: boolean;
         };
         Relationships: [];

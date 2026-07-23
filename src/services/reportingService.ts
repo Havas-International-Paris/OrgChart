@@ -33,6 +33,14 @@ export async function updateRelationshipPrimary(id: string, isPrimary: boolean):
   if (error) throw error;
 }
 
+export async function updateRelationshipManager(id: string, newManagerId: string): Promise<void> {
+  const { error } = await supabase
+    .from('reporting_relationships')
+    .update({ manager_id: newManagerId })
+    .eq('id', id);
+  if (error) throw error;
+}
+
 export async function deleteRelationship(id: string): Promise<void> {
   const { error } = await supabase.from('reporting_relationships').delete().eq('id', id);
   if (error) throw error;

@@ -15,6 +15,7 @@ export interface EmployeeNodeActions {
     changes: Partial<Pick<Employee, 'first_name' | 'last_name' | 'job_title' | 'department'>>,
   ) => Promise<Employee>;
   openPhotoEditor: (employeeId: string) => void;
+  deleteEmployee: (employeeId: string) => void;
 }
 
 export interface EmployeeNodeData {
@@ -257,6 +258,19 @@ function EmployeeNodeImpl({ data }: NodeProps<EmployeeNodeData>) {
       style={{ opacity: isDimmed ? 0.3 : 1 }}
     >
       <Handle type="target" position={Position.Top} className="!bg-slate-400" />
+
+      <button
+        type="button"
+        data-export-hide
+        onClick={(e) => {
+          e.stopPropagation();
+          actions.deleteEmployee(employee.id);
+        }}
+        title="Supprimer cet employé"
+        className="absolute left-[-9px] top-[-9px] flex h-[18px] w-[18px] items-center justify-center rounded-full border border-dashed border-slate-300 bg-white text-[11px] font-bold leading-none text-slate-400 shadow-sm hover:border-red-300 hover:bg-red-50 hover:text-red-500"
+      >
+        ✕
+      </button>
 
       <AddButton
         label="Ajouter un manager"
