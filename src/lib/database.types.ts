@@ -15,6 +15,7 @@ export interface Database {
           job_title: string | null;
           role_desc: string | null;
           department: string | null;
+          photo_path: string | null;
           org_chart_id: string;
           created_at: string;
           updated_at: string;
@@ -28,6 +29,7 @@ export interface Database {
           job_title?: string | null;
           role_desc?: string | null;
           department?: string | null;
+          photo_path?: string | null;
           org_chart_id: string;
         };
         Update: {
@@ -36,6 +38,7 @@ export interface Database {
           job_title?: string | null;
           role_desc?: string | null;
           department?: string | null;
+          photo_path?: string | null;
         };
         Relationships: [];
       };

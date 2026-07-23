@@ -1,6 +1,7 @@
-import { memo, useState } from 'react';
+import { memo, useRef, useState } from 'react';
 import { Handle, Position, type NodeProps } from 'reactflow';
 import { NEUTRAL_DEPARTMENT_COLOR, withAlpha } from '../../lib/departmentColor';
+import { employeePhotoUrl } from '../../services/employeePhotoService';
 import type { Employee } from '../../types/domain';
 
 export interface EmployeeNodeActions {
@@ -13,6 +14,7 @@ export interface EmployeeNodeActions {
     id: string,
     changes: Partial<Pick<Employee, 'first_name' | 'last_name' | 'job_title' | 'department'>>,
   ) => Promise<Employee>;
+  replacePhoto: (employeeId: string, file: File) => Promise<void>;
 }
 
 export interface EmployeeNodeData {
@@ -136,13 +138,98 @@ function initialsOf(firstName: string, lastName: string) {
   return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase();
 }
 
-function Avatar({ firstName, lastName, color }: { firstName: string; lastName: string; color: string }) {
+function Avatar({
+  employeeId,
+  firstName,
+  lastName,
+  color,
+  photoPath,
+  onReplace,
+}: {
+  employeeId: string;
+  firstName: string;
+  lastName: string;
+  color: string;
+  photoPath: string | null;
+  onReplace: (employeeId: string, file: File) => Promise<void>;
+}) {
+  const [hovering, setHovering] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  async function handleFile(file: File) {
+    setError(null);
+    setUploading(true);
+    try {
+      await onReplace(employeeId, file);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Échec du téléversement');
+    } finally {
+      setUploading(false);
+    }
+  }
+
   return (
     <div
-      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white"
-      style={{ backgroundColor: color }}
+      className="relative h-9 w-9 shrink-0"
+      onMouseEnter={() => setHovering(true)}
+      onMouseLeave={() => setHovering(false)}
+      onClick={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
     >
-      {initialsOf(firstName, lastName)}
+      {photoPath ? (
+        <img
+          src={employeePhotoUrl(photoPath)}
+          alt=""
+          className="h-9 w-9 rounded-full object-cover"
+        />
+      ) : (
+        <div
+          className="flex h-9 w-9 items-center justify-center rounded-full text-xs font-bold text-white"
+          style={{ backgroundColor: color }}
+        >
+          {initialsOf(firstName, lastName)}
+        </div>
+      )}
+
+      {(hovering || uploading) && (
+        <button
+          type="button"
+          data-export-hide
+          onClick={(e) => {
+            e.stopPropagation();
+            inputRef.current?.click();
+          }}
+          disabled={uploading}
+          title="Remplacer la photo"
+          className="absolute inset-0 flex items-center justify-center rounded-full bg-black/55 text-[7px] font-semibold leading-tight text-white"
+        >
+          {uploading ? '…' : 'Remplacer'}
+        </button>
+      )}
+
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onClick={(e) => e.stopPropagation()}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = '';
+          if (file) handleFile(file);
+        }}
+      />
+
+      {error && (
+        <div
+          data-export-hide
+          className="absolute left-1/2 top-full z-10 mt-1 w-28 -translate-x-1/2 rounded bg-red-50 px-1.5 py-1 text-center text-[9px] text-red-600 shadow"
+        >
+          {error}
+        </div>
+      )}
     </div>
   );
 }
@@ -306,7 +393,14 @@ function EmployeeNodeImpl({ data }: NodeProps<EmployeeNodeData>) {
       )}
 
       <div className="flex items-center gap-2">
-        <Avatar firstName={employee.first_name} lastName={employee.last_name} color={swatch} />
+        <Avatar
+          employeeId={employee.id}
+          firstName={employee.first_name}
+          lastName={employee.last_name}
+          color={swatch}
+          photoPath={employee.photo_path}
+          onReplace={actions.replacePhoto}
+        />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1 text-sm font-semibold text-slate-900">
             {editingField === 'first_name' ? (

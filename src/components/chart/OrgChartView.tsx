@@ -15,6 +15,7 @@ import { useAssignments } from '../../hooks/useAssignments';
 import { useJobTitles } from '../../hooks/useJobTitles';
 import { useDepartments } from '../../hooks/useDepartments';
 import { useClientsMissions } from '../../hooks/useClientsMissions';
+import { uploadEmployeePhoto, deleteEmployeePhoto } from '../../services/employeePhotoService';
 import { departmentColorMap } from '../../lib/departmentColor';
 import { useSelectionStore } from '../../stores/selectionStore';
 import { useVisibleGraph } from './useVisibleGraph';
@@ -39,7 +40,13 @@ interface LinkModalState {
 
 export function OrgChartView() {
   const currentOrgChartId = useSelectionStore((s) => s.currentOrgChartId);
-  const { employees, loading: employeesLoading, createEmployee, updateEmployee } = useEmployees(currentOrgChartId);
+  const {
+    employees,
+    loading: employeesLoading,
+    createEmployee,
+    updateEmployee,
+    updateEmployeePhoto,
+  } = useEmployees(currentOrgChartId);
   const {
     relationships,
     loading: relationshipsLoading,
@@ -234,6 +241,21 @@ export function OrgChartView() {
     [],
   );
 
+  const replacePhoto = useCallback(
+    async (employeeId: string, file: File) => {
+      const oldPath = employeeById.get(employeeId)?.photo_path ?? null;
+      const newPath = await uploadEmployeePhoto(employeeId, file);
+      await updateEmployeePhoto(employeeId, newPath);
+      if (oldPath) {
+        // Best-effort cleanup — the employee record already points at the
+        // new photo either way, so a failure here is just an orphaned
+        // object in storage, not a user-visible problem.
+        deleteEmployeePhoto(oldPath).catch(() => {});
+      }
+    },
+    [employeeById, updateEmployeePhoto],
+  );
+
   const actions = useMemo<EmployeeNodeActions>(
     () => ({
       quickAddManager,
@@ -242,6 +264,7 @@ export function OrgChartView() {
       openLinkSubordinate,
       openAssignments: setAssignmentsEmployeeId,
       updateEmployee,
+      replacePhoto,
     }),
     [
       quickAddManager,
@@ -250,6 +273,7 @@ export function OrgChartView() {
       openLinkSubordinate,
       setAssignmentsEmployeeId,
       updateEmployee,
+      replacePhoto,
     ],
   );
 

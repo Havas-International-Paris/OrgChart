@@ -67,5 +67,10 @@ export function useEmployees(orgChartId: string | null) {
       await employeeService.deleteEmployee(id);
       await refresh();
     },
+    updateEmployeePhoto: async (id: string, photoPath: string | null) => {
+      const updated = await employeeService.updateEmployeePhoto(id, photoPath);
+      await refresh();
+      return updated;
+    },
   };
 }

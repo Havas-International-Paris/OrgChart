@@ -5,6 +5,10 @@ export interface Employee {
   job_title: string | null;
   role_desc: string | null;
   department: string | null;
+  // Object path within the "employee-photos" Storage bucket, or null for
+  // no photo (initials avatar shown instead). Set via updateEmployeePhoto,
+  // deliberately not part of EmployeeInput's create/edit flow below.
+  photo_path: string | null;
   org_chart_id: string;
   created_at: string;
   updated_at: string;

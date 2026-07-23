@@ -26,6 +26,8 @@ Application interne pour visualiser et éditer l'organigramme de Havas Internati
    - `0006_split_etp_vendu_reel.sql` — sépare `etp_percent` en `etp_vendu` (engagement commercial) et `etp_reel` (%ETP réel, renseigné manuellement plus tard)
    - `0007_remuneration_model.sql` — ajoute `remuneration_model` (retainer/commission) sur les affectations ; rend `etp_vendu` optionnel et interdit toute valeur vendu sur une ligne en commission
    - `0008_departments.sql` — catalogue des Business Units (`departments`) et colonne `department` sur `employees`, pour le tagging couleur du chart
+   - `0009_org_charts.sql` — support de plusieurs organigrammes indépendants (`org_charts`, colonne `org_chart_id` sur employees/reporting_relationships/assignments, RPC `duplicate_org_chart`)
+   - `0010_employee_photos.sql` — bucket Storage public `employee-photos` + policies, colonne `photo_path` sur `employees`
 3. Créez au moins un utilisateur dans **Authentication → Users → Add user** pour pouvoir vous connecter.
 4. Récupérez l'URL du projet et la clé **publishable** (ou `anon`) dans **Project Settings → API**.
 

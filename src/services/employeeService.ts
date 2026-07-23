@@ -36,3 +36,14 @@ export async function deleteEmployee(id: string): Promise<void> {
   const { error } = await supabase.from('employees').delete().eq('id', id);
   if (error) throw error;
 }
+
+export async function updateEmployeePhoto(id: string, photoPath: string | null): Promise<Employee> {
+  const { data, error } = await supabase
+    .from('employees')
+    .update({ photo_path: photoPath })
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data as Employee;
+}
