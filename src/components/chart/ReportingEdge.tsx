@@ -159,6 +159,23 @@ export function ReportingEdge({
 
   return (
     <>
+      <BaseEdge
+        id={id}
+        path={path}
+        style={{ ...style, opacity: dragPoint ? 0.25 : (style?.opacity ?? 1) }}
+        markerEnd={markerEnd}
+      />
+      {/*
+        Rendered AFTER BaseEdge, not before: BaseEdge always renders its own
+        invisible "react-flow__edge-interaction" path (strokeWidth 20 by
+        default) following the exact same `d`. Whichever of the two
+        identically-shaped invisible strokes comes LAST in the DOM wins real
+        browser hit-testing (paint order), so putting ours first meant
+        React Flow's own path silently ate every hover — for every edge
+        shape, not just curvy/dashed ones, since both paths are 100%
+        congruent regardless of curve. Moving ours after BaseEdge fixes
+        this for good rather than depending on incidental geometry.
+      */}
       <path
         d={path}
         fill="none"
@@ -167,12 +184,6 @@ export function ReportingEdge({
         style={{ pointerEvents: 'stroke' }}
         onMouseEnter={() => setHovering(true)}
         onMouseLeave={() => setHovering(false)}
-      />
-      <BaseEdge
-        id={id}
-        path={path}
-        style={{ ...style, opacity: dragPoint ? 0.25 : (style?.opacity ?? 1) }}
-        markerEnd={markerEnd}
       />
       {dragPoint && (
         // Anchored at the fixed employee end (targetX/targetY) — only the
