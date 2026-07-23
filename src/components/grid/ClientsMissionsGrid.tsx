@@ -3,7 +3,6 @@ import { AgGridReact } from 'ag-grid-react';
 import {
   ModuleRegistry,
   AllCommunityModule,
-  themeQuartz,
   type CellValueChangedEvent,
   type ColDef,
   type GridReadyEvent,
@@ -12,6 +11,8 @@ import { useClientsMissions } from '../../hooks/useClientsMissions';
 import { useAssignments } from '../../hooks/useAssignments';
 import { useEmployees } from '../../hooks/useEmployees';
 import { useSelectionStore } from '../../stores/selectionStore';
+import { useUiPreferencesStore } from '../../stores/uiPreferencesStore';
+import { getGridTheme, scaleColumnWidth } from '../../lib/gridTheme';
 import { useRowStabilizer } from './useRowStabilizer';
 import { etpStatus } from '../../lib/etpStatus';
 import { ClientAssignmentsModal } from '../shared/ClientAssignmentsModal';
@@ -21,6 +22,7 @@ ModuleRegistry.registerModules([AllCommunityModule]);
 
 export function ClientsMissionsGrid() {
   const currentOrgChartId = useSelectionStore((s) => s.currentOrgChartId);
+  const gridDensity = useUiPreferencesStore((s) => s.gridDensity);
   const { clientsMissions, loading, error, createClientMission, updateClientMission, deleteClientMission } =
     useClientsMissions();
   const {
@@ -94,14 +96,14 @@ export function ClientsMissionsGrid() {
         headerName: 'Nom',
         editable: true,
         flex: 1,
-        minWidth: 200,
+        minWidth: scaleColumnWidth(200, gridDensity),
         comparator: comparatorFor('name'),
       },
       {
         field: 'type',
         headerName: 'Type',
         editable: true,
-        width: 120,
+        width: scaleColumnWidth(120, gridDensity),
         cellEditor: 'agSelectCellEditor',
         cellEditorParams: { values: ['client', 'mission'] },
         valueFormatter: (params) => (params.value === 'mission' ? 'Mission' : 'Client'),
@@ -110,7 +112,7 @@ export function ClientsMissionsGrid() {
       {
         headerName: 'Employés',
         flex: 1,
-        minWidth: 140,
+        minWidth: scaleColumnWidth(140, gridDensity),
         sortable: false,
         filter: false,
         cellRenderer: (params: { data: ClientMission }) => {
@@ -138,7 +140,7 @@ export function ClientsMissionsGrid() {
       },
       {
         headerName: 'Total réel',
-        width: 100,
+        width: scaleColumnWidth(100, gridDensity),
         sortable: false,
         filter: false,
         cellRenderer: (params: { data: ClientMission }) => {
@@ -166,7 +168,14 @@ export function ClientsMissionsGrid() {
         ),
       },
     ],
-    [handleDelete, comparatorFor, assignmentsOfClientMission, totalEtpOfClientMission, totalEtpReelOfClientMission],
+    [
+      handleDelete,
+      comparatorFor,
+      assignmentsOfClientMission,
+      totalEtpOfClientMission,
+      totalEtpReelOfClientMission,
+      gridDensity,
+    ],
   );
 
   const handleAdd = useCallback(async () => {
@@ -188,7 +197,7 @@ export function ClientsMissionsGrid() {
       {(error || actionError) && <p className="text-sm text-red-600">{error ?? actionError}</p>}
       <div className="min-h-0 flex-1" ref={containerRef}>
         <AgGridReact<ClientMission>
-          theme={themeQuartz}
+          theme={getGridTheme(gridDensity)}
           rowData={mainRowData}
           pinnedTopRowData={pinnedTopRowData}
           columnDefs={columnDefs}

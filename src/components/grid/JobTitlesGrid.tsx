@@ -3,19 +3,21 @@ import { AgGridReact } from 'ag-grid-react';
 import {
   ModuleRegistry,
   AllCommunityModule,
-  themeQuartz,
   type CellValueChangedEvent,
   type ColDef,
   type GridReadyEvent,
 } from 'ag-grid-community';
 import { useJobTitles } from '../../hooks/useJobTitles';
 import { useRowStabilizer } from './useRowStabilizer';
+import { useUiPreferencesStore } from '../../stores/uiPreferencesStore';
+import { getGridTheme, scaleColumnWidth } from '../../lib/gridTheme';
 import type { JobTitle } from '../../types/domain';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
 export function JobTitlesGrid() {
   const { jobTitles, loading, error, createJobTitle, updateJobTitle, deleteJobTitle } = useJobTitles();
+  const gridDensity = useUiPreferencesStore((s) => s.gridDensity);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const {
@@ -72,7 +74,7 @@ export function JobTitlesGrid() {
         headerName: 'Poste',
         editable: true,
         flex: 1,
-        minWidth: 200,
+        minWidth: scaleColumnWidth(200, gridDensity),
         comparator: comparatorFor('name'),
       },
       {
@@ -91,7 +93,7 @@ export function JobTitlesGrid() {
         ),
       },
     ],
-    [handleDelete, comparatorFor],
+    [handleDelete, comparatorFor, gridDensity],
   );
 
   const handleAdd = useCallback(async () => {
@@ -113,7 +115,7 @@ export function JobTitlesGrid() {
       {(error || actionError) && <p className="text-sm text-red-600">{error ?? actionError}</p>}
       <div className="min-h-0 flex-1" ref={containerRef}>
         <AgGridReact<JobTitle>
-          theme={themeQuartz}
+          theme={getGridTheme(gridDensity)}
           rowData={mainRowData}
           pinnedTopRowData={pinnedTopRowData}
           columnDefs={columnDefs}

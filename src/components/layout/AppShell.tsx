@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { isSupabaseConfigured } from '../../lib/supabaseClient';
 import { useAuth } from '../../hooks/useAuth';
 import { useEmployees } from '../../hooks/useEmployees';
@@ -6,6 +6,7 @@ import { useAssignments } from '../../hooks/useAssignments';
 import { useClientsMissions } from '../../hooks/useClientsMissions';
 import { useOrgCharts } from '../../hooks/useOrgCharts';
 import { useSelectionStore } from '../../stores/selectionStore';
+import { useUiPreferencesStore } from '../../stores/uiPreferencesStore';
 import { LoginPage } from '../auth/LoginPage';
 import { SupabaseSetupNotice } from '../auth/SupabaseSetupNotice';
 import { LeftPanel } from './LeftPanel';
@@ -40,6 +41,20 @@ export function AppShell() {
   const assignmentsEmployeeId = useSelectionStore((s) => s.assignmentsEmployeeId);
   const setAssignmentsEmployeeId = useSelectionStore((s) => s.setAssignmentsEmployeeId);
   const [managingCharts, setManagingCharts] = useState(false);
+  const splitFraction = useUiPreferencesStore((s) => s.splitFraction);
+  const setSplitFraction = useUiPreferencesStore((s) => s.setSplitFraction);
+  const splitContainerRef = useRef<HTMLDivElement>(null);
+
+  function handleDividerPointerDown(e: ReactPointerEvent<HTMLDivElement>) {
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }
+
+  function handleDividerPointerMove(e: ReactPointerEvent<HTMLDivElement>) {
+    if (e.buttons !== 1 || !splitContainerRef.current) return;
+    const rect = splitContainerRef.current.getBoundingClientRect();
+    const fraction = (e.clientX - rect.left) / rect.width;
+    setSplitFraction(Math.min(0.75, Math.max(0.2, fraction)));
+  }
 
   useEffect(() => {
     if (!currentOrgChartId && orgCharts.length > 0) {
@@ -115,11 +130,20 @@ export function AppShell() {
           </button>
         </div>
       </header>
-      <div className="flex flex-1 overflow-hidden">
-        <section className="w-1/2 overflow-auto border-r border-slate-200 p-4">
+      <div ref={splitContainerRef} className="flex flex-1 overflow-hidden">
+        <section
+          className="overflow-auto border-r border-slate-200 p-4"
+          style={{ width: `${splitFraction * 100}%` }}
+        >
           <LeftPanel />
         </section>
-        <section className="w-1/2 overflow-hidden">
+        <div
+          onPointerDown={handleDividerPointerDown}
+          onPointerMove={handleDividerPointerMove}
+          className="w-1.5 shrink-0 cursor-col-resize bg-slate-200 hover:bg-slate-300 active:bg-slate-400"
+          title="Redimensionner"
+        />
+        <section className="min-w-0 flex-1 overflow-hidden">
           <ErrorBoundary>
             <OrgChartView />
           </ErrorBoundary>

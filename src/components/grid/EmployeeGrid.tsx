@@ -3,7 +3,6 @@ import { AgGridReact } from 'ag-grid-react';
 import {
   ModuleRegistry,
   AllCommunityModule,
-  themeQuartz,
   type CellValueChangedEvent,
   type ColDef,
   type GridReadyEvent,
@@ -18,6 +17,8 @@ import { useJobTitles } from '../../hooks/useJobTitles';
 import { useDepartments } from '../../hooks/useDepartments';
 import { usePhotoActions } from '../../hooks/usePhotoActions';
 import { useSelectionStore } from '../../stores/selectionStore';
+import { useUiPreferencesStore } from '../../stores/uiPreferencesStore';
+import { getGridTheme, scaleColumnWidth } from '../../lib/gridTheme';
 import { nameColumnDefs, roleDescColumnDef } from './gridColumnDefs';
 import { useRowStabilizer } from './useRowStabilizer';
 import { ManagerEditorModal } from '../shared/ManagerEditorModal';
@@ -32,6 +33,7 @@ ModuleRegistry.registerModules([AllCommunityModule]);
 
 export function EmployeeGrid() {
   const currentOrgChartId = useSelectionStore((s) => s.currentOrgChartId);
+  const gridDensity = useUiPreferencesStore((s) => s.gridDensity);
   const {
     employees,
     loading,
@@ -112,7 +114,7 @@ export function EmployeeGrid() {
     () => [
       {
         headerName: '',
-        width: 52,
+        width: scaleColumnWidth(52, gridDensity),
         sortable: false,
         filter: false,
         cellRenderer: (params: { data: Employee }) => (
@@ -128,25 +130,39 @@ export function EmployeeGrid() {
           />
         ),
       },
-      { ...nameColumnDefs[0], comparator: comparatorFor('first_name') },
-      { ...nameColumnDefs[1], comparator: comparatorFor('last_name') },
+      {
+        ...nameColumnDefs[0],
+        width: scaleColumnWidth(140, gridDensity),
+        minWidth: scaleColumnWidth(120, gridDensity),
+        comparator: comparatorFor('first_name'),
+      },
+      {
+        ...nameColumnDefs[1],
+        width: scaleColumnWidth(140, gridDensity),
+        minWidth: scaleColumnWidth(120, gridDensity),
+        comparator: comparatorFor('last_name'),
+      },
       {
         field: 'job_title',
         headerName: 'Poste',
         editable: true,
         flex: 1,
-        minWidth: 160,
+        minWidth: scaleColumnWidth(160, gridDensity),
         cellEditor: 'agSelectCellEditor',
         cellEditorParams: { values: jobTitles.map((jt) => jt.name) },
         comparator: comparatorFor('job_title'),
       },
-      { ...roleDescColumnDef, comparator: comparatorFor('role_desc') },
+      {
+        ...roleDescColumnDef,
+        minWidth: scaleColumnWidth(160, gridDensity),
+        comparator: comparatorFor('role_desc'),
+      },
       {
         field: 'department',
         headerName: 'Business Unit',
         editable: true,
-        flex: 1,
-        minWidth: 160,
+        flex: 0.6,
+        minWidth: scaleColumnWidth(120, gridDensity),
         cellEditor: 'agSelectCellEditor',
         cellEditorParams: { values: departments.map((d) => d.name) },
         comparator: comparatorFor('department'),
@@ -167,7 +183,7 @@ export function EmployeeGrid() {
       {
         headerName: 'Managers',
         flex: 1,
-        minWidth: 200,
+        minWidth: scaleColumnWidth(200, gridDensity),
         sortable: false,
         filter: false,
         cellRenderer: (params: { data: Employee }) => {
@@ -193,7 +209,7 @@ export function EmployeeGrid() {
       {
         headerName: 'Clients / Missions',
         flex: 1,
-        minWidth: 160,
+        minWidth: scaleColumnWidth(160, gridDensity),
         sortable: false,
         filter: false,
         cellRenderer: (params: { data: Employee }) => {
@@ -246,6 +262,7 @@ export function EmployeeGrid() {
       departments,
       departmentColorByName,
       comparatorFor,
+      gridDensity,
     ],
   );
 
@@ -293,7 +310,7 @@ export function EmployeeGrid() {
       {error && <p className="text-sm text-red-600">{error}</p>}
       <div className="min-h-0 flex-1" ref={containerRef}>
         <AgGridReact<Employee>
-          theme={themeQuartz}
+          theme={getGridTheme(gridDensity)}
           rowData={mainRowData}
           pinnedTopRowData={pinnedTopRowData}
           columnDefs={columnDefs}
