@@ -15,7 +15,7 @@ import { useAssignments } from '../../hooks/useAssignments';
 import { useJobTitles } from '../../hooks/useJobTitles';
 import { useDepartments } from '../../hooks/useDepartments';
 import { useClientsMissions } from '../../hooks/useClientsMissions';
-import { uploadEmployeePhoto, deleteEmployeePhoto } from '../../services/employeePhotoService';
+import { usePhotoActions } from '../../hooks/usePhotoActions';
 import { departmentColorMap } from '../../lib/departmentColor';
 import { useSelectionStore } from '../../stores/selectionStore';
 import { useVisibleGraph } from './useVisibleGraph';
@@ -23,6 +23,7 @@ import { useReportingChain } from './useReportingChain';
 import { layoutWithDagre, NODE_WIDTH, NODE_HEIGHT } from './layoutEngine';
 import { EmployeeNode, type EmployeeNodeActions, type EmployeeNodeData } from './EmployeeNode';
 import { LinkExistingEmployeeModal } from '../shared/LinkExistingEmployeeModal';
+import { PhotoEditorModal } from '../shared/PhotoEditorModal';
 import { DepartmentLegend } from './DepartmentLegend';
 import { EmployeeDetailPanel } from './EmployeeDetailPanel';
 import { exportChartAsPng } from './exportChartImage';
@@ -46,7 +47,10 @@ export function OrgChartView() {
     createEmployee,
     updateEmployee,
     updateEmployeePhoto,
+    updateEmployeePhotoFrame,
   } = useEmployees(currentOrgChartId);
+  const { replacePhoto, saveFrame, deletePhoto } = usePhotoActions(employees, updateEmployeePhoto, updateEmployeePhotoFrame);
+  const [photoEditEmployeeId, setPhotoEditEmployeeId] = useState<string | null>(null);
   const {
     relationships,
     loading: relationshipsLoading,
@@ -241,21 +245,6 @@ export function OrgChartView() {
     [],
   );
 
-  const replacePhoto = useCallback(
-    async (employeeId: string, file: File) => {
-      const oldPath = employeeById.get(employeeId)?.photo_path ?? null;
-      const newPath = await uploadEmployeePhoto(employeeId, file);
-      await updateEmployeePhoto(employeeId, newPath);
-      if (oldPath) {
-        // Best-effort cleanup — the employee record already points at the
-        // new photo either way, so a failure here is just an orphaned
-        // object in storage, not a user-visible problem.
-        deleteEmployeePhoto(oldPath).catch(() => {});
-      }
-    },
-    [employeeById, updateEmployeePhoto],
-  );
-
   const actions = useMemo<EmployeeNodeActions>(
     () => ({
       quickAddManager,
@@ -264,7 +253,7 @@ export function OrgChartView() {
       openLinkSubordinate,
       openAssignments: setAssignmentsEmployeeId,
       updateEmployee,
-      replacePhoto,
+      openPhotoEditor: setPhotoEditEmployeeId,
     }),
     [
       quickAddManager,
@@ -273,7 +262,6 @@ export function OrgChartView() {
       openLinkSubordinate,
       setAssignmentsEmployeeId,
       updateEmployee,
-      replacePhoto,
     ],
   );
 
@@ -649,6 +637,28 @@ export function OrgChartView() {
           onClose={() => setLinkModal(null)}
         />
       )}
+      {photoEditEmployeeId &&
+        (() => {
+          const photoEmployee = employeeById.get(photoEditEmployeeId);
+          if (!photoEmployee) return null;
+          return (
+            <PhotoEditorModal
+              employeeName={`${photoEmployee.first_name} ${photoEmployee.last_name}`}
+              photoPath={photoEmployee.photo_path}
+              currentFrame={{
+                zoom: photoEmployee.photo_zoom,
+                panX: photoEmployee.photo_pan_x,
+                panY: photoEmployee.photo_pan_y,
+              }}
+              onSave={async (file, frame) => {
+                if (file) await replacePhoto(photoEmployee.id, file);
+                await saveFrame(photoEmployee.id, frame);
+              }}
+              onDelete={() => deletePhoto(photoEmployee.id)}
+              onClose={() => setPhotoEditEmployeeId(null)}
+            />
+          );
+        })()}
     </div>
   );
 }

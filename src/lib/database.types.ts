@@ -16,6 +16,9 @@ export interface Database {
           role_desc: string | null;
           department: string | null;
           photo_path: string | null;
+          photo_zoom: number;
+          photo_pan_x: number;
+          photo_pan_y: number;
           org_chart_id: string;
           created_at: string;
           updated_at: string;
@@ -30,6 +33,9 @@ export interface Database {
           role_desc?: string | null;
           department?: string | null;
           photo_path?: string | null;
+          photo_zoom?: number;
+          photo_pan_x?: number;
+          photo_pan_y?: number;
           org_chart_id: string;
         };
         Update: {
@@ -39,6 +45,9 @@ export interface Database {
           role_desc?: string | null;
           department?: string | null;
           photo_path?: string | null;
+          photo_zoom?: number;
+          photo_pan_x?: number;
+          photo_pan_y?: number;
         };
         Relationships: [];
       };

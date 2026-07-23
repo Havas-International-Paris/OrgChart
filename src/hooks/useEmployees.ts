@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import * as employeeService from '../services/employeeService';
-import type { Employee, EmployeeInput } from '../types/domain';
+import type { Employee, EmployeeInput, PhotoFrameValues } from '../types/domain';
 
 export function useEmployees(orgChartId: string | null) {
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -69,6 +69,11 @@ export function useEmployees(orgChartId: string | null) {
     },
     updateEmployeePhoto: async (id: string, photoPath: string | null) => {
       const updated = await employeeService.updateEmployeePhoto(id, photoPath);
+      await refresh();
+      return updated;
+    },
+    updateEmployeePhotoFrame: async (id: string, frame: PhotoFrameValues) => {
+      const updated = await employeeService.updateEmployeePhotoFrame(id, frame);
       await refresh();
       return updated;
     },

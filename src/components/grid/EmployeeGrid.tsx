@@ -16,12 +16,15 @@ import { useAssignments } from '../../hooks/useAssignments';
 import { useClientsMissions } from '../../hooks/useClientsMissions';
 import { useJobTitles } from '../../hooks/useJobTitles';
 import { useDepartments } from '../../hooks/useDepartments';
+import { usePhotoActions } from '../../hooks/usePhotoActions';
 import { useSelectionStore } from '../../stores/selectionStore';
 import { nameColumnDefs, roleDescColumnDef } from './gridColumnDefs';
 import { useRowStabilizer } from './useRowStabilizer';
 import { ManagerEditorModal } from '../shared/ManagerEditorModal';
+import { PhotoAvatar } from '../shared/PhotoAvatar';
+import { PhotoEditorModal } from '../shared/PhotoEditorModal';
 import { etpStatus } from '../../lib/etpStatus';
-import { departmentColorMap } from '../../lib/departmentColor';
+import { departmentColorMap, NEUTRAL_DEPARTMENT_COLOR } from '../../lib/departmentColor';
 import { buildEmployeesCsv, downloadCsv } from '../../lib/exportEmployeesCsv';
 import type { Employee } from '../../types/domain';
 
@@ -29,8 +32,18 @@ ModuleRegistry.registerModules([AllCommunityModule]);
 
 export function EmployeeGrid() {
   const currentOrgChartId = useSelectionStore((s) => s.currentOrgChartId);
-  const { employees, loading, error, createEmployee, updateEmployee, deleteEmployee } =
-    useEmployees(currentOrgChartId);
+  const {
+    employees,
+    loading,
+    error,
+    createEmployee,
+    updateEmployee,
+    deleteEmployee,
+    updateEmployeePhoto,
+    updateEmployeePhotoFrame,
+  } = useEmployees(currentOrgChartId);
+  const { replacePhoto, saveFrame, deletePhoto } = usePhotoActions(employees, updateEmployeePhoto, updateEmployeePhotoFrame);
+  const [photoEditEmployeeId, setPhotoEditEmployeeId] = useState<string | null>(null);
   const { managersOf, wouldCreateCycle, replaceManagersForEmployee } = useReportingGraph(currentOrgChartId);
   const { assignmentsOf, totalEtpOf } = useAssignments(currentOrgChartId);
   const { clientsMissions } = useClientsMissions();
@@ -97,6 +110,24 @@ export function EmployeeGrid() {
 
   const columnDefs = useMemo<ColDef<Employee>[]>(
     () => [
+      {
+        headerName: '',
+        width: 52,
+        sortable: false,
+        filter: false,
+        cellRenderer: (params: { data: Employee }) => (
+          <PhotoAvatar
+            employeeId={params.data.id}
+            firstName={params.data.first_name}
+            lastName={params.data.last_name}
+            color={departmentColorByName.get(params.data.department ?? '') ?? NEUTRAL_DEPARTMENT_COLOR}
+            photoPath={params.data.photo_path}
+            frame={{ zoom: params.data.photo_zoom, panX: params.data.photo_pan_x, panY: params.data.photo_pan_y }}
+            size={28}
+            onOpen={setPhotoEditEmployeeId}
+          />
+        ),
+      },
       { ...nameColumnDefs[0], comparator: comparatorFor('first_name') },
       { ...nameColumnDefs[1], comparator: comparatorFor('last_name') },
       {
@@ -289,6 +320,28 @@ export function EmployeeGrid() {
           onClose={() => setEditingManagersFor(null)}
         />
       )}
+      {photoEditEmployeeId &&
+        (() => {
+          const photoEmployee = employeeById.get(photoEditEmployeeId);
+          if (!photoEmployee) return null;
+          return (
+            <PhotoEditorModal
+              employeeName={`${photoEmployee.first_name} ${photoEmployee.last_name}`}
+              photoPath={photoEmployee.photo_path}
+              currentFrame={{
+                zoom: photoEmployee.photo_zoom,
+                panX: photoEmployee.photo_pan_x,
+                panY: photoEmployee.photo_pan_y,
+              }}
+              onSave={async (file, frame) => {
+                if (file) await replacePhoto(photoEmployee.id, file);
+                await saveFrame(photoEmployee.id, frame);
+              }}
+              onDelete={() => deletePhoto(photoEmployee.id)}
+              onClose={() => setPhotoEditEmployeeId(null)}
+            />
+          );
+        })()}
     </div>
   );
 }

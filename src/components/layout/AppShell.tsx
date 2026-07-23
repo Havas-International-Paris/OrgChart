@@ -13,6 +13,7 @@ import { OrgChartManagerModal } from './OrgChartManagerModal';
 import { OrgChartView } from '../chart/OrgChartView';
 import { SearchBar } from '../shared/SearchBar';
 import { AssignmentEditorModal } from '../shared/AssignmentEditorModal';
+import { ErrorBoundary } from '../shared/ErrorBoundary';
 
 export function AppShell() {
   const { session, loading, signOut } = useAuth();
@@ -119,7 +120,9 @@ export function AppShell() {
           <LeftPanel />
         </section>
         <section className="w-1/2 overflow-hidden">
-          <OrgChartView />
+          <ErrorBoundary>
+            <OrgChartView />
+          </ErrorBoundary>
         </section>
       </div>
       {assignmentsEmployee && (
