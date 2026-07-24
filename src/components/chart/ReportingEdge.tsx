@@ -89,19 +89,23 @@ function clearDropStyle(el: Element | null) {
 }
 
 // The delete button sits at the edge's MIDPOINT (getBezierPath's
-// labelX/labelY) and the drag-to-reassign grip sits further along, at
-// GRIP_T (see bezierPointAt) — neither lives at either literal endpoint.
-// This is deliberate: every EmployeeNode has exactly one unnamed Handle per
-// side, so several edges converging on the same person (multi-reporting)
-// all resolve to the exact same endpoint pixel in React Flow — its own
-// built-in onReconnect draws its grab zone right there, so overlapping
-// edges would be unreachable except the topmost one. Any point strictly
-// between the two ends depends on BOTH of them, so it stays visually
-// separated even when one end is shared, which is why this doesn't use
-// React Flow's native reconnect at all. The grip is deliberately biased
-// toward the manager end (not left at the midpoint like the delete
-// button) so that dragging it visually reads as detaching the manager
-// side specifically, since that's the only end reassigning ever moves.
+// labelX/labelY) and the drag-to-reassign grip sits further along, biased
+// toward the manager end so dragging it visually reads as detaching the
+// manager side specifically (the only end reassigning ever moves) — never
+// at either literal endpoint. This is deliberate: every EmployeeNode has
+// exactly one unnamed Handle per side, so several edges converging on the
+// same person (multi-reporting) all resolve to the exact same endpoint
+// pixel in React Flow — its own built-in onReconnect draws its grab zone
+// right there, so overlapping edges would be unreachable except the
+// topmost one. The bias must be expressed along whichever axis actually
+// distinguishes two edges sharing an endpoint: for secondary (bezier)
+// edges that's inherent to the curve's parametric shape (bezierPointAt),
+// but for primary (step-routed) edges the axis matters — the step path's
+// two vertical stubs are identical for every direct report of one manager
+// (same sourceX/sourceY/targetY), so a grip placed there collapses for
+// every sibling at once; only the horizontal jog varies per sibling (it
+// depends on that child's own targetX), which is why the primary-edge
+// formula below is expressed in X, not Y.
 export function ReportingEdge({
   id,
   sourceX,
@@ -120,17 +124,20 @@ export function ReportingEdge({
   const isPrimary = data!.isPrimary;
   // Primary edges route as sharp right angles (borderRadius: 0 — the same
   // technique React Flow's own built-in StepEdge uses internally);
-  // secondary/dotted ones keep the bezier curve. The grip's position needs
-  // the same split: on a step path, React Flow's own getPoints() always
-  // jogs horizontally at exactly the 50%-of-span midpoint for our fixed
-  // Bottom→Top handle pair, so GRIP_T (0.2, 20%-of-span) always lands on
-  // the first vertical segment — safe unconditionally, not just for
-  // "typical" layouts.
+  // secondary/dotted ones keep the bezier curve.
   const [path, labelX, labelY] = isPrimary
     ? getSmoothStepPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition, borderRadius: 0 })
     : getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
+  // For a step-routed primary edge, the grip must sit on the horizontal
+  // jog (the only segment that varies per sibling — see the comment
+  // above) rather than either vertical stub, which every direct report of
+  // one manager shares identically. (sourceY+targetY)/2 reproduces
+  // getSmoothStepPath's own default centerY (matches labelY); the -14
+  // nudge keeps the grip visually distinct from the delete button even
+  // when a lone direct report is centered directly below its manager
+  // (targetX ≈ sourceX, collapsing the horizontal segment to ~0 width).
   const gripPoint = isPrimary
-    ? { x: sourceX, y: sourceY + GRIP_T * (targetY - sourceY) }
+    ? { x: sourceX + GRIP_T * (targetX - sourceX), y: (sourceY + targetY) / 2 - 14 }
     : bezierPointAt(GRIP_T, { sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
 
   function handleGripMouseDown(e: ReactMouseEvent) {
