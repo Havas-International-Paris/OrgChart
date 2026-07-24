@@ -16,7 +16,7 @@ import { useJobTitles } from '../../hooks/useJobTitles';
 import { useDepartments } from '../../hooks/useDepartments';
 import { useClientsMissions } from '../../hooks/useClientsMissions';
 import { usePhotoActions } from '../../hooks/usePhotoActions';
-import { departmentColorMap } from '../../lib/departmentColor';
+import { departmentColorMap, NEUTRAL_DEPARTMENT_COLOR } from '../../lib/departmentColor';
 import { useSelectionStore } from '../../stores/selectionStore';
 import { useVisibleGraph } from './useVisibleGraph';
 import { useReportingChain } from './useReportingChain';
@@ -427,6 +427,9 @@ export function OrgChartView() {
       const advertiserNames = assignmentsOf(employee.id)
         .map((a) => clientMissionNameById.get(a.client_mission_id))
         .filter((name): name is string => Boolean(name));
+      const isDimmed =
+        (deptFilter !== null && employee.department !== deptFilter) ||
+        (activeEmployeeId !== null && !relatedIds.has(employee.id));
 
       return [
         {
@@ -437,9 +440,12 @@ export function OrgChartView() {
             isExpanded: expandedNodeIds.has(employee.id),
             isSelected: employee.id === selectedEmployeeId,
             isMatch: matchedIds.has(employee.id),
-            isDimmed:
-              (deptFilter !== null && employee.department !== deptFilter) ||
-              (activeEmployeeId !== null && !relatedIds.has(employee.id)),
+            isDimmed,
+            // Gated on !isDimmed so a card can never be both glowing and
+            // faded at once (isDimmed also factors in the separate
+            // department-legend filter, which is independent of the active
+            // hover chain) — see the plan's note on this interaction.
+            isChainHighlighted: !isDimmed && activeEmployeeId !== null && relatedIds.has(employee.id),
             assignmentsCount: assignmentsOf(employee.id).length,
             assignmentsTotalEtpVendu: totalEtpOf(employee.id),
             assignmentsTotalEtpReel: totalEtpReelOf(employee.id),
@@ -474,6 +480,16 @@ export function OrgChartView() {
       return 'dimmed';
     };
 
+    // The highlighted color for an edge is always the SUBORDINATE's (the
+    // employee/target end's) department color, never the manager's — this
+    // is what makes a chain crossing departments visibly switch color at
+    // the point where the subordinate side changes. Mirrors EmployeeNode's
+    // own `swatch` fallback exactly.
+    const subordinateColor = (employeeId: string): string => {
+      const department = employeeById.get(employeeId)?.department;
+      return (department ? departmentColorByName.get(department) : null) ?? NEUTRAL_DEPARTMENT_COLOR;
+    };
+
     const edgeData = (relationship: ReportingRelationship): ReportingEdgeData => ({
       onDelete: () => handleDeleteRelationship(relationship),
       onReassignHover: (targetId) => computeDropValidity(relationship.employee_id, targetId),
@@ -481,6 +497,7 @@ export function OrgChartView() {
       onDragStateChange: (dragging) => {
         isReassigningEdgeRef.current = dragging;
       },
+      isPrimary: relationship.is_primary,
     });
 
     const styledPrimaryEdges: Edge<ReportingEdgeData>[] = primaryEdgeBase.map(({ relationship, ...e }) => {
@@ -491,7 +508,7 @@ export function OrgChartView() {
         data: edgeData(relationship),
         style:
           state === 'highlighted'
-            ? { stroke: '#0f172a', strokeWidth: 2.5 }
+            ? { stroke: subordinateColor(e.target), strokeWidth: 2.5 }
             : state === 'dimmed'
               ? { opacity: 0.08 }
               : undefined,
@@ -506,7 +523,7 @@ export function OrgChartView() {
         data: edgeData(relationship),
         style:
           state === 'highlighted'
-            ? { stroke: '#0f172a', strokeWidth: 2.5, strokeDasharray: '2 4' }
+            ? { stroke: subordinateColor(e.target), strokeWidth: 2.5, strokeDasharray: '2 4' }
             : state === 'dimmed'
               ? { opacity: 0.08, strokeDasharray: '6 4' }
               : { strokeDasharray: '6 4' },
@@ -519,6 +536,7 @@ export function OrgChartView() {
     layoutedNodeById,
     primaryEdges,
     secondaryEdges,
+    employeeById,
     childrenOf,
     expandedNodeIds,
     selectedEmployeeId,

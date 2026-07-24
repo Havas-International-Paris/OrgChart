@@ -25,6 +25,7 @@ export interface EmployeeNodeData {
   isSelected: boolean;
   isMatch: boolean;
   isDimmed: boolean;
+  isChainHighlighted: boolean;
   assignmentsCount: number;
   assignmentsTotalEtpVendu: number;
   assignmentsTotalEtpReel: number;
@@ -194,6 +195,7 @@ function EmployeeNodeImpl({ data }: NodeProps<EmployeeNodeData>) {
     isSelected,
     isMatch,
     isDimmed,
+    isChainHighlighted,
     assignmentsTotalEtpVendu,
     assignmentsTotalEtpReel,
     advertiserNames,
@@ -235,17 +237,25 @@ function EmployeeNodeImpl({ data }: NodeProps<EmployeeNodeData>) {
     }
   }
 
-  const borderClass = isSelected
-    ? 'border-slate-900 ring-2 ring-slate-900'
-    : isMatch
-      ? 'border-amber-400 ring-2 ring-amber-300'
-      : 'border-slate-300';
+  const swatch = departmentColor ?? NEUTRAL_DEPARTMENT_COLOR;
+  const trackColor = withAlpha(swatch, 0.15);
+
+  // Chain-highlight (colored border + glow, in the card's OWN department
+  // color) takes total precedence over the older isSelected/isMatch
+  // styling — activeEmployeeId already falls back to selectedEmployeeId
+  // and relatedIds always includes the active id itself, so the pinned
+  // card always satisfies isChainHighlighted whenever a chain is active;
+  // this cleanly replaces its old black ring too, matching the reference.
+  const borderClass = isChainHighlighted
+    ? 'border'
+    : isSelected
+      ? 'border-slate-900 ring-2 ring-slate-900'
+      : isMatch
+        ? 'border-amber-400 ring-2 ring-amber-300'
+        : 'border-slate-300';
 
   const textInputClass =
     'min-w-0 flex-1 rounded border border-slate-300 px-1 py-0.5 text-sm font-semibold text-slate-900';
-
-  const swatch = departmentColor ?? NEUTRAL_DEPARTMENT_COLOR;
-  const trackColor = withAlpha(swatch, 0.15);
   const showBadge = directReportsCount > 0 || functionalManagerCount > 0;
   const badgeText =
     directReportsCount > 0
@@ -255,7 +265,12 @@ function EmployeeNodeImpl({ data }: NodeProps<EmployeeNodeData>) {
   return (
     <div
       className={`relative w-[220px] rounded-lg border bg-white px-3 pb-6 pt-3 shadow-sm ${borderClass}`}
-      style={{ opacity: isDimmed ? 0.3 : 1 }}
+      style={{
+        opacity: isDimmed ? 0.3 : 1,
+        ...(isChainHighlighted
+          ? { borderColor: swatch, boxShadow: `0 0 0 1px ${swatch}, 0 0 16px ${withAlpha(swatch, 0.5)}` }
+          : {}),
+      }}
     >
       <Handle type="target" position={Position.Top} className="!bg-slate-400" />
 

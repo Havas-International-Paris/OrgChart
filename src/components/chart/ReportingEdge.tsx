@@ -3,6 +3,7 @@ import {
   BaseEdge,
   EdgeLabelRenderer,
   getBezierPath,
+  getSmoothStepPath,
   getStraightPath,
   useReactFlow,
   Position,
@@ -69,6 +70,10 @@ export interface ReportingEdgeData {
   // the drop target, firing genuine native mouseenter/mouseleave that would
   // otherwise repeatedly re-dim most of the chart).
   onDragStateChange: (dragging: boolean) => void;
+  // Primary relationships route as right angles (getSmoothStepPath); only
+  // secondary/dotted ones keep the original bezier curve — see the path
+  // computation below.
+  isPrimary: boolean;
 }
 
 function applyDropStyle(el: HTMLElement, validity: DropValidity) {
@@ -112,15 +117,21 @@ export function ReportingEdge({
   const [hovering, setHovering] = useState(false);
   const [dragPoint, setDragPoint] = useState<{ x: number; y: number } | null>(null);
   const { screenToFlowPosition } = useReactFlow();
-  const [path, labelX, labelY] = getBezierPath({
-    sourceX,
-    sourceY,
-    sourcePosition,
-    targetX,
-    targetY,
-    targetPosition,
-  });
-  const gripPoint = bezierPointAt(GRIP_T, { sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
+  const isPrimary = data!.isPrimary;
+  // Primary edges route as sharp right angles (borderRadius: 0 — the same
+  // technique React Flow's own built-in StepEdge uses internally);
+  // secondary/dotted ones keep the bezier curve. The grip's position needs
+  // the same split: on a step path, React Flow's own getPoints() always
+  // jogs horizontally at exactly the 50%-of-span midpoint for our fixed
+  // Bottom→Top handle pair, so GRIP_T (0.2, 20%-of-span) always lands on
+  // the first vertical segment — safe unconditionally, not just for
+  // "typical" layouts.
+  const [path, labelX, labelY] = isPrimary
+    ? getSmoothStepPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition, borderRadius: 0 })
+    : getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
+  const gripPoint = isPrimary
+    ? { x: sourceX, y: sourceY + GRIP_T * (targetY - sourceY) }
+    : bezierPointAt(GRIP_T, { sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
 
   function handleGripMouseDown(e: ReactMouseEvent) {
     e.stopPropagation();
