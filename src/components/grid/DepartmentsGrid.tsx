@@ -54,7 +54,7 @@ export function DepartmentsGrid() {
   const handleCellValueChanged = useCallback(
     (event: CellValueChangedEvent<Department>) => {
       if (!event.data) return;
-      updateDepartment(event.data.id, event.newValue).catch((err) =>
+      updateDepartment(event.data.id, event.newValue, event.oldValue).catch((err) =>
         setActionError(err instanceof Error ? err.message : String(err)),
       );
     },

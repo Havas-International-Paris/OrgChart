@@ -11,7 +11,7 @@ interface ClientAssignmentsModalProps {
     etpVendu: number | null,
     etpReel: number | null,
     remunerationModel: RemunerationModel | null,
-  ) => Promise<void>;
+  ) => Promise<Assignment>;
   updateAssignmentEtpVendu: (id: string, etpVendu: number | null) => Promise<void>;
   updateAssignmentEtpReel: (id: string, etpReel: number | null) => Promise<void>;
   updateAssignmentRemuneration: (

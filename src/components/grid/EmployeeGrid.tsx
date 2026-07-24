@@ -16,6 +16,8 @@ import { useClientsMissions } from '../../hooks/useClientsMissions';
 import { useJobTitles } from '../../hooks/useJobTitles';
 import { useDepartments } from '../../hooks/useDepartments';
 import { usePhotoActions } from '../../hooks/usePhotoActions';
+import { useEmployeeDeletion } from '../../hooks/useEmployeeDeletion';
+import { UndoRedoButtons } from '../shared/UndoRedoButtons';
 import { useSelectionStore } from '../../stores/selectionStore';
 import { useUiPreferencesStore } from '../../stores/uiPreferencesStore';
 import { getGridTheme, scaleColumnWidth } from '../../lib/gridTheme';
@@ -46,8 +48,15 @@ export function EmployeeGrid() {
   } = useEmployees(currentOrgChartId);
   const { replacePhoto, saveFrame, deletePhoto } = usePhotoActions(employees, updateEmployeePhoto, updateEmployeePhotoFrame);
   const [photoEditEmployeeId, setPhotoEditEmployeeId] = useState<string | null>(null);
-  const { managersOf, wouldCreateCycle, replaceManagersForEmployee } = useReportingGraph(currentOrgChartId);
-  const { assignmentsOf, totalEtpOf } = useAssignments(currentOrgChartId);
+  const { relationships, managersOf, addRelationship, wouldCreateCycle, replaceManagersForEmployee } =
+    useReportingGraph(currentOrgChartId);
+  const { assignments, assignmentsOf, totalEtpOf, createAssignment } = useAssignments(currentOrgChartId);
+  const deleteEmployeeWithHistory = useEmployeeDeletion(
+    currentOrgChartId,
+    { employees, createEmployee, deleteEmployee },
+    { relationships, addRelationship },
+    { assignments, createAssignment },
+  );
   const { clientsMissions } = useClientsMissions();
   const { jobTitles } = useJobTitles();
   const { departments } = useDepartments();
@@ -89,7 +98,7 @@ export function EmployeeGrid() {
     (event: CellValueChangedEvent<Employee>) => {
       const field = event.colDef.field as keyof Employee | undefined;
       if (!field || !event.data) return;
-      updateEmployee(event.data.id, { [field]: event.newValue });
+      updateEmployee(event.data.id, { [field]: event.newValue }, { [field]: event.oldValue });
     },
     [updateEmployee],
   );
@@ -242,7 +251,7 @@ export function EmployeeGrid() {
         filter: false,
         cellRenderer: (params: { data: Employee }) => (
           <button
-            onClick={() => deleteEmployee(params.data.id)}
+            onClick={() => deleteEmployeeWithHistory(params.data.id)}
             title="Supprimer"
             className="text-slate-400 hover:text-red-600"
           >
@@ -252,7 +261,7 @@ export function EmployeeGrid() {
       },
     ],
     [
-      deleteEmployee,
+      deleteEmployeeWithHistory,
       managersOf,
       employeeById,
       assignmentsOf,
@@ -299,6 +308,7 @@ export function EmployeeGrid() {
           >
             Exporter CSV
           </button>
+          <UndoRedoButtons />
           <button
             onClick={handleAddEmployee}
             className="rounded bg-slate-900 px-3 py-1 text-xs font-medium text-white"

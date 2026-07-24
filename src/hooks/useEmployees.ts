@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import * as employeeService from '../services/employeeService';
 import type { Employee, EmployeeInput, PhotoFrameValues } from '../types/domain';
+import { useHistoryStore } from '../stores/historyStore';
+import { boxFor } from '../stores/idRegistryStore';
 
 export function useEmployees(orgChartId: string | null) {
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -58,34 +60,108 @@ export function useEmployees(orgChartId: string | null) {
     };
   }, [orgChartId, refresh]);
 
+  const createEmployee = async (input: EmployeeInput): Promise<Employee> => {
+    if (!orgChartId) throw new Error('No active org chart');
+    const created = await employeeService.createEmployee(orgChartId, input);
+    await refresh();
+    const box = boxFor(created.id);
+    useHistoryStore.getState().push({
+      label: `Créer ${created.first_name} ${created.last_name}`,
+      orgChartId,
+      undo: () => deleteEmployee(box.id),
+      redo: async () => {
+        const recreated = await employeeService.createEmployee(orgChartId, input);
+        box.id = recreated.id;
+        await refresh();
+      },
+    });
+    return created;
+  };
+
+  const updateEmployee = async (
+    id: string,
+    changes: Partial<EmployeeInput>,
+    // AG Grid mutates its row data object in place (the same object sitting
+    // in `employees`) BEFORE firing onCellValueChanged, so by the time this
+    // runs, employees.find(id) can no longer be trusted for the pre-edit
+    // value of an AG-Grid-edited field — the grid callers pass the real old
+    // values here (from the event's own oldValue) instead. Non-grid callers
+    // (EmployeeNode's inline editor) omit this and fall back to the array
+    // lookup, which is accurate for them since nothing mutates it early.
+    oldValuesHint?: Partial<EmployeeInput>,
+  ): Promise<Employee> => {
+    const before = employees.find((e) => e.id === id);
+    const updated = await employeeService.updateEmployee(id, changes);
+    await refresh();
+    if (before && orgChartId) {
+      const box = boxFor(id);
+      const oldChanges: Partial<EmployeeInput> = {};
+      for (const key of Object.keys(changes) as (keyof EmployeeInput)[]) {
+        (oldChanges as Record<string, unknown>)[key] =
+          oldValuesHint && key in oldValuesHint ? oldValuesHint[key] : before[key];
+      }
+      useHistoryStore.getState().push({
+        label: `Modifier ${before.first_name} ${before.last_name}`,
+        orgChartId,
+        undo: async () => { await updateEmployee(box.id, oldChanges); },
+        redo: async () => { await updateEmployee(box.id, changes); },
+      });
+    }
+    return updated;
+  };
+
+  // Deliberately NOT auto-recorded: deleting an employee cascades (FK) and
+  // silently removes every ReportingRelationship/Assignment row referencing
+  // it too, which a plain "recreate the employee" undo can't see from here.
+  // Callers that need undo (OrgChartView, EmployeeGrid) build a compound
+  // command via useEmployeeDeletion.ts instead, which has all three data
+  // hooks in scope to capture and restore.
+  const deleteEmployee = async (id: string) => {
+    await employeeService.deleteEmployee(id);
+    await refresh();
+  };
+
+  // Deliberately NOT auto-recorded: usePhotoActions.ts's replacePhoto/
+  // deletePhoto delete the old Storage object with a fire-and-forget
+  // best-effort call — once that runs, the old image bytes are gone, so an
+  // undo could never losslessly restore them. Excluded from this system
+  // entirely, unlike updateEmployeePhotoFrame below (a pure DB field swap,
+  // no storage mutation).
+  const updateEmployeePhoto = async (id: string, photoPath: string | null): Promise<Employee> => {
+    const updated = await employeeService.updateEmployeePhoto(id, photoPath);
+    await refresh();
+    return updated;
+  };
+
+  const updateEmployeePhotoFrame = async (id: string, frame: PhotoFrameValues): Promise<Employee> => {
+    const before = employees.find((e) => e.id === id);
+    const updated = await employeeService.updateEmployeePhotoFrame(id, frame);
+    await refresh();
+    if (before && orgChartId) {
+      const box = boxFor(id);
+      const oldFrame: PhotoFrameValues = {
+        zoom: before.photo_zoom,
+        panX: before.photo_pan_x,
+        panY: before.photo_pan_y,
+      };
+      useHistoryStore.getState().push({
+        label: `Recadrer la photo de ${before.first_name} ${before.last_name}`,
+        orgChartId,
+        undo: async () => { await updateEmployeePhotoFrame(box.id, oldFrame); },
+        redo: async () => { await updateEmployeePhotoFrame(box.id, frame); },
+      });
+    }
+    return updated;
+  };
+
   return {
     employees,
     loading,
     error,
-    createEmployee: async (input: EmployeeInput) => {
-      if (!orgChartId) throw new Error('No active org chart');
-      const created = await employeeService.createEmployee(orgChartId, input);
-      await refresh();
-      return created;
-    },
-    updateEmployee: async (id: string, changes: Partial<EmployeeInput>) => {
-      const updated = await employeeService.updateEmployee(id, changes);
-      await refresh();
-      return updated;
-    },
-    deleteEmployee: async (id: string) => {
-      await employeeService.deleteEmployee(id);
-      await refresh();
-    },
-    updateEmployeePhoto: async (id: string, photoPath: string | null) => {
-      const updated = await employeeService.updateEmployeePhoto(id, photoPath);
-      await refresh();
-      return updated;
-    },
-    updateEmployeePhotoFrame: async (id: string, frame: PhotoFrameValues) => {
-      const updated = await employeeService.updateEmployeePhotoFrame(id, frame);
-      await refresh();
-      return updated;
-    },
+    createEmployee,
+    updateEmployee,
+    deleteEmployee,
+    updateEmployeePhoto,
+    updateEmployeePhotoFrame,
   };
 }

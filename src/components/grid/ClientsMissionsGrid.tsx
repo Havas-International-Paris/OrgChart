@@ -70,7 +70,7 @@ export function ClientsMissionsGrid() {
     (event: CellValueChangedEvent<ClientMission>) => {
       const field = event.colDef.field as keyof ClientMission | undefined;
       if (!field || !event.data) return;
-      updateClientMission(event.data.id, { [field]: event.newValue }).catch((err) =>
+      updateClientMission(event.data.id, { [field]: event.newValue }, { [field]: event.oldValue }).catch((err) =>
         setActionError(err instanceof Error ? err.message : String(err)),
       );
     },

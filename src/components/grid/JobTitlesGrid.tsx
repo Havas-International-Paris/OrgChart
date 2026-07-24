@@ -50,7 +50,7 @@ export function JobTitlesGrid() {
   const handleCellValueChanged = useCallback(
     (event: CellValueChangedEvent<JobTitle>) => {
       if (!event.data) return;
-      updateJobTitle(event.data.id, event.newValue).catch((err) =>
+      updateJobTitle(event.data.id, event.newValue, event.oldValue).catch((err) =>
         setActionError(err instanceof Error ? err.message : String(err)),
       );
     },

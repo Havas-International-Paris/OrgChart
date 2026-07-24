@@ -15,14 +15,19 @@ export async function createRelationship(
   employeeId: string,
   managerId: string,
   isPrimary: boolean,
-): Promise<void> {
-  const { error } = await supabase.from('reporting_relationships').insert({
-    employee_id: employeeId,
-    manager_id: managerId,
-    is_primary: isPrimary,
-    org_chart_id: orgChartId,
-  });
+): Promise<ReportingRelationship> {
+  const { data, error } = await supabase
+    .from('reporting_relationships')
+    .insert({
+      employee_id: employeeId,
+      manager_id: managerId,
+      is_primary: isPrimary,
+      org_chart_id: orgChartId,
+    })
+    .select()
+    .single();
   if (error) throw error;
+  return data as ReportingRelationship;
 }
 
 export async function updateRelationshipPrimary(id: string, isPrimary: boolean): Promise<void> {

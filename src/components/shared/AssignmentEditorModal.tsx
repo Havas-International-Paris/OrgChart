@@ -6,19 +6,25 @@ import type {
   Employee,
   RemunerationModel,
 } from '../../types/domain';
+import { useHistoryStore, withSuppressedRecording } from '../../stores/historyStore';
+import { createIdBox } from '../../lib/history/idBox';
+import { registerIdBox } from '../../stores/idRegistryStore';
 
 interface AssignmentEditorModalProps {
   employee: Employee;
   assignments: Assignment[];
   clientsMissions: ClientMission[];
+  orgChartId: string;
   findOrCreate: (name: string, type: ClientMissionType) => Promise<ClientMission>;
+  createClientMission: (name: string, type: ClientMissionType) => Promise<ClientMission>;
+  deleteClientMission: (id: string) => Promise<void>;
   createAssignment: (
     employeeId: string,
     clientMissionId: string,
     etpVendu: number | null,
     etpReel: number | null,
     remunerationModel: RemunerationModel | null,
-  ) => Promise<void>;
+  ) => Promise<Assignment>;
   updateAssignmentEtpVendu: (id: string, etpVendu: number | null) => Promise<void>;
   updateAssignmentEtpReel: (id: string, etpReel: number | null) => Promise<void>;
   updateAssignmentRemuneration: (
@@ -34,7 +40,10 @@ export function AssignmentEditorModal({
   employee,
   assignments,
   clientsMissions,
+  orgChartId,
   findOrCreate,
+  createClientMission,
+  deleteClientMission,
   createAssignment,
   updateAssignmentEtpVendu,
   updateAssignmentEtpReel,
@@ -96,8 +105,51 @@ export function AssignmentEditorModal({
     const finalVendu = model === 'commission' ? null : etpVendu;
     setSubmitting(true);
     await runMutation(async () => {
-      const cm = await findOrCreate(name, newType);
-      await createAssignment(employee.id, cm.id, finalVendu, etpReel, model);
+      // Peek at whether findOrCreate is about to insert a new ClientMission
+      // (same check it does internally) BEFORE calling it, so undo knows
+      // whether it's allowed to delete that client/mission — never a
+      // pre-existing one the user didn't create in this same action.
+      const willCreateClientMission = !clientsMissions.some(
+        (cm) => cm.type === newType && cm.name.toLowerCase() === name.toLowerCase(),
+      );
+      const cmIdBox = willCreateClientMission ? createIdBox('') : null;
+      let cm!: ClientMission;
+      let assignmentId!: string;
+      await withSuppressedRecording(async () => {
+        cm = await findOrCreate(name, newType);
+        if (cmIdBox) {
+          cmIdBox.id = cm.id;
+          registerIdBox(cm.id, cmIdBox);
+        }
+        const created = await createAssignment(employee.id, cm.id, finalVendu, etpReel, model);
+        assignmentId = created.id;
+      });
+      const assignmentIdBox = createIdBox(assignmentId);
+      registerIdBox(assignmentId, assignmentIdBox);
+
+      useHistoryStore.getState().push({
+        label: `Ajouter une affectation (${cm.name})`,
+        orgChartId,
+        undo: () =>
+          withSuppressedRecording(async () => {
+            await deleteAssignment(assignmentIdBox.id);
+            if (cmIdBox) await deleteClientMission(cmIdBox.id);
+          }),
+        redo: () =>
+          withSuppressedRecording(async () => {
+            let liveCmId = cm.id;
+            if (cmIdBox) {
+              const recreatedCm = await createClientMission(cm.name, cm.type);
+              cmIdBox.id = recreatedCm.id;
+              registerIdBox(recreatedCm.id, cmIdBox);
+              liveCmId = recreatedCm.id;
+            }
+            const recreated = await createAssignment(employee.id, liveCmId, finalVendu, etpReel, model);
+            assignmentIdBox.id = recreated.id;
+            registerIdBox(recreated.id, assignmentIdBox);
+          }),
+      });
+
       setNewName('');
       setNewEtp('');
       setNewReel('');

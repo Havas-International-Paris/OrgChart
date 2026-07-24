@@ -16,8 +16,13 @@ import { useJobTitles } from '../../hooks/useJobTitles';
 import { useDepartments } from '../../hooks/useDepartments';
 import { useClientsMissions } from '../../hooks/useClientsMissions';
 import { usePhotoActions } from '../../hooks/usePhotoActions';
+import { useEmployeeDeletion } from '../../hooks/useEmployeeDeletion';
+import { UndoRedoButtons } from '../shared/UndoRedoButtons';
 import { departmentColorMap, NEUTRAL_DEPARTMENT_COLOR } from '../../lib/departmentColor';
 import { useSelectionStore } from '../../stores/selectionStore';
+import { useHistoryStore, withSuppressedRecording } from '../../stores/historyStore';
+import { createIdBox } from '../../lib/history/idBox';
+import { registerIdBox } from '../../stores/idRegistryStore';
 import { useVisibleGraph } from './useVisibleGraph';
 import { useReportingChain } from './useReportingChain';
 import { layoutWithDagre, NODE_WIDTH, NODE_HEIGHT } from './layoutEngine';
@@ -28,7 +33,7 @@ import { PhotoEditorModal } from '../shared/PhotoEditorModal';
 import { DepartmentLegend } from './DepartmentLegend';
 import { EmployeeDetailPanel } from './EmployeeDetailPanel';
 import { exportChartAsPng } from './exportChartImage';
-import type { ReportingRelationship } from '../../types/domain';
+import type { Employee, ReportingRelationship } from '../../types/domain';
 
 const nodeTypes = { employee: EmployeeNode };
 const edgeTypes = { reporting: ReportingEdge };
@@ -65,7 +70,8 @@ export function OrgChartView() {
     reassignManager,
     wouldCreateCycle,
   } = useReportingGraph(currentOrgChartId);
-  const { assignmentsOf, totalEtpOf, totalEtpReelOf } = useAssignments(currentOrgChartId);
+  const { assignments, assignmentsOf, totalEtpOf, totalEtpReelOf, createAssignment } =
+    useAssignments(currentOrgChartId);
   const { jobTitles } = useJobTitles();
   const jobTitleNames = useMemo(() => jobTitles.map((jt) => jt.name), [jobTitles]);
   const { departments } = useDepartments();
@@ -235,23 +241,73 @@ export function OrgChartView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [matchedIds, getPrimaryManagerId]);
 
+  // Create-employee + add-relationship is one user action ("quick add a
+  // manager/subordinate"), so it must record as a single undo/redo command,
+  // not two separate ones from createEmployee's and addRelationship's own
+  // per-mutator recording. withSuppressedRecording mutes those while the two
+  // raw calls run below; the id box (idBox.ts) is what lets a later,
+  // independent edit of the newly-created employee (e.g. renaming them in
+  // the grid) keep working after this command's own undo/redo recreates
+  // them under a fresh id.
   const quickAddManager = useCallback(
     async (employeeId: string) => {
       const hasPrimary = managersOf(employeeId).some((r) => r.is_primary);
-      const created = await createEmployee({ first_name: 'Nouveau', last_name: 'Manager' });
-      await addRelationship(employeeId, created.id, !hasPrimary);
+      const isPrimary = !hasPrimary;
+      let created!: Employee;
+      await withSuppressedRecording(async () => {
+        created = await createEmployee({ first_name: 'Nouveau', last_name: 'Manager' });
+        await addRelationship(employeeId, created.id, isPrimary);
+      });
       setSelectedEmployee(created.id);
+
+      if (currentOrgChartId) {
+        const managerIdBox = createIdBox(created.id);
+        registerIdBox(created.id, managerIdBox);
+        useHistoryStore.getState().push({
+          label: 'Ajouter un manager',
+          orgChartId: currentOrgChartId,
+          // Deleting the employee cascades (FK) the relationship row too.
+          undo: async () => { await deleteEmployee(managerIdBox.id); },
+          redo: () =>
+            withSuppressedRecording(async () => {
+              const recreated = await createEmployee({ first_name: 'Nouveau', last_name: 'Manager' });
+              managerIdBox.id = recreated.id;
+              registerIdBox(recreated.id, managerIdBox);
+              await addRelationship(employeeId, recreated.id, isPrimary);
+            }),
+        });
+      }
     },
-    [managersOf, createEmployee, addRelationship, setSelectedEmployee],
+    [managersOf, createEmployee, addRelationship, deleteEmployee, setSelectedEmployee, currentOrgChartId],
   );
 
   const quickAddSubordinate = useCallback(
     async (employeeId: string) => {
-      const created = await createEmployee({ first_name: 'Nouveau', last_name: 'Collaborateur' });
-      await addRelationship(created.id, employeeId, true);
+      let created!: Employee;
+      await withSuppressedRecording(async () => {
+        created = await createEmployee({ first_name: 'Nouveau', last_name: 'Collaborateur' });
+        await addRelationship(created.id, employeeId, true);
+      });
       setSelectedEmployee(created.id);
+
+      if (currentOrgChartId) {
+        const reportIdBox = createIdBox(created.id);
+        registerIdBox(created.id, reportIdBox);
+        useHistoryStore.getState().push({
+          label: 'Ajouter un subordonné',
+          orgChartId: currentOrgChartId,
+          undo: async () => { await deleteEmployee(reportIdBox.id); },
+          redo: () =>
+            withSuppressedRecording(async () => {
+              const recreated = await createEmployee({ first_name: 'Nouveau', last_name: 'Collaborateur' });
+              reportIdBox.id = recreated.id;
+              registerIdBox(recreated.id, reportIdBox);
+              await addRelationship(recreated.id, employeeId, true);
+            }),
+        });
+      }
     },
-    [createEmployee, addRelationship, setSelectedEmployee],
+    [createEmployee, addRelationship, deleteEmployee, setSelectedEmployee, currentOrgChartId],
   );
 
   const openLinkManager = useCallback(
@@ -263,14 +319,21 @@ export function OrgChartView() {
     [],
   );
 
+  const deleteEmployeeWithHistory = useEmployeeDeletion(
+    currentOrgChartId,
+    { employees, createEmployee, deleteEmployee },
+    { relationships, addRelationship },
+    { assignments, createAssignment },
+  );
+
   const handleDeleteEmployee = useCallback(
     async (employeeId: string) => {
-      await deleteEmployee(employeeId);
+      await deleteEmployeeWithHistory(employeeId);
       // Avoid leaving the detail panel / assignments modal pointed at a
       // record that no longer exists.
       if (selectedEmployeeId === employeeId) setSelectedEmployee(null);
     },
-    [deleteEmployee, selectedEmployeeId, setSelectedEmployee],
+    [deleteEmployeeWithHistory, selectedEmployeeId, setSelectedEmployee],
   );
 
   const handleDeleteRelationship = useCallback(
@@ -733,6 +796,13 @@ export function OrgChartView() {
         <Controls />
         <MiniMap />
       </ReactFlow>
+      {/* Positioned to clear React Flow's own bottom-left zoom/fit-view
+          controls (a plain absolutely-positioned div, not a react-flow
+          Panel, since Controls isn't itself a Panel and won't stack with
+          one automatically). */}
+      <div className="absolute bottom-2.5 left-14 z-10">
+        <UndoRedoButtons />
+      </div>
       {detailPanelProps && (
         <EmployeeDetailPanel
           employee={detailPanelProps.employee}

@@ -7,6 +7,9 @@ import { useClientsMissions } from '../../hooks/useClientsMissions';
 import { useOrgCharts } from '../../hooks/useOrgCharts';
 import { useSelectionStore } from '../../stores/selectionStore';
 import { useUiPreferencesStore } from '../../stores/uiPreferencesStore';
+import { useHistoryStore } from '../../stores/historyStore';
+import { resetIdRegistry } from '../../stores/idRegistryStore';
+import { useUndoRedoShortcuts } from '../../lib/history/useUndoRedoShortcuts';
 import { LoginPage } from '../auth/LoginPage';
 import { SupabaseSetupNotice } from '../auth/SupabaseSetupNotice';
 import { LeftPanel } from './LeftPanel';
@@ -15,6 +18,7 @@ import { OrgChartView } from '../chart/OrgChartView';
 import { SearchBar } from '../shared/SearchBar';
 import { AssignmentEditorModal } from '../shared/AssignmentEditorModal';
 import { ErrorBoundary } from '../shared/ErrorBoundary';
+import { Toast } from '../shared/Toast';
 
 export function AppShell() {
   const { session, loading, signOut } = useAuth();
@@ -28,6 +32,16 @@ export function AppShell() {
   } = useOrgCharts();
   const currentOrgChartId = useSelectionStore((s) => s.currentOrgChartId);
   const setCurrentOrgChartId = useSelectionStore((s) => s.setCurrentOrgChartId);
+  const resetHistory = useHistoryStore((s) => s.reset);
+  // Undo/redo history (and the id registry it depends on) is chart-relative,
+  // like selectionStore's own fields — routing every chart switch through
+  // this one wrapper guarantees a future call site can't forget the reset.
+  const switchOrgChart = (id: string) => {
+    resetHistory();
+    resetIdRegistry();
+    setCurrentOrgChartId(id);
+  };
+  useUndoRedoShortcuts();
   const { employees } = useEmployees(currentOrgChartId);
   const {
     assignmentsOf,
@@ -37,7 +51,7 @@ export function AppShell() {
     updateAssignmentRemuneration,
     deleteAssignment,
   } = useAssignments(currentOrgChartId);
-  const { clientsMissions, findOrCreate } = useClientsMissions();
+  const { clientsMissions, findOrCreate, createClientMission, deleteClientMission } = useClientsMissions();
   const assignmentsEmployeeId = useSelectionStore((s) => s.assignmentsEmployeeId);
   const setAssignmentsEmployeeId = useSelectionStore((s) => s.setAssignmentsEmployeeId);
   const [managingCharts, setManagingCharts] = useState(false);
@@ -58,9 +72,10 @@ export function AppShell() {
 
   useEffect(() => {
     if (!currentOrgChartId && orgCharts.length > 0) {
-      setCurrentOrgChartId(orgCharts[0].id);
+      switchOrgChart(orgCharts[0].id);
     }
-  }, [currentOrgChartId, orgCharts, setCurrentOrgChartId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentOrgChartId, orgCharts]);
 
   if (!isSupabaseConfigured) {
     return <SupabaseSetupNotice />;
@@ -84,18 +99,18 @@ export function AppShell() {
     await deleteOrgChart(id);
     if (id === currentOrgChartId) {
       const remaining = orgCharts.filter((c) => c.id !== id);
-      if (remaining.length > 0) setCurrentOrgChartId(remaining[0].id);
+      if (remaining.length > 0) switchOrgChart(remaining[0].id);
     }
   }
 
   async function handleCreateOrgChart(name: string, shortLabel: string) {
     const created = await createOrgChart(name, shortLabel);
-    setCurrentOrgChartId(created.id);
+    switchOrgChart(created.id);
   }
 
   async function handleDuplicateOrgChart(sourceId: string, newName: string, newShortLabel: string) {
     const newId = await duplicateOrgChart(sourceId, newName, newShortLabel);
-    setCurrentOrgChartId(newId);
+    switchOrgChart(newId);
   }
 
   return (
@@ -105,7 +120,7 @@ export function AppShell() {
         <div className="flex items-center gap-3">
           <select
             value={currentOrgChartId}
-            onChange={(e) => setCurrentOrgChartId(e.target.value)}
+            onChange={(e) => switchOrgChart(e.target.value)}
             title={orgCharts.find((c) => c.id === currentOrgChartId)?.name}
             className="rounded border border-slate-200 bg-white px-2 py-1 text-sm text-slate-700"
           >
@@ -154,7 +169,10 @@ export function AppShell() {
           employee={assignmentsEmployee}
           assignments={assignmentsOf(assignmentsEmployee.id)}
           clientsMissions={clientsMissions}
+          orgChartId={currentOrgChartId}
           findOrCreate={findOrCreate}
+          createClientMission={createClientMission}
+          deleteClientMission={deleteClientMission}
           createAssignment={createAssignment}
           updateAssignmentEtpVendu={updateAssignmentEtpVendu}
           updateAssignmentEtpReel={updateAssignmentEtpReel}
@@ -174,6 +192,7 @@ export function AppShell() {
           onClose={() => setManagingCharts(false)}
         />
       )}
+      <Toast />
     </div>
   );
 }
