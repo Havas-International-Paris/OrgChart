@@ -480,8 +480,16 @@ export function OrgChartView() {
     // An edge is part of the highlighted chain if it touches the active
     // person directly (covers incoming-dotted reporters, whose edge
     // wouldn't otherwise qualify — see useReportingChain), or if both its
-    // ends sit inside the ancestor/descendant chain.
-    const edgeHighlight = (managerId: string, employeeId: string): 'highlighted' | 'dimmed' | 'normal' => {
+    // ends sit inside the ancestor/descendant chain. The edge currently
+    // selected for editing (delete/drag controls open) is always
+    // highlighted too, regardless of any hover/pin chain — the user needs
+    // to see at a glance which relationship they're about to change.
+    const edgeHighlight = (
+      managerId: string,
+      employeeId: string,
+      relationshipId: string,
+    ): 'highlighted' | 'dimmed' | 'normal' => {
+      if (relationshipId === selectedEdgeId) return 'highlighted';
       if (!activeEmployeeId) return 'normal';
       if (activeEmployeeId === managerId || activeEmployeeId === employeeId) return 'highlighted';
       if (chainIds.has(managerId) && chainIds.has(employeeId)) return 'highlighted';
@@ -511,7 +519,7 @@ export function OrgChartView() {
     });
 
     const styledPrimaryEdges: Edge<ReportingEdgeData>[] = primaryEdgeBase.map(({ relationship, ...e }) => {
-      const state = edgeHighlight(e.source, e.target);
+      const state = edgeHighlight(e.source, e.target, relationship.id);
       return {
         ...e,
         type: 'reporting',
@@ -526,7 +534,7 @@ export function OrgChartView() {
     });
 
     const styledSecondaryEdges: Edge<ReportingEdgeData>[] = secondaryEdgeBase.map(({ relationship, ...e }) => {
-      const state = edgeHighlight(e.source, e.target);
+      const state = edgeHighlight(e.source, e.target, relationship.id);
       return {
         ...e,
         type: 'reporting',
