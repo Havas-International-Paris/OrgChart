@@ -10,11 +10,13 @@ import {
   type EdgeProps,
 } from 'reactflow';
 
-// How far from the employee toward the manager the grip sits (t=0 is the
-// manager/source end, t=1 is the employee/target end — see the edge
+// How far from the employee toward the manager the controls sit (t=0 is
+// the manager/source end, t=1 is the employee/target end — see the edge
 // construction in OrgChartView, `source: r.manager_id, target: r.employee_id`).
-// 0.2 puts it 4/5 of the way toward the manager, reinforcing that dragging it
-// only ever reassigns the manager side, never the employee.
+// 0.2 puts them 4/5 of the way toward the manager, reinforcing that
+// dragging the grip only ever reassigns the manager side, never the
+// employee (the ghost line shown mid-drag makes this fully unambiguous
+// regardless, but the resting position echoes it too).
 const GRIP_T = 0.2;
 
 // Re-derives the exact cubic-bezier point React Flow's own getBezierPath
@@ -74,6 +76,12 @@ export interface ReportingEdgeData {
   // secondary/dotted ones keep the original bezier curve — see the path
   // computation below.
   isPrimary: boolean;
+  // Whether THIS edge is the one currently selected (click-to-select, not
+  // hover — see OrgChartView's selectedEdgeId). Only one edge is ever
+  // selected at a time, so there's no risk of two edges' controls
+  // rendering at once regardless of where they're positioned.
+  isSelected: boolean;
+  onSelect: () => void;
 }
 
 function applyDropStyle(el: HTMLElement, validity: DropValidity) {
@@ -88,24 +96,16 @@ function clearDropStyle(el: Element | null) {
   el.style.outlineOffset = '';
 }
 
-// The delete button sits at the edge's MIDPOINT (getBezierPath's
-// labelX/labelY) and the drag-to-reassign grip sits further along, biased
-// toward the manager end so dragging it visually reads as detaching the
-// manager side specifically (the only end reassigning ever moves) — never
-// at either literal endpoint. This is deliberate: every EmployeeNode has
-// exactly one unnamed Handle per side, so several edges converging on the
-// same person (multi-reporting) all resolve to the exact same endpoint
-// pixel in React Flow — its own built-in onReconnect draws its grab zone
-// right there, so overlapping edges would be unreachable except the
-// topmost one. The bias must be expressed along whichever axis actually
-// distinguishes two edges sharing an endpoint: for secondary (bezier)
-// edges that's inherent to the curve's parametric shape (bezierPointAt),
-// but for primary (step-routed) edges the axis matters — the step path's
-// two vertical stubs are identical for every direct report of one manager
-// (same sourceX/sourceY/targetY), so a grip placed there collapses for
-// every sibling at once; only the horizontal jog varies per sibling (it
-// depends on that child's own targetX), which is why the primary-edge
-// formula below is expressed in X, not Y.
+// The delete button and the drag-to-reassign grip render together, biased
+// toward the manager end (GRIP_T) rather than the edge's plain midpoint —
+// reinforcing that only the manager side ever moves. They only appear once
+// this edge is clicked (isSelected), not on hover: controls are revealed
+// by clicking the link and stay visible until it's deselected (clicking
+// elsewhere, a different link, a node, or the same link again). Because
+// only one edge is ever selected at a time, two edges' controls can never
+// be visible simultaneously — unlike the earlier hover-based design, a
+// shared/identical position isn't a collision here, since only one is
+// ever actually rendered.
 export function ReportingEdge({
   id,
   sourceX,
@@ -118,26 +118,22 @@ export function ReportingEdge({
   markerEnd,
   data,
 }: EdgeProps<ReportingEdgeData>) {
-  const [hovering, setHovering] = useState(false);
   const [dragPoint, setDragPoint] = useState<{ x: number; y: number } | null>(null);
   const { screenToFlowPosition } = useReactFlow();
   const isPrimary = data!.isPrimary;
+  const isSelected = data!.isSelected;
   // Primary edges route as sharp right angles (borderRadius: 0 — the same
   // technique React Flow's own built-in StepEdge uses internally);
   // secondary/dotted ones keep the bezier curve.
-  const [path, labelX, labelY] = isPrimary
+  const [path] = isPrimary
     ? getSmoothStepPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition, borderRadius: 0 })
     : getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
-  // For a step-routed primary edge, the grip must sit on the horizontal
-  // jog (the only segment that varies per sibling — see the comment
-  // above) rather than either vertical stub, which every direct report of
-  // one manager shares identically. (sourceY+targetY)/2 reproduces
-  // getSmoothStepPath's own default centerY (matches labelY); the -14
-  // nudge keeps the grip visually distinct from the delete button even
-  // when a lone direct report is centered directly below its manager
-  // (targetX ≈ sourceX, collapsing the horizontal segment to ~0 width).
-  const gripPoint = isPrimary
-    ? { x: sourceX + GRIP_T * (targetX - sourceX), y: (sourceY + targetY) / 2 - 14 }
+  // Primary (step-routed) edges: GRIP_T applied to the vertical stub
+  // leaving the manager. Secondary edges: same fraction along the bezier
+  // curve. Safe to share a resting position with sibling edges now — only
+  // one edge is ever selected/rendered at a time (see the comment above).
+  const controlsPoint = isPrimary
+    ? { x: sourceX, y: sourceY + GRIP_T * (targetY - sourceY) }
     : bezierPointAt(GRIP_T, { sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
 
   function handleGripMouseDown(e: ReactMouseEvent) {
@@ -199,9 +195,14 @@ export function ReportingEdge({
         fill="none"
         stroke="transparent"
         strokeWidth={20}
-        style={{ pointerEvents: 'stroke' }}
-        onMouseEnter={() => setHovering(true)}
-        onMouseLeave={() => setHovering(false)}
+        style={{ pointerEvents: 'stroke', cursor: 'pointer' }}
+        onClick={(e) => {
+          // Without this, the click also bubbles to the pane, whose own
+          // onClick immediately deselects everything (see onPaneClick in
+          // OrgChartView) — undoing the selection in the same tick.
+          e.stopPropagation();
+          data!.onSelect();
+        }}
       />
       {dragPoint && (
         // Anchored at the fixed employee end (targetX/targetY) — only the
@@ -217,17 +218,17 @@ export function ReportingEdge({
           style={{ pointerEvents: 'none' }}
         />
       )}
-      {hovering && (
+      {isSelected && (
         <EdgeLabelRenderer>
           <div
             data-export-hide
-            onMouseEnter={() => setHovering(true)}
-            onMouseLeave={() => setHovering(false)}
+            onClick={(e) => e.stopPropagation()}
             style={{
               position: 'absolute',
-              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+              transform: `translate(-50%, -50%) translate(${controlsPoint.x}px, ${controlsPoint.y}px)`,
               pointerEvents: 'all',
             }}
+            className="flex gap-0.5"
           >
             <button
               type="button"
@@ -237,17 +238,6 @@ export function ReportingEdge({
             >
               −
             </button>
-          </div>
-          <div
-            data-export-hide
-            onMouseEnter={() => setHovering(true)}
-            onMouseLeave={() => setHovering(false)}
-            style={{
-              position: 'absolute',
-              transform: `translate(-50%, -50%) translate(${gripPoint.x}px, ${gripPoint.y}px)`,
-              pointerEvents: 'all',
-            }}
-          >
             <button
               type="button"
               onMouseDown={handleGripMouseDown}

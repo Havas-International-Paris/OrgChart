@@ -188,6 +188,10 @@ export function OrgChartView() {
   // node crossed in the same tick as the grip's mousedown could still read
   // the pre-update value before React's batched setState had flushed.
   const isReassigningEdgeRef = useRef(false);
+  // Which reporting-relationship edge (if any) has its delete/grip controls
+  // open — click-to-select, not hover, so it persists until deselected (a
+  // different link, a node, the pane, or clicking the same link again).
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const activeEmployeeId = hoverEmployeeId ?? selectedEmployeeId;
   const { relatedIds, chainIds } = useReportingChain(activeEmployeeId, relationships, childrenOf);
 
@@ -270,7 +274,10 @@ export function OrgChartView() {
   );
 
   const handleDeleteRelationship = useCallback(
-    (relationship: ReportingRelationship) => removeRelationship(relationship),
+    (relationship: ReportingRelationship) => {
+      removeRelationship(relationship);
+      setSelectedEdgeId(null);
+    },
     [removeRelationship],
   );
 
@@ -292,6 +299,7 @@ export function OrgChartView() {
     (relationship: ReportingRelationship, newManagerId: string) => {
       if (computeDropValidity(relationship.employee_id, newManagerId) !== 'valid') return;
       reassignManager(relationship, newManagerId);
+      setSelectedEdgeId(null);
     },
     [computeDropValidity, reassignManager],
   );
@@ -498,6 +506,8 @@ export function OrgChartView() {
         isReassigningEdgeRef.current = dragging;
       },
       isPrimary: relationship.is_primary,
+      isSelected: relationship.id === selectedEdgeId,
+      onSelect: () => setSelectedEdgeId((cur) => (cur === relationship.id ? null : relationship.id)),
     });
 
     const styledPrimaryEdges: Edge<ReportingEdgeData>[] = primaryEdgeBase.map(({ relationship, ...e }) => {
@@ -563,6 +573,7 @@ export function OrgChartView() {
     handleDeleteRelationship,
     computeDropValidity,
     handleReassignManager,
+    selectedEdgeId,
   ]);
 
   // Re-arm the auto-fit whenever the user switches to a different chart —
@@ -681,8 +692,14 @@ export function OrgChartView() {
         onInit={(instance) => {
           reactFlowInstanceRef.current = instance;
         }}
-        onNodeClick={(_, node) => setSelectedEmployee(node.id)}
-        onPaneClick={() => setSelectedEmployee(null)}
+        onNodeClick={(_, node) => {
+          setSelectedEmployee(node.id);
+          setSelectedEdgeId(null);
+        }}
+        onPaneClick={() => {
+          setSelectedEmployee(null);
+          setSelectedEdgeId(null);
+        }}
         onNodeMouseEnter={(_, node) => {
           if (!isReassigningEdgeRef.current) setHoverEmployeeId(node.id);
         }}
