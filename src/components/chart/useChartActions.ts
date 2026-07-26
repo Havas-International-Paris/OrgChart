@@ -1,8 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useSelectionStore } from '../../stores/selectionStore';
 import { useHistoryStore, withSuppressedRecording } from '../../stores/historyStore';
-import { createIdBox } from '../../lib/history/idBox';
-import { registerIdBox } from '../../stores/idRegistryStore';
 import { usePhotoActions } from '../../hooks/usePhotoActions';
 import { useEmployeeDeletion } from '../../hooks/useEmployeeDeletion';
 import type { Employee, ReportingRelationship } from '../../types/domain';
@@ -23,6 +21,7 @@ export function useChartActions(currentOrgChartId: string | null, data: ChartDat
     employees,
     employeeById,
     createEmployee,
+    restoreEmployee,
     updateEmployee,
     deleteEmployee,
     updateEmployeePhoto,
@@ -31,11 +30,12 @@ export function useChartActions(currentOrgChartId: string | null, data: ChartDat
     managersOf,
     directReportsOf,
     addRelationship,
+    restoreRelationship,
     removeRelationship,
     reassignManager,
     wouldCreateCycle,
     assignments,
-    createAssignment,
+    restoreAssignment,
     departmentColorByName,
   } = data;
 
@@ -60,69 +60,65 @@ export function useChartActions(currentOrgChartId: string | null, data: ChartDat
   // manager/subordinate"), so it must record as a single undo/redo command,
   // not two separate ones from createEmployee's and addRelationship's own
   // per-mutator recording. withSuppressedRecording mutes those while the two
-  // raw calls run below; the id box (idBox.ts) is what lets a later,
-  // independent edit of the newly-created employee (e.g. renaming them in
-  // the grid) keep working after this command's own undo/redo recreates
-  // them under a fresh id.
+  // raw calls run below. Both created rows are captured so redo can restore them
+  // under their original ids — which is why a later, independent edit of the new
+  // employee (renaming them in the grid, say) still works after an undo/redo
+  // round trip: the id never changed.
   const quickAddManager = useCallback(
     async (employeeId: string) => {
       const hasPrimary = managersOf(employeeId).some((r) => r.is_primary);
       const isPrimary = !hasPrimary;
       let created!: Employee;
+      let createdEdge!: ReportingRelationship;
       await withSuppressedRecording(async () => {
         created = await createEmployee({ first_name: 'Nouveau', last_name: 'Manager' });
-        await addRelationship(employeeId, created.id, isPrimary);
+        createdEdge = await addRelationship(employeeId, created.id, isPrimary);
       });
       setSelectedEmployee(created.id);
 
       if (currentOrgChartId) {
-        const managerIdBox = createIdBox(created.id);
-        registerIdBox(created.id, managerIdBox);
         useHistoryStore.getState().push({
           label: 'Ajouter un manager',
           orgChartId: currentOrgChartId,
           // Deleting the employee cascades (FK) the relationship row too.
-          undo: async () => { await deleteEmployee(managerIdBox.id); },
+          undo: async () => { await deleteEmployee(created.id); },
+          // Restores both captured rows under their original ids — employee first,
+          // since the relationship references it.
           redo: () =>
             withSuppressedRecording(async () => {
-              const recreated = await createEmployee({ first_name: 'Nouveau', last_name: 'Manager' });
-              managerIdBox.id = recreated.id;
-              registerIdBox(recreated.id, managerIdBox);
-              await addRelationship(employeeId, recreated.id, isPrimary);
+              await restoreEmployee(created);
+              await restoreRelationship(createdEdge);
             }),
         });
       }
     },
-    [managersOf, createEmployee, addRelationship, deleteEmployee, setSelectedEmployee, currentOrgChartId],
+    [managersOf, createEmployee, restoreEmployee, addRelationship, restoreRelationship, deleteEmployee, setSelectedEmployee, currentOrgChartId],
   );
 
   const quickAddSubordinate = useCallback(
     async (employeeId: string) => {
       let created!: Employee;
+      let createdEdge!: ReportingRelationship;
       await withSuppressedRecording(async () => {
         created = await createEmployee({ first_name: 'Nouveau', last_name: 'Collaborateur' });
-        await addRelationship(created.id, employeeId, true);
+        createdEdge = await addRelationship(created.id, employeeId, true);
       });
       setSelectedEmployee(created.id);
 
       if (currentOrgChartId) {
-        const reportIdBox = createIdBox(created.id);
-        registerIdBox(created.id, reportIdBox);
         useHistoryStore.getState().push({
           label: 'Ajouter un subordonné',
           orgChartId: currentOrgChartId,
-          undo: async () => { await deleteEmployee(reportIdBox.id); },
+          undo: async () => { await deleteEmployee(created.id); },
           redo: () =>
             withSuppressedRecording(async () => {
-              const recreated = await createEmployee({ first_name: 'Nouveau', last_name: 'Collaborateur' });
-              reportIdBox.id = recreated.id;
-              registerIdBox(recreated.id, reportIdBox);
-              await addRelationship(recreated.id, employeeId, true);
+              await restoreEmployee(created);
+              await restoreRelationship(createdEdge);
             }),
         });
       }
     },
-    [createEmployee, addRelationship, deleteEmployee, setSelectedEmployee, currentOrgChartId],
+    [createEmployee, restoreEmployee, addRelationship, restoreRelationship, deleteEmployee, setSelectedEmployee, currentOrgChartId],
   );
 
   const openLinkManager = useCallback(
@@ -136,9 +132,9 @@ export function useChartActions(currentOrgChartId: string | null, data: ChartDat
 
   const deleteEmployeeWithHistory = useEmployeeDeletion(
     currentOrgChartId,
-    { employees, createEmployee, deleteEmployee },
-    { relationships, addRelationship },
-    { assignments, createAssignment },
+    { employees, restoreEmployee, deleteEmployee },
+    { relationships, restoreRelationship },
+    { assignments, restoreAssignment },
   );
 
   const handleDeleteEmployee = useCallback(

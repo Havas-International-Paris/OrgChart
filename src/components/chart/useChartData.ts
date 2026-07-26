@@ -25,6 +25,7 @@ export function useChartData(orgChartId: string | null) {
     employees,
     loading: employeesLoading,
     createEmployee,
+    restoreEmployee,
     updateEmployee,
     deleteEmployee,
     updateEmployeePhoto,
@@ -38,12 +39,13 @@ export function useChartData(orgChartId: string | null) {
     managersOf,
     directReportsOf,
     addRelationship,
+    restoreRelationship,
     removeRelationship,
     reassignManager,
     wouldCreateCycle,
   } = useReportingGraph(orgChartId);
 
-  const { assignments, assignmentsOf, totalEtpOf, totalEtpReelOf, createAssignment } =
+  const { assignments, assignmentsOf, totalEtpOf, totalEtpReelOf, createAssignment, restoreAssignment } =
     useAssignments(orgChartId);
 
   const { jobTitles } = useJobTitles();
@@ -100,6 +102,7 @@ export function useChartData(orgChartId: string | null) {
     employees,
     employeesLoading,
     createEmployee,
+    restoreEmployee,
     updateEmployee,
     deleteEmployee,
     updateEmployeePhoto,
@@ -111,6 +114,7 @@ export function useChartData(orgChartId: string | null) {
     managersOf,
     directReportsOf,
     addRelationship,
+    restoreRelationship,
     removeRelationship,
     reassignManager,
     wouldCreateCycle,
@@ -120,6 +124,7 @@ export function useChartData(orgChartId: string | null) {
     totalEtpOf,
     totalEtpReelOf,
     createAssignment,
+    restoreAssignment,
 
     departments,
     jobTitleNames,

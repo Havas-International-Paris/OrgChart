@@ -22,3 +22,14 @@ export async function deleteJobTitle(id: string): Promise<void> {
   const { error } = await supabase.from('job_titles').delete().eq('id', id);
   if (error) throw error;
 }
+
+// Re-inserts under the ORIGINAL id — see employeeService.restoreEmployee.
+export async function restoreJobTitle(row: JobTitle): Promise<JobTitle> {
+  const { data, error } = await supabase
+    .from('job_titles')
+    .insert({ id: row.id, name: row.name })
+    .select()
+    .single();
+  if (error) throw error;
+  return data as JobTitle;
+}

@@ -1,28 +1,21 @@
 import { useCallback } from 'react';
 import { useHistoryStore, withSuppressedRecording } from '../stores/historyStore';
-import { boxFor, registerIdBox } from '../stores/idRegistryStore';
-import type { Assignment, Employee, EmployeeInput, ReportingRelationship, RemunerationModel } from '../types/domain';
+import type { Assignment, Employee, ReportingRelationship } from '../types/domain';
 
 interface EmployeesApi {
   employees: Employee[];
-  createEmployee: (input: EmployeeInput) => Promise<Employee>;
+  restoreEmployee: (row: Employee) => Promise<Employee>;
   deleteEmployee: (id: string) => Promise<void>;
 }
 
 interface ReportingApi {
   relationships: ReportingRelationship[];
-  addRelationship: (employeeId: string, managerId: string, isPrimary: boolean) => Promise<ReportingRelationship>;
+  restoreRelationship: (row: ReportingRelationship) => Promise<ReportingRelationship>;
 }
 
 interface AssignmentsApi {
   assignments: Assignment[];
-  createAssignment: (
-    employeeId: string,
-    clientMissionId: string,
-    etpVendu: number | null,
-    etpReel: number | null,
-    remunerationModel: RemunerationModel | null,
-  ) => Promise<Assignment>;
+  restoreAssignment: (row: Assignment) => Promise<Assignment>;
 }
 
 // Deleting an employee cascades (FK) and silently removes every
@@ -31,15 +24,20 @@ interface AssignmentsApi {
 // OrgChartView and EmployeeGrid (both call useEmployees/useReportingGraph/
 // useAssignments independently, so both already have all three APIs in
 // scope) so the one non-trivial delete-undo lives in a single place.
+//
+// Undo restores the captured ROWS rather than creating equivalents, so every id
+// is preserved and the previously-documented gap is closed: a photo, its crop and
+// any manual sibling_order now come back too. That is also why no id indirection
+// is needed here any more — the employee's id after undo is the id it always had.
 export function useEmployeeDeletion(
   orgChartId: string | null,
   employeesApi: EmployeesApi,
   reportingApi: ReportingApi,
   assignmentsApi: AssignmentsApi,
 ) {
-  const { employees, createEmployee, deleteEmployee } = employeesApi;
-  const { relationships, addRelationship } = reportingApi;
-  const { assignments, createAssignment } = assignmentsApi;
+  const { employees, restoreEmployee, deleteEmployee } = employeesApi;
+  const { relationships, restoreRelationship } = reportingApi;
+  const { assignments, restoreAssignment } = assignmentsApi;
 
   return useCallback(
     async (employeeId: string) => {
@@ -54,40 +52,29 @@ export function useEmployeeDeletion(
 
       if (!orgChartId) return;
 
-      const employeeBox = boxFor(employeeId);
       useHistoryStore.getState().push({
         label: `Supprimer ${employee.first_name} ${employee.last_name}`,
         orgChartId,
         undo: () =>
           withSuppressedRecording(async () => {
-            // Known gap: createEmployee only accepts plain fields, so a
-            // custom photo/crop isn't restored — consistent with photo
-            // replace/delete being excluded from this system entirely.
-            const recreated = await createEmployee({
-              first_name: employee.first_name,
-              last_name: employee.last_name,
-              job_title: employee.job_title ?? undefined,
-              role_desc: employee.role_desc ?? undefined,
-              department: employee.department ?? undefined,
-            });
-            employeeBox.id = recreated.id;
-            registerIdBox(recreated.id, employeeBox);
-            await Promise.all(
-              relatedRelationships.map((r) =>
-                r.employee_id === employeeId
-                  ? addRelationship(recreated.id, r.manager_id, r.is_primary)
-                  : addRelationship(r.employee_id, recreated.id, r.is_primary),
-              ),
-            );
-            await Promise.all(
-              relatedAssignments.map((a) =>
-                createAssignment(recreated.id, a.client_mission_id, a.etp_vendu, a.etp_reel, a.remuneration_model),
-              ),
-            );
+            // The employee has to exist before anything can reference it again,
+            // so this one is sequential; the dependents can go in parallel.
+            await restoreEmployee(employee);
+            await Promise.all(relatedRelationships.map((r) => restoreRelationship(r)));
+            await Promise.all(relatedAssignments.map((a) => restoreAssignment(a)));
           }),
-        redo: () => withSuppressedRecording(async () => { await deleteEmployee(employeeBox.id); }),
+        redo: () => withSuppressedRecording(async () => { await deleteEmployee(employeeId); }),
       });
     },
-    [employees, relationships, assignments, createEmployee, deleteEmployee, addRelationship, createAssignment, orgChartId],
+    [
+      employees,
+      relationships,
+      assignments,
+      restoreEmployee,
+      deleteEmployee,
+      restoreRelationship,
+      restoreAssignment,
+      orgChartId,
+    ],
   );
 }

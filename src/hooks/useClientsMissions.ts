@@ -3,7 +3,6 @@ import { supabase } from '../lib/supabaseClient';
 import * as clientMissionService from '../services/clientMissionService';
 import type { ClientMission, ClientMissionType } from '../types/domain';
 import { useHistoryStore } from '../stores/historyStore';
-import { boxFor } from '../stores/idRegistryStore';
 import { useSelectionStore } from '../stores/selectionStore';
 
 export function useClientsMissions() {
@@ -71,7 +70,6 @@ export function useClientsMissions() {
       // current when the edit happens.
       const orgChartId = useSelectionStore.getState().currentOrgChartId;
       if (before && orgChartId) {
-        const box = boxFor(id);
         const oldChanges: Partial<Pick<ClientMission, 'name' | 'type'>> = {};
         for (const key of Object.keys(changes) as (keyof typeof changes)[]) {
           (oldChanges as Record<string, unknown>)[key] =
@@ -80,8 +78,8 @@ export function useClientsMissions() {
         useHistoryStore.getState().push({
           label: `Modifier ${before.name}`,
           orgChartId,
-          undo: async () => { await updateClientMission(box.id, oldChanges); },
-          redo: async () => { await updateClientMission(box.id, changes); },
+          undo: async () => { await updateClientMission(id, oldChanges); },
+          redo: async () => { await updateClientMission(id, changes); },
         });
       }
     },
@@ -95,17 +93,15 @@ export function useClientsMissions() {
       await refresh();
       const orgChartId = useSelectionStore.getState().currentOrgChartId;
       if (before && orgChartId) {
-        const box = boxFor(id);
         useHistoryStore.getState().push({
           label: `Supprimer ${before.name}`,
           orgChartId,
           undo: async () => {
-            const recreated = await clientMissionService.createClientMission(before.name, before.type);
-            box.id = recreated.id;
+            await clientMissionService.restoreClientMission(before);
             await refresh();
           },
           redo: async () => {
-            await clientMissionService.deleteClientMission(box.id);
+            await clientMissionService.deleteClientMission(id);
             await refresh();
           },
         });
@@ -114,23 +110,28 @@ export function useClientsMissions() {
     [clientsMissions, refresh],
   );
 
+  // Undo-only helper — see useEmployees.ts's restoreEmployee. Not recorded.
+  const restoreClientMission = async (row: ClientMission): Promise<ClientMission> => {
+    const restored = await clientMissionService.restoreClientMission(row);
+    await refresh();
+    return restored;
+  };
+
   const createClientMission = useCallback(
     async (name: string, type: ClientMissionType) => {
       const created = await clientMissionService.createClientMission(name, type);
       await refresh();
       const orgChartId = useSelectionStore.getState().currentOrgChartId;
-      const box = boxFor(created.id);
       if (orgChartId) {
         useHistoryStore.getState().push({
           label: `Créer ${created.name}`,
           orgChartId,
           undo: async () => {
-            await clientMissionService.deleteClientMission(box.id);
+            await clientMissionService.deleteClientMission(created.id);
             await refresh();
           },
           redo: async () => {
-            const recreated = await clientMissionService.createClientMission(name, type);
-            box.id = recreated.id;
+            await clientMissionService.restoreClientMission(created);
             await refresh();
           },
         });
@@ -146,6 +147,7 @@ export function useClientsMissions() {
     error,
     findOrCreate,
     createClientMission,
+    restoreClientMission,
     updateClientMission,
     deleteClientMission,
   };

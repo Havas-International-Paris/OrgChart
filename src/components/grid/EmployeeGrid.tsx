@@ -41,6 +41,7 @@ export function EmployeeGrid() {
     loading,
     error,
     createEmployee,
+    restoreEmployee,
     updateEmployee,
     deleteEmployee,
     updateEmployeePhoto,
@@ -48,14 +49,14 @@ export function EmployeeGrid() {
   } = useEmployees(currentOrgChartId);
   const { replacePhoto, saveFrame, deletePhoto } = usePhotoActions(employees, updateEmployeePhoto, updateEmployeePhotoFrame);
   const [photoEditEmployeeId, setPhotoEditEmployeeId] = useState<string | null>(null);
-  const { relationships, managersOf, addRelationship, wouldCreateCycle, replaceManagersForEmployee } =
+  const { relationships, managersOf, restoreRelationship, wouldCreateCycle, replaceManagersForEmployee } =
     useReportingGraph(currentOrgChartId);
-  const { assignments, assignmentsOf, totalEtpOf, createAssignment } = useAssignments(currentOrgChartId);
+  const { assignments, assignmentsOf, totalEtpOf, restoreAssignment } = useAssignments(currentOrgChartId);
   const deleteEmployeeWithHistory = useEmployeeDeletion(
     currentOrgChartId,
-    { employees, createEmployee, deleteEmployee },
-    { relationships, addRelationship },
-    { assignments, createAssignment },
+    { employees, restoreEmployee, deleteEmployee },
+    { relationships, restoreRelationship },
+    { assignments, restoreAssignment },
   );
   const { clientsMissions } = useClientsMissions();
   const { jobTitles } = useJobTitles();

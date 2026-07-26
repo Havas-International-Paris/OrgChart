@@ -3,7 +3,6 @@ import { supabase } from '../lib/supabaseClient';
 import * as jobTitleService from '../services/jobTitleService';
 import type { JobTitle } from '../types/domain';
 import { useHistoryStore } from '../stores/historyStore';
-import { boxFor } from '../stores/idRegistryStore';
 import { useSelectionStore } from '../stores/selectionStore';
 
 export function useJobTitles() {
@@ -39,18 +38,16 @@ export function useJobTitles() {
     const created = await jobTitleService.createJobTitle(name);
     await refresh();
     const orgChartId = useSelectionStore.getState().currentOrgChartId;
-    const box = boxFor(created.id);
     if (orgChartId) {
       useHistoryStore.getState().push({
         label: `Créer le poste ${created.name}`,
         orgChartId,
         undo: async () => {
-          await jobTitleService.deleteJobTitle(box.id);
+          await jobTitleService.deleteJobTitle(created.id);
           await refresh();
         },
         redo: async () => {
-          const recreated = await jobTitleService.createJobTitle(name);
-          box.id = recreated.id;
+          await jobTitleService.restoreJobTitle(created);
           await refresh();
         },
       });
@@ -68,13 +65,12 @@ export function useJobTitles() {
     await refresh();
     const orgChartId = useSelectionStore.getState().currentOrgChartId;
     if (before && orgChartId) {
-      const box = boxFor(id);
       const oldName = oldNameHint ?? before.name;
       useHistoryStore.getState().push({
         label: `Renommer le poste ${oldName}`,
         orgChartId,
-        undo: async () => { await updateJobTitle(box.id, oldName); },
-        redo: async () => { await updateJobTitle(box.id, name); },
+        undo: async () => { await updateJobTitle(id, oldName); },
+        redo: async () => { await updateJobTitle(id, name); },
       });
     }
   };
@@ -85,17 +81,15 @@ export function useJobTitles() {
     await refresh();
     const orgChartId = useSelectionStore.getState().currentOrgChartId;
     if (before && orgChartId) {
-      const box = boxFor(id);
       useHistoryStore.getState().push({
         label: `Supprimer le poste ${before.name}`,
         orgChartId,
         undo: async () => {
-          const recreated = await jobTitleService.createJobTitle(before.name);
-          box.id = recreated.id;
+          await jobTitleService.restoreJobTitle(before);
           await refresh();
         },
         redo: async () => {
-          await jobTitleService.deleteJobTitle(box.id);
+          await jobTitleService.deleteJobTitle(id);
           await refresh();
         },
       });

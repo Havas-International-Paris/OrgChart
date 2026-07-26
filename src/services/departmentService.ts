@@ -22,3 +22,14 @@ export async function deleteDepartment(id: string): Promise<void> {
   const { error } = await supabase.from('departments').delete().eq('id', id);
   if (error) throw error;
 }
+
+// Re-inserts under the ORIGINAL id — see employeeService.restoreEmployee.
+export async function restoreDepartment(row: Department): Promise<Department> {
+  const { data, error } = await supabase
+    .from('departments')
+    .insert({ id: row.id, name: row.name })
+    .select()
+    .single();
+  if (error) throw error;
+  return data as Department;
+}

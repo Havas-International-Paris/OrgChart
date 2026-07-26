@@ -3,7 +3,6 @@ import { supabase } from '../lib/supabaseClient';
 import * as assignmentService from '../services/assignmentService';
 import type { Assignment, RemunerationModel } from '../types/domain';
 import { useHistoryStore } from '../stores/historyStore';
-import { boxFor } from '../stores/idRegistryStore';
 
 export function useAssignments(orgChartId: string | null) {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -89,6 +88,16 @@ export function useAssignments(orgChartId: string | null) {
     [assignmentsOfClientMission],
   );
 
+  // Undo-only helper — see useEmployees.ts's restoreEmployee. Not recorded.
+  const restoreAssignment = useCallback(
+    async (row: Assignment): Promise<Assignment> => {
+      const restored = await assignmentService.restoreAssignment(row);
+      await refresh();
+      return restored;
+    },
+    [refresh],
+  );
+
   const createAssignment = useCallback(
     async (
       employeeId: string,
@@ -107,24 +116,15 @@ export function useAssignments(orgChartId: string | null) {
         remunerationModel,
       );
       await refresh();
-      const box = boxFor(created.id);
       useHistoryStore.getState().push({
         label: 'Ajouter une affectation',
         orgChartId,
         undo: async () => {
-          await assignmentService.deleteAssignment(box.id);
+          await assignmentService.deleteAssignment(created.id);
           await refresh();
         },
         redo: async () => {
-          const recreated = await assignmentService.createAssignment(
-            orgChartId,
-            employeeId,
-            clientMissionId,
-            etpVendu,
-            etpReel,
-            remunerationModel,
-          );
-          box.id = recreated.id;
+          await assignmentService.restoreAssignment(created);
           await refresh();
         },
       });
@@ -139,13 +139,12 @@ export function useAssignments(orgChartId: string | null) {
       await assignmentService.updateAssignmentEtpVendu(id, etpVendu);
       await refresh();
       if (before && orgChartId) {
-        const box = boxFor(id);
         const oldEtpVendu = before.etp_vendu;
         useHistoryStore.getState().push({
           label: 'Modifier le % vendu',
           orgChartId,
-          undo: async () => { await updateAssignmentEtpVendu(box.id, oldEtpVendu); },
-          redo: async () => { await updateAssignmentEtpVendu(box.id, etpVendu); },
+          undo: async () => { await updateAssignmentEtpVendu(id, oldEtpVendu); },
+          redo: async () => { await updateAssignmentEtpVendu(id, etpVendu); },
         });
       }
     },
@@ -158,13 +157,12 @@ export function useAssignments(orgChartId: string | null) {
       await assignmentService.updateAssignmentEtpReel(id, etpReel);
       await refresh();
       if (before && orgChartId) {
-        const box = boxFor(id);
         const oldEtpReel = before.etp_reel;
         useHistoryStore.getState().push({
           label: 'Modifier le % réel',
           orgChartId,
-          undo: async () => { await updateAssignmentEtpReel(box.id, oldEtpReel); },
-          redo: async () => { await updateAssignmentEtpReel(box.id, etpReel); },
+          undo: async () => { await updateAssignmentEtpReel(id, oldEtpReel); },
+          redo: async () => { await updateAssignmentEtpReel(id, etpReel); },
         });
       }
     },
@@ -177,19 +175,18 @@ export function useAssignments(orgChartId: string | null) {
       await assignmentService.updateAssignmentRemuneration(id, remunerationModel, clearVendu);
       await refresh();
       if (before && orgChartId) {
-        const box = boxFor(id);
         const oldModel = before.remuneration_model;
         const oldEtpVendu = before.etp_vendu;
         useHistoryStore.getState().push({
           label: 'Modifier le modèle de rémunération',
           orgChartId,
           undo: async () => {
-            await assignmentService.updateAssignmentRemuneration(box.id, oldModel, false);
-            if (oldEtpVendu !== null) await assignmentService.updateAssignmentEtpVendu(box.id, oldEtpVendu);
+            await assignmentService.updateAssignmentRemuneration(id, oldModel, false);
+            if (oldEtpVendu !== null) await assignmentService.updateAssignmentEtpVendu(id, oldEtpVendu);
             await refresh();
           },
           redo: async () => {
-            await assignmentService.updateAssignmentRemuneration(box.id, remunerationModel, clearVendu);
+            await assignmentService.updateAssignmentRemuneration(id, remunerationModel, clearVendu);
             await refresh();
           },
         });
@@ -204,24 +201,15 @@ export function useAssignments(orgChartId: string | null) {
       await assignmentService.deleteAssignment(id);
       await refresh();
       if (before && orgChartId) {
-        const box = boxFor(id);
         useHistoryStore.getState().push({
           label: 'Supprimer une affectation',
           orgChartId,
           undo: async () => {
-            const recreated = await assignmentService.createAssignment(
-              orgChartId,
-              before.employee_id,
-              before.client_mission_id,
-              before.etp_vendu,
-              before.etp_reel,
-              before.remuneration_model,
-            );
-            box.id = recreated.id;
+            await assignmentService.restoreAssignment(before);
             await refresh();
           },
           redo: async () => {
-            await assignmentService.deleteAssignment(box.id);
+            await assignmentService.deleteAssignment(id);
             await refresh();
           },
         });
@@ -241,6 +229,7 @@ export function useAssignments(orgChartId: string | null) {
     totalEtpOfClientMission,
     totalEtpReelOfClientMission,
     createAssignment,
+    restoreAssignment,
     updateAssignmentEtpVendu,
     updateAssignmentEtpReel,
     updateAssignmentRemuneration,

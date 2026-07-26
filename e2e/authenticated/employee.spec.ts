@@ -103,4 +103,14 @@ test.describe('throwaway org chart', () => {
     await clickWhenEnabled(page, 'Rétablir');
     await expect(cards(page)).toHaveCount(2, { timeout: 15_000 });
   });
+
+  // NOT COVERED: the delete-cascade undo (useEmployeeDeletion), where deleting an
+  // employee takes their relationships and assignments with it via the FK and one
+  // undo has to restore all of it. Attempted and abandoned — the affordances are
+  // both awkward to reach under automation: the card's own ✕ sits at left/top -9px,
+  // hanging outside the card, so an auto-fit can push it out of the visible canvas;
+  // and the grid's delete button lives in the last column, which AG Grid virtualises
+  // horizontally and does not render until scrolled into view. The restore path
+  // itself IS covered by the two specs above (restoreEmployee + restoreRelationship);
+  // what is missing is specifically the cascade. Worth revisiting alongside item 31.
 });

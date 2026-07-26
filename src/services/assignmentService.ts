@@ -61,3 +61,22 @@ export async function deleteAssignment(id: string): Promise<void> {
   const { error } = await supabase.from('assignments').delete().eq('id', id);
   if (error) throw error;
 }
+
+// Re-inserts under the ORIGINAL id — see employeeService.restoreEmployee.
+export async function restoreAssignment(row: Assignment): Promise<Assignment> {
+  const { data, error } = await supabase
+    .from('assignments')
+    .insert({
+      id: row.id,
+      employee_id: row.employee_id,
+      client_mission_id: row.client_mission_id,
+      etp_vendu: row.etp_vendu,
+      etp_reel: row.etp_reel,
+      remuneration_model: row.remuneration_model,
+      org_chart_id: row.org_chart_id,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data as Assignment;
+}

@@ -8,7 +8,6 @@ import { useOrgCharts } from '../../hooks/useOrgCharts';
 import { useSelectionStore } from '../../stores/selectionStore';
 import { useUiPreferencesStore } from '../../stores/uiPreferencesStore';
 import { useHistoryStore } from '../../stores/historyStore';
-import { resetIdRegistry } from '../../stores/idRegistryStore';
 import { useUndoRedoShortcuts } from '../../lib/history/useUndoRedoShortcuts';
 import { LoginPage } from '../auth/LoginPage';
 import { SupabaseSetupNotice } from '../auth/SupabaseSetupNotice';
@@ -71,12 +70,11 @@ function AuthenticatedApp({ signOut }: { signOut: () => void }) {
   const currentOrgChartId = useSelectionStore((s) => s.currentOrgChartId);
   const setCurrentOrgChartId = useSelectionStore((s) => s.setCurrentOrgChartId);
   const resetHistory = useHistoryStore((s) => s.reset);
-  // Undo/redo history (and the id registry it depends on) is chart-relative,
-  // like selectionStore's own fields — routing every chart switch through
-  // this one wrapper guarantees a future call site can't forget the reset.
+  // Undo/redo history is chart-relative, like selectionStore's own fields —
+  // routing every chart switch through this one wrapper guarantees a future call
+  // site can't forget the reset.
   const switchOrgChart = (id: string) => {
     resetHistory();
-    resetIdRegistry();
     setCurrentOrgChartId(id);
   };
   useUndoRedoShortcuts();
@@ -84,12 +82,13 @@ function AuthenticatedApp({ signOut }: { signOut: () => void }) {
   const {
     assignmentsOf,
     createAssignment,
+    restoreAssignment,
     updateAssignmentEtpVendu,
     updateAssignmentEtpReel,
     updateAssignmentRemuneration,
     deleteAssignment,
   } = useAssignments(currentOrgChartId);
-  const { clientsMissions, findOrCreate, createClientMission, deleteClientMission } = useClientsMissions();
+  const { clientsMissions, findOrCreate, restoreClientMission, deleteClientMission } = useClientsMissions();
   const assignmentsEmployeeId = useSelectionStore((s) => s.assignmentsEmployeeId);
   const setAssignmentsEmployeeId = useSelectionStore((s) => s.setAssignmentsEmployeeId);
   const [managingCharts, setManagingCharts] = useState(false);
@@ -217,7 +216,8 @@ function AuthenticatedApp({ signOut }: { signOut: () => void }) {
           clientsMissions={clientsMissions}
           orgChartId={currentOrgChartId}
           findOrCreate={findOrCreate}
-          createClientMission={createClientMission}
+          restoreClientMission={restoreClientMission}
+          restoreAssignment={restoreAssignment}
           deleteClientMission={deleteClientMission}
           createAssignment={createAssignment}
           updateAssignmentEtpVendu={updateAssignmentEtpVendu}

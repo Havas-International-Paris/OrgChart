@@ -3,7 +3,6 @@ import { supabase } from '../lib/supabaseClient';
 import * as reportingService from '../services/reportingService';
 import type { ReportingRelationship } from '../types/domain';
 import { useHistoryStore } from '../stores/historyStore';
-import { boxFor } from '../stores/idRegistryStore';
 
 export function wouldCreateCycle(
   relationships: ReportingRelationship[],
@@ -144,30 +143,16 @@ export function useReportingGraph(orgChartId: string | null) {
 
       // One save in ManagerEditorModal is one user action — even though it
       // may batch several deletes/inserts/promotions — so it must undo/redo
-      // as a single command, not one per underlying write. Boxed the same
-      // way addRelationship boxes a created row's id (idBox.ts): toDelete
-      // rows come back with a fresh id on undo, toInsert rows get deleted
-      // (and need re-creating with a fresh id again on redo).
+      // as a single command, not one per underlying write. Every row involved
+      // keeps its original id across the cycle because both directions
+      // RESTORE rows rather than create replacements.
       if (orgChartId) {
-        const deletedBoxes = toDelete.map((r) => boxFor(r.id));
-        const insertedBoxes = insertedRows.map((r) => boxFor(r.id));
-
         useHistoryStore.getState().push({
           label: 'Modifier les managers',
           orgChartId,
           undo: async () => {
-            await Promise.all(
-              toDelete.map(async (r, i) => {
-                const recreated = await reportingService.createRelationship(
-                  orgChartId,
-                  r.employee_id,
-                  r.manager_id,
-                  r.is_primary,
-                );
-                deletedBoxes[i].id = recreated.id;
-              }),
-            );
-            await Promise.all(insertedBoxes.map((box) => reportingService.deleteRelationship(box.id)));
+            await Promise.all(toDelete.map((r) => reportingService.restoreRelationship(r)));
+            await Promise.all(insertedRows.map((r) => reportingService.deleteRelationship(r.id)));
             await Promise.all(
               toUpdate.map((d) => {
                 const existing = currentByManager.get(d.managerId)!;
@@ -177,18 +162,8 @@ export function useReportingGraph(orgChartId: string | null) {
             await refresh();
           },
           redo: async () => {
-            await Promise.all(deletedBoxes.map((box) => reportingService.deleteRelationship(box.id)));
-            await Promise.all(
-              toInsert.map(async (d, i) => {
-                const recreated = await reportingService.createRelationship(
-                  orgChartId,
-                  employeeId,
-                  d.managerId,
-                  d.isPrimary,
-                );
-                insertedBoxes[i].id = recreated.id;
-              }),
-            );
+            await Promise.all(toDelete.map((r) => reportingService.deleteRelationship(r.id)));
+            await Promise.all(insertedRows.map((r) => reportingService.restoreRelationship(r)));
             await Promise.all(
               toUpdate.map((d) =>
                 reportingService.updateRelationshipPrimary(currentByManager.get(d.managerId)!.id, d.isPrimary),
@@ -213,26 +188,30 @@ export function useReportingGraph(orgChartId: string | null) {
     [refresh],
   );
 
+  // Undo-only helper — see useEmployees.ts's restoreEmployee. Not recorded.
+  const restoreRelationship = useCallback(
+    async (row: ReportingRelationship): Promise<ReportingRelationship> => {
+      const restored = await reportingService.restoreRelationship(row);
+      await refresh();
+      return restored;
+    },
+    [refresh],
+  );
+
   const addRelationship = useCallback(
     async (employeeId: string, managerId: string, isPrimary: boolean) => {
       if (!orgChartId) throw new Error('No active org chart');
       const created = await reportingService.createRelationship(orgChartId, employeeId, managerId, isPrimary);
       await refresh();
-      // Boxed like an employee id (idBox.ts): if this same edge gets
-      // reassigned/removed before an undo, then undone/redone, a plain
-      // captured id would go stale the moment redo recreates the row under a
-      // new id.
-      const box = boxFor(created.id);
       useHistoryStore.getState().push({
         label: 'Ajouter un lien hiérarchique',
         orgChartId,
         undo: async () => {
-          await reportingService.deleteRelationship(box.id);
+          await reportingService.deleteRelationship(created.id);
           await refresh();
         },
         redo: async () => {
-          const recreated = await reportingService.createRelationship(orgChartId, employeeId, managerId, isPrimary);
-          box.id = recreated.id;
+          await reportingService.restoreRelationship(created);
           await refresh();
         },
       });
@@ -243,8 +222,7 @@ export function useReportingGraph(orgChartId: string | null) {
 
   const removeRelationship = useCallback(
     async (relationship: ReportingRelationship) => {
-      const box = boxFor(relationship.id);
-      await reportingService.deleteRelationship(box.id);
+      await reportingService.deleteRelationship(relationship.id);
       // Mirrors ManagerEditorModal's existing toggle() behavior: if the
       // deleted link was primary and other managers remain, auto-promote
       // one of them rather than silently leaving the employee un-owned.
@@ -265,17 +243,11 @@ export function useReportingGraph(orgChartId: string | null) {
           orgChartId,
           undo: async () => {
             if (promoted) await setRelationshipPrimary(promoted.id, false);
-            const recreated = await reportingService.createRelationship(
-              orgChartId,
-              relationship.employee_id,
-              relationship.manager_id,
-              relationship.is_primary,
-            );
-            box.id = recreated.id;
+            await reportingService.restoreRelationship(relationship);
             await refresh();
           },
           redo: async () => {
-            await reportingService.deleteRelationship(box.id);
+            await reportingService.deleteRelationship(relationship.id);
             if (promoted) await reportingService.updateRelationshipPrimary(promoted.id, true);
             await refresh();
           },
@@ -321,6 +293,7 @@ export function useReportingGraph(orgChartId: string | null) {
     wouldCreateCycle: checkWouldCreateCycle,
     replaceManagersForEmployee,
     addRelationship,
+    restoreRelationship,
     removeRelationship,
     reassignManager,
     setRelationshipPrimary,

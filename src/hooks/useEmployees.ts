@@ -3,7 +3,6 @@ import { supabase } from '../lib/supabaseClient';
 import * as employeeService from '../services/employeeService';
 import type { Employee, EmployeeInput, PhotoFrameValues } from '../types/domain';
 import { useHistoryStore, withSuppressedRecording } from '../stores/historyStore';
-import { boxFor } from '../stores/idRegistryStore';
 
 export function useEmployees(orgChartId: string | null) {
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -105,20 +104,33 @@ export function useEmployees(orgChartId: string | null) {
       if (!orgChartId) throw new Error('No active org chart');
       const created = await employeeService.createEmployee(orgChartId, input);
       await refresh();
-      const box = boxFor(created.id);
+      // The id is stable across the whole undo/redo cycle because redo RESTORES
+      // the original row rather than creating a new one — so a plain string id is
+      // safe to close over here, and in every other command below.
       useHistoryStore.getState().push({
         label: `Créer ${created.first_name} ${created.last_name}`,
         orgChartId,
-        undo: () => deleteEmployee(box.id),
+        undo: () => deleteEmployee(created.id),
         redo: async () => {
-          const recreated = await employeeService.createEmployee(orgChartId, input);
-          box.id = recreated.id;
+          await employeeService.restoreEmployee(created);
           await refresh();
         },
       });
       return created;
     },
     [orgChartId, refresh, deleteEmployee],
+  );
+
+  // Undo-only helper: re-inserts a deleted row under its ORIGINAL id, whole row
+  // included (photo, crop, sibling_order). Deliberately NOT recorded — it only
+  // ever runs inside another command's undo/redo, which owns the recording.
+  const restoreEmployee = useCallback(
+    async (row: Employee): Promise<Employee> => {
+      const restored = await employeeService.restoreEmployee(row);
+      await refresh();
+      return restored;
+    },
+    [refresh],
   );
 
   const updateEmployee = useCallback(
@@ -139,7 +151,6 @@ export function useEmployees(orgChartId: string | null) {
       const updated = await employeeService.updateEmployee(id, changes);
       await refresh();
       if (before && orgChartId) {
-        const box = boxFor(id);
         const oldChanges: Partial<EmployeeInput> = {};
         for (const key of Object.keys(changes) as (keyof EmployeeInput)[]) {
           (oldChanges as Record<string, unknown>)[key] =
@@ -148,8 +159,8 @@ export function useEmployees(orgChartId: string | null) {
         useHistoryStore.getState().push({
           label: `Modifier ${before.first_name} ${before.last_name}`,
           orgChartId,
-          undo: async () => { await updateEmployee(box.id, oldChanges); },
-          redo: async () => { await updateEmployee(box.id, changes); },
+          undo: async () => { await updateEmployee(id, oldChanges); },
+          redo: async () => { await updateEmployee(id, changes); },
         });
       }
       return updated;
@@ -178,7 +189,6 @@ export function useEmployees(orgChartId: string | null) {
       const updated = await employeeService.updateEmployeePhotoFrame(id, frame);
       await refresh();
       if (before && orgChartId) {
-        const box = boxFor(id);
         const oldFrame: PhotoFrameValues = {
           zoom: before.photo_zoom,
           panX: before.photo_pan_x,
@@ -187,8 +197,8 @@ export function useEmployees(orgChartId: string | null) {
         useHistoryStore.getState().push({
           label: `Recadrer la photo de ${before.first_name} ${before.last_name}`,
           orgChartId,
-          undo: async () => { await updateEmployeePhotoFrame(box.id, oldFrame); },
-          redo: async () => { await updateEmployeePhotoFrame(box.id, frame); },
+          undo: async () => { await updateEmployeePhotoFrame(id, oldFrame); },
+          redo: async () => { await updateEmployeePhotoFrame(id, frame); },
         });
       }
       return updated;
@@ -212,21 +222,20 @@ export function useEmployees(orgChartId: string | null) {
       await employeeService.updateSiblingOrders(updates);
       await refresh();
 
-      const boxes = updates.map((u) => boxFor(u.id));
       useHistoryStore.getState().push({
         label,
         orgChartId,
         undo: () =>
           withSuppressedRecording(async () => {
             await employeeService.updateSiblingOrders(
-              before.map((b, i) => ({ id: boxes[i].id, siblingOrder: b.oldSiblingOrder })),
+              before.map((b) => ({ id: b.id, siblingOrder: b.oldSiblingOrder })),
             );
             await refresh();
           }),
         redo: () =>
           withSuppressedRecording(async () => {
             await employeeService.updateSiblingOrders(
-              updates.map((u, i) => ({ id: boxes[i].id, siblingOrder: u.siblingOrder })),
+              updates.map((u) => ({ id: u.id, siblingOrder: u.siblingOrder })),
             );
             await refresh();
           }),
@@ -240,6 +249,7 @@ export function useEmployees(orgChartId: string | null) {
     loading,
     error,
     createEmployee,
+    restoreEmployee,
     updateEmployee,
     deleteEmployee,
     updateEmployeePhoto,

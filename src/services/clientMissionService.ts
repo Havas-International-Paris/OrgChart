@@ -32,3 +32,14 @@ export async function deleteClientMission(id: string): Promise<void> {
   const { error } = await supabase.from('clients_missions').delete().eq('id', id);
   if (error) throw error;
 }
+
+// Re-inserts under the ORIGINAL id — see employeeService.restoreEmployee.
+export async function restoreClientMission(row: ClientMission): Promise<ClientMission> {
+  const { data, error } = await supabase
+    .from('clients_missions')
+    .insert({ id: row.id, name: row.name, type: row.type })
+    .select()
+    .single();
+  if (error) throw error;
+  return data as ClientMission;
+}

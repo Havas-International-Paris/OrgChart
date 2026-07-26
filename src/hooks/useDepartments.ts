@@ -3,7 +3,6 @@ import { supabase } from '../lib/supabaseClient';
 import * as departmentService from '../services/departmentService';
 import type { Department } from '../types/domain';
 import { useHistoryStore } from '../stores/historyStore';
-import { boxFor } from '../stores/idRegistryStore';
 import { useSelectionStore } from '../stores/selectionStore';
 
 export function useDepartments() {
@@ -39,18 +38,16 @@ export function useDepartments() {
     const created = await departmentService.createDepartment(name);
     await refresh();
     const orgChartId = useSelectionStore.getState().currentOrgChartId;
-    const box = boxFor(created.id);
     if (orgChartId) {
       useHistoryStore.getState().push({
         label: `Créer la business unit ${created.name}`,
         orgChartId,
         undo: async () => {
-          await departmentService.deleteDepartment(box.id);
+          await departmentService.deleteDepartment(created.id);
           await refresh();
         },
         redo: async () => {
-          const recreated = await departmentService.createDepartment(name);
-          box.id = recreated.id;
+          await departmentService.restoreDepartment(created);
           await refresh();
         },
       });
@@ -69,13 +66,12 @@ export function useDepartments() {
     await refresh();
     const orgChartId = useSelectionStore.getState().currentOrgChartId;
     if (before && orgChartId) {
-      const box = boxFor(id);
       const oldName = oldNameHint ?? before.name;
       useHistoryStore.getState().push({
         label: `Renommer la business unit ${oldName}`,
         orgChartId,
-        undo: async () => { await updateDepartment(box.id, oldName); },
-        redo: async () => { await updateDepartment(box.id, name); },
+        undo: async () => { await updateDepartment(id, oldName); },
+        redo: async () => { await updateDepartment(id, name); },
       });
     }
   };
@@ -86,17 +82,15 @@ export function useDepartments() {
     await refresh();
     const orgChartId = useSelectionStore.getState().currentOrgChartId;
     if (before && orgChartId) {
-      const box = boxFor(id);
       useHistoryStore.getState().push({
         label: `Supprimer la business unit ${before.name}`,
         orgChartId,
         undo: async () => {
-          const recreated = await departmentService.createDepartment(before.name);
-          box.id = recreated.id;
+          await departmentService.restoreDepartment(before);
           await refresh();
         },
         redo: async () => {
-          await departmentService.deleteDepartment(box.id);
+          await departmentService.deleteDepartment(id);
           await refresh();
         },
       });

@@ -7,8 +7,6 @@ import type {
   RemunerationModel,
 } from '../../types/domain';
 import { useHistoryStore, withSuppressedRecording } from '../../stores/historyStore';
-import { createIdBox } from '../../lib/history/idBox';
-import { registerIdBox } from '../../stores/idRegistryStore';
 
 interface AssignmentEditorModalProps {
   employee: Employee;
@@ -16,8 +14,9 @@ interface AssignmentEditorModalProps {
   clientsMissions: ClientMission[];
   orgChartId: string;
   findOrCreate: (name: string, type: ClientMissionType) => Promise<ClientMission>;
-  createClientMission: (name: string, type: ClientMissionType) => Promise<ClientMission>;
+  restoreClientMission: (row: ClientMission) => Promise<ClientMission>;
   deleteClientMission: (id: string) => Promise<void>;
+  restoreAssignment: (row: Assignment) => Promise<Assignment>;
   createAssignment: (
     employeeId: string,
     clientMissionId: string,
@@ -42,7 +41,8 @@ export function AssignmentEditorModal({
   clientsMissions,
   orgChartId,
   findOrCreate,
-  createClientMission,
+  restoreClientMission,
+  restoreAssignment,
   deleteClientMission,
   createAssignment,
   updateAssignmentEtpVendu,
@@ -112,41 +112,29 @@ export function AssignmentEditorModal({
       const willCreateClientMission = !clientsMissions.some(
         (cm) => cm.type === newType && cm.name.toLowerCase() === name.toLowerCase(),
       );
-      const cmIdBox = willCreateClientMission ? createIdBox('') : null;
       let cm!: ClientMission;
-      let assignmentId!: string;
+      let createdAssignment!: Assignment;
       await withSuppressedRecording(async () => {
         cm = await findOrCreate(name, newType);
-        if (cmIdBox) {
-          cmIdBox.id = cm.id;
-          registerIdBox(cm.id, cmIdBox);
-        }
-        const created = await createAssignment(employee.id, cm.id, finalVendu, etpReel, model);
-        assignmentId = created.id;
+        createdAssignment = await createAssignment(employee.id, cm.id, finalVendu, etpReel, model);
       });
-      const assignmentIdBox = createIdBox(assignmentId);
-      registerIdBox(assignmentId, assignmentIdBox);
 
+      // Both rows are captured and restored under their original ids, so the
+      // assignment's client_mission_id still points at the right row after a
+      // redo — which is exactly what needed an id indirection before.
       useHistoryStore.getState().push({
         label: `Ajouter une affectation (${cm.name})`,
         orgChartId,
         undo: () =>
           withSuppressedRecording(async () => {
-            await deleteAssignment(assignmentIdBox.id);
-            if (cmIdBox) await deleteClientMission(cmIdBox.id);
+            await deleteAssignment(createdAssignment.id);
+            if (willCreateClientMission) await deleteClientMission(cm.id);
           }),
         redo: () =>
           withSuppressedRecording(async () => {
-            let liveCmId = cm.id;
-            if (cmIdBox) {
-              const recreatedCm = await createClientMission(cm.name, cm.type);
-              cmIdBox.id = recreatedCm.id;
-              registerIdBox(recreatedCm.id, cmIdBox);
-              liveCmId = recreatedCm.id;
-            }
-            const recreated = await createAssignment(employee.id, liveCmId, finalVendu, etpReel, model);
-            assignmentIdBox.id = recreated.id;
-            registerIdBox(recreated.id, assignmentIdBox);
+            // Client/mission first: the assignment references it.
+            if (willCreateClientMission) await restoreClientMission(cm);
+            await restoreAssignment(createdAssignment);
           }),
       });
 

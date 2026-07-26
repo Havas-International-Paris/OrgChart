@@ -50,3 +50,21 @@ export async function deleteRelationship(id: string): Promise<void> {
   const { error } = await supabase.from('reporting_relationships').delete().eq('id', id);
   if (error) throw error;
 }
+
+// Re-inserts under the ORIGINAL id — see employeeService.restoreEmployee for why
+// every restore path must preserve identity rather than mint a new id.
+export async function restoreRelationship(row: ReportingRelationship): Promise<ReportingRelationship> {
+  const { data, error } = await supabase
+    .from('reporting_relationships')
+    .insert({
+      id: row.id,
+      employee_id: row.employee_id,
+      manager_id: row.manager_id,
+      is_primary: row.is_primary,
+      org_chart_id: row.org_chart_id,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data as ReportingRelationship;
+}
