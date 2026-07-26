@@ -184,7 +184,7 @@ export function useEmployees(orgChartId: string | null) {
   // Drag-to-reorder support (siblingOrder.ts). `updates` may cover more than
   // just the dragged employee — the first manual reorder in a sibling group
   // backfills real values for every member in the same write (see
-  // OrgChartView.tsx's handleNodeDragStop) — but it's still one user
+  // useChartNodes.ts's handleNodeDragStop) — but it's still one user
   // gesture, so it must record as a single undo/redo command regardless of
   // how many rows it touches.
   const updateSiblingOrders = useCallback(

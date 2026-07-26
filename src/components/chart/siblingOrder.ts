@@ -1,5 +1,5 @@
 // Shared between layoutEngine.ts (reading sibling_order to reposition
-// nodes) and OrgChartView.tsx's drag handler (writing it) so both agree on
+// nodes) and useChartNodes.ts's drag handler (writing it) so both agree on
 // identical grouping/gap semantics.
 
 // Sentinel group key for employees with no primary manager (roots )— mirrors

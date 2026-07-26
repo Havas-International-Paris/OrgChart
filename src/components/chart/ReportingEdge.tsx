@@ -12,7 +12,7 @@ import {
 
 // How far from the employee toward the manager the controls sit (t=0 is
 // the manager/source end, t=1 is the employee/target end — see the edge
-// construction in OrgChartView, `source: r.manager_id, target: r.employee_id`).
+// construction in useChartNodes.ts, `source: r.manager_id, target: r.employee_id`).
 // 0.2 puts them 4/5 of the way toward the manager, reinforcing that
 // dragging the grip only ever reassigns the manager side, never the
 // employee (the ghost line shown mid-drag makes this fully unambiguous
@@ -73,7 +73,7 @@ export interface ReportingEdgeData {
   onDelete: () => void;
   onReassignHover: (targetEmployeeId: string) => DropValidity;
   onReassignDrop: (targetEmployeeId: string) => void;
-  // Lets OrgChartView suppress its own hover-driven dimming while a grip
+  // Lets useChartNodes suppress its own hover-driven dimming while a grip
   // drag is in flight — see the mousemove handler below for why this is
   // needed (the cursor crosses other cards' real DOM elements on the way to
   // the drop target, firing genuine native mouseenter/mouseleave that would
@@ -84,7 +84,7 @@ export interface ReportingEdgeData {
   // computation below.
   isPrimary: boolean;
   // Whether THIS edge is the one currently selected (click-to-select, not
-  // hover — see OrgChartView's selectedEdgeId). Only one edge is ever
+  // hover — see useChartActions.ts's selectedEdgeId). Only one edge is ever
   // selected at a time, so there's no risk of two edges' controls
   // rendering at once regardless of where they're positioned.
   isSelected: boolean;
@@ -214,7 +214,7 @@ export function ReportingEdge({
         onClick={(e) => {
           // Without this, the click also bubbles to the pane, whose own
           // onClick immediately deselects everything (see onPaneClick in
-          // OrgChartView) — undoing the selection in the same tick.
+          // useChartNodes) — undoing the selection in the same tick.
           e.stopPropagation();
           data!.onSelect();
         }}

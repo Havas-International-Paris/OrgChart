@@ -293,7 +293,7 @@ export function useReportingGraph(orgChartId: string | null) {
   );
 
   // Memoized like every other value this hook returns — an unmemoized
-  // closure here was cascading into OrgChartView.tsx's computeDropValidity/
+  // closure here was cascading into useChartActions.ts's computeDropValidity/
   // handleReassignManager, and from there into the chart's own node array,
   // making it churn a new reference every render (see useEmployees.ts's
   // mutators for the fuller story on why that broke node dragging).

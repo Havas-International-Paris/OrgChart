@@ -251,7 +251,7 @@ function EmployeeNodeImpl({ data }: NodeProps<EmployeeNodeData>) {
   // Displacement-target (drag-to-reorder, amber) takes precedence over
   // everything else — it only ever applies while a drag is in progress, at
   // which point hover-driven chain highlighting is deliberately suppressed
-  // (see OrgChartView.tsx's isDraggingRef), so there's no real competing
+  // (see useChartNodes.ts's isDraggingRef), so there's no real competing
   // signal to lose. Chain-highlight (colored border + glow, in the card's
   // OWN department color) takes precedence over the older isSelected/isMatch
   // styling otherwise — activeEmployeeId already falls back to
