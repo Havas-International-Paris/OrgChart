@@ -49,7 +49,6 @@ export function OrgChartView() {
     employees: data.employees,
     employeesLoading: data.employeesLoading,
     relationshipsLoading: data.relationshipsLoading,
-    primaryEdges: data.primaryEdges,
     computedNodes: nodes.computedNodes,
     matchedIds: visibility.matchedIds,
     expandedNodeIds: visibility.expandedNodeIds,

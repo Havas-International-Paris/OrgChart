@@ -1,20 +1,15 @@
 import { useEffect, useRef } from 'react';
 import type { Node, ReactFlowInstance } from 'reactflow';
-import type { Employee, ReportingRelationship } from '../../types/domain';
+import type { Employee } from '../../types/domain';
 import { useSelectionStore } from '../../stores/selectionStore';
 import { NODE_HEIGHT, NODE_WIDTH } from './layoutEngine';
 import { isE2EMode } from '../../lib/e2eMode';
-
-// Above this headcount, default to roots + one level instead of fully
-// expanded — see the effect below for why.
-const FULL_EXPAND_THRESHOLD = 30;
 
 interface ViewportInput {
   currentOrgChartId: string | null;
   employees: Employee[];
   employeesLoading: boolean;
   relationshipsLoading: boolean;
-  primaryEdges: ReportingRelationship[];
   /** The laid-out node array React Flow will render, for fit/centre timing. */
   computedNodes: Node[];
   matchedIds: Set<string>;
@@ -31,7 +26,6 @@ export function useChartViewport({
   employees,
   employeesLoading,
   relationshipsLoading,
-  primaryEdges,
   computedNodes,
   matchedIds,
   expandedNodeIds,
@@ -50,29 +44,18 @@ export function useChartViewport({
   const lastCenteredIdRef = useRef<string | null>(null);
 
   // Default expand state once employees AND relationships have both finished
-  // their initial load: fully expanded for small teams (nothing to gain by
-  // hiding anything), but only roots + one level for large orgs, where
-  // expanding everything makes the auto-layout too large to fit the canvas
-  // even at minimum zoom. Must wait for relationships too, not just
-  // employees — computing this from a still-empty primaryEdges list treats
-  // every employee as a root and produces a much larger default set than
-  // intended.
+  // their initial load: always fully expanded, regardless of org size — the
+  // user explicitly wants to see everyone on open, and the manual "Étendre
+  // tout" button (OrgChartView.tsx) plus per-card collapse remain for anyone
+  // who wants to narrow the view back down afterwards. Was previously
+  // roots-plus-one-level above 30 employees, on the theory that a fully
+  // expanded large org wouldn't fit the canvas even at minimum zoom — dropped
+  // per explicit user request; minZoom={0.1} on <ReactFlow> still lets the
+  // auto-fit below zoom out arbitrarily far to make everyone fit.
   useEffect(() => {
     if (employeesLoading || relationshipsLoading) return;
     if (employees.length === 0 || expandedNodeIds.size > 0) return;
-
-    if (employees.length <= FULL_EXPAND_THRESHOLD) {
-      setExpandedNodeIds(new Set(employees.map((e) => e.id)));
-      return;
-    }
-
-    // Marking only the roots as expanded reveals exactly one level below
-    // them (roots are always visible; expanding a node reveals its direct
-    // children). Also marking that first level as expanded would cascade
-    // into revealing a second level, and so on.
-    const hasPrimaryManager = new Set(primaryEdges.map((e) => e.employee_id));
-    const roots = employees.filter((e) => !hasPrimaryManager.has(e.id)).map((e) => e.id);
-    setExpandedNodeIds(new Set(roots));
+    setExpandedNodeIds(new Set(employees.map((e) => e.id)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [employeesLoading, relationshipsLoading, employees.length]);
 
