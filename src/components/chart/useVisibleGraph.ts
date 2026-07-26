@@ -13,56 +13,69 @@ export function useVisibleGraph(
   primaryEdges: ReportingRelationship[],
   expandedNodeIds: Set<string>,
 ): VisibleGraphResult {
-  return useMemo(() => {
-    const childrenOf = new Map<string, string[]>();
-    const hasPrimaryManager = new Set<string>();
+  return useMemo(
+    () => computeVisibleGraph(employees, primaryEdges, expandedNodeIds),
+    [employees, primaryEdges, expandedNodeIds],
+  );
+}
 
-    for (const edge of primaryEdges) {
-      hasPrimaryManager.add(edge.employee_id);
-      const siblings = childrenOf.get(edge.manager_id) ?? [];
-      siblings.push(edge.employee_id);
-      childrenOf.set(edge.manager_id, siblings);
+// The hook's whole body, extracted as a plain function so it can be tested
+// without mounting React — same motivation as photoFrameMath.ts being split out
+// of PhotoFrame.tsx. The hook above is now only the memoization; every bit of
+// graph logic lives here.
+export function computeVisibleGraph(
+  employees: Employee[],
+  primaryEdges: ReportingRelationship[],
+  expandedNodeIds: Set<string>,
+): VisibleGraphResult {
+  const childrenOf = new Map<string, string[]>();
+  const hasPrimaryManager = new Set<string>();
+
+  for (const edge of primaryEdges) {
+    hasPrimaryManager.add(edge.employee_id);
+    const siblings = childrenOf.get(edge.manager_id) ?? [];
+    siblings.push(edge.employee_id);
+    childrenOf.set(edge.manager_id, siblings);
+  }
+
+  const roots = employees.filter((e) => !hasPrimaryManager.has(e.id));
+  const employeeById = new Map(employees.map((e) => [e.id, e]));
+
+  const visible = new Map<string, Employee>();
+  const queue = [...roots];
+  for (const root of roots) visible.set(root.id, root);
+
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    if (!expandedNodeIds.has(current.id)) continue;
+    const childIds = childrenOf.get(current.id) ?? [];
+    for (const childId of childIds) {
+      if (visible.has(childId)) continue;
+      const child = employeeById.get(childId);
+      if (!child) continue;
+      visible.set(childId, child);
+      queue.push(child);
     }
+  }
 
-    const roots = employees.filter((e) => !hasPrimaryManager.has(e.id));
-    const employeeById = new Map(employees.map((e) => [e.id, e]));
+  // Recursive headcount under a person, over the full primary tree — not
+  // just currently-visible descendants — so the count on a collapsed
+  // node's badge doesn't change as the user expands/collapses elsewhere.
+  const totalDescendantCount = new Map<string, number>();
+  const countDescendants = (id: string): number => {
+    if (totalDescendantCount.has(id)) return totalDescendantCount.get(id)!;
+    const children = childrenOf.get(id) ?? [];
+    let total = children.length;
+    for (const childId of children) total += countDescendants(childId);
+    totalDescendantCount.set(id, total);
+    return total;
+  };
+  for (const employee of employees) countDescendants(employee.id);
 
-    const visible = new Map<string, Employee>();
-    const queue = [...roots];
-    for (const root of roots) visible.set(root.id, root);
-
-    while (queue.length > 0) {
-      const current = queue.shift()!;
-      if (!expandedNodeIds.has(current.id)) continue;
-      const childIds = childrenOf.get(current.id) ?? [];
-      for (const childId of childIds) {
-        if (visible.has(childId)) continue;
-        const child = employeeById.get(childId);
-        if (!child) continue;
-        visible.set(childId, child);
-        queue.push(child);
-      }
-    }
-
-    // Recursive headcount under a person, over the full primary tree — not
-    // just currently-visible descendants — so the count on a collapsed
-    // node's badge doesn't change as the user expands/collapses elsewhere.
-    const totalDescendantCount = new Map<string, number>();
-    const countDescendants = (id: string): number => {
-      if (totalDescendantCount.has(id)) return totalDescendantCount.get(id)!;
-      const children = childrenOf.get(id) ?? [];
-      let total = children.length;
-      for (const childId of children) total += countDescendants(childId);
-      totalDescendantCount.set(id, total);
-      return total;
-    };
-    for (const employee of employees) countDescendants(employee.id);
-
-    return {
-      visibleEmployees: [...visible.values()],
-      childrenOf,
-      roots,
-      totalDescendantCountOf: (id: string) => totalDescendantCount.get(id) ?? 0,
-    };
-  }, [employees, primaryEdges, expandedNodeIds]);
+  return {
+    visibleEmployees: [...visible.values()],
+    childrenOf,
+    roots,
+    totalDescendantCountOf: (id: string) => totalDescendantCount.get(id) ?? 0,
+  };
 }
