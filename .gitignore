@@ -28,3 +28,11 @@ supabase/.temp
 *.njsproj
 *.sln
 *.sw?
+
+# Playwright
+# e2e/.auth holds a signed-in session token and the throwaway chart id —
+# must never be committed. (.env.test.local is already covered by *.local above.)
+e2e/.auth/
+playwright-report/
+test-results/
+blob-report/

@@ -13,11 +13,17 @@ npm run dev       # start Vite dev server (http://localhost:5173)
 npm run build     # tsc -b (typecheck) && vite build — this is the primary correctness check, run it after any change
 npm test          # vitest run — the pure-logic unit tests
 npm run test:watch
+npm run test:e2e  # playwright test — browser end-to-end suite
+npm run gen:types # regenerate src/lib/database.types.ts from the live schema
 npm run lint      # oxlint
 npm run preview   # preview a production build
 ```
 
-`npm run build` (which runs `tsc -b` first) plus `npm test` are the two automated checks; run both after any change. Coverage is unit-level only and deliberately narrow — see "Known issues" for exactly what it does and doesn't reach, and why there are no end-to-end tests yet.
+`npm run build` (which runs `tsc -b` over three TS projects: `src`, the Vite/Vitest configs, and `e2e`) plus `npm test` are the two checks to run after any change; `npm run test:e2e` when the change is user-visible. Coverage is deliberately narrow — see "Known issues" for exactly what it does and doesn't reach.
+
+**The E2E suite is split into three Playwright projects** (`playwright.config.ts`) so it stays useful without credentials. `public` needs no login and always runs. `setup` signs in through the real login form and provisions a **throwaway `org_charts` row**; `authenticated` reuses that session and operates only inside that chart, so destructive specs never touch real data — this is what unblocked E2E at all, since the same Supabase project backs local dev and production. `cleanup` is attached as the setup project's `teardown`, so a failed run still deletes the throwaway chart (by the `E2E throwaway ` name prefix, which also sweeps up charts stranded by an earlier crash, and can never match a human-created one) and removes the saved session token. Without `.env.test.local` (see `.env.test.local.example`) the authenticated specs **skip rather than fail**, and the run still exits 0. `webServer.reuseExistingServer` is on deliberately: the normal state of this repo is a dev server already running for manual testing, and tearing it down mid-session is hostile.
+
+`e2e/` needs its own `tsconfig.e2e.json` with `moduleResolution: bundler`: it can't join `tsconfig.node.json`, whose `nodenext` resolution demands explicit `.js` extensions on relative imports that Playwright's own loader neither needs nor expects.
 
 The dev server requires `.env.local` (copy from `.env.example`) with `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` from a Supabase project that has had the migrations in `supabase/migrations/` applied (see README.md for the full setup sequence — order matters, `0004` in particular is easy to forget and silently breaks realtime). Without `.env.local`, the app renders a "Configuration Supabase requise" screen instead of crashing (see `isSupabaseConfigured` in `src/lib/supabaseClient.ts`).
 
@@ -85,4 +91,4 @@ Production: https://orgchart-dun.vercel.app, deployed by Vercel from `Havas-Inte
 - No optimistic locking: if two users edit the same field at the same moment, last write wins silently.
 - No granular roles — every authenticated user can edit or delete anything.
 - No automated test coverage beyond the pure-logic modules. `npm test` (Vitest, `vitest.config.ts`, node environment — no jsdom) covers `layoutEngine`, `useVisibleGraph`, `useReportingChain`, `wouldCreateCycle`, `etpStatus`, `departmentColor` and `photoFrameMath`; everything involving React rendering, AG Grid, React Flow interaction or Supabase I/O is still verified only by hand. `useVisibleGraph`/`useReportingChain` each expose their body as a plain `compute*` function precisely so the hook can be tested without React — keep that split if you touch them, and don't inline the logic back into the `useMemo`.
-- No end-to-end tests, and adding them is blocked on an environment question rather than effort: the same Supabase project backs local dev and production, so any smoke test that creates or deletes an employee writes to live data. Needs either a dedicated Supabase project, or a throwaway `org_charts` row used only by tests, before Playwright is worth wiring up.
+- The E2E suite's authenticated half has **never actually been executed** — it needs a throwaway Supabase Auth user that only the repo owner can create (`.env.test.local`). The harness itself is verified (the four `public` specs pass, and the authenticated ones skip cleanly with exit 0), but treat the selectors in `e2e/authenticated/employee.spec.ts` as a first draft: AG Grid and React Flow are both awkward to drive, so expect to fix them on the first real run rather than assuming they work.
