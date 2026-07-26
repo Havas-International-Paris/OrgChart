@@ -30,6 +30,7 @@ export function OrgChartView() {
   const currentOrgChartId = useSelectionStore((s) => s.currentOrgChartId);
   const selectedEmployeeId = useSelectionStore((s) => s.selectedEmployeeId);
   const setSelectedEmployee = useSelectionStore((s) => s.setSelectedEmployee);
+  const setExpandedNodeIds = useSelectionStore((s) => s.setExpandedNodeIds);
 
   // Department-legend filter — the only piece of chart state that is neither
   // shared with the grid (selectionStore) nor owned by one of the hooks below.
@@ -58,6 +59,20 @@ export function OrgChartView() {
 
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+
+  // Above FULL_EXPAND_THRESHOLD (useChartViewport.ts), the chart defaults to
+  // roots + one level rather than fully expanded, so the initial auto-layout
+  // still fits the canvas at minimum zoom. This is the manual override for
+  // "no, I actually want to see everyone" — sets every employee expanded, then
+  // re-fits once the newly-revealed cards are laid out (same two-rAF wait
+  // handleExport uses, so fitView reads real, mounted card sizes rather than
+  // dagre's approximate NODE_WIDTH/NODE_HEIGHT).
+  async function handleExpandAll() {
+    setExpandedNodeIds(new Set(data.employees.map((e) => e.id)));
+    await new Promise(requestAnimationFrame);
+    await new Promise(requestAnimationFrame);
+    reactFlowInstanceRef.current?.fitView({ padding: 0.08 });
+  }
 
   async function handleExport() {
     setExporting(true);
@@ -136,6 +151,12 @@ export function OrgChartView() {
       >
         {showOverlays && (
           <Panel position="top-right" className="flex flex-col items-end gap-1">
+            <button
+              onClick={handleExpandAll}
+              className="rounded border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50"
+            >
+              Tout développer
+            </button>
             <button
               onClick={handleExport}
               disabled={exporting}
