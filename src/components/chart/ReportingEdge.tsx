@@ -19,6 +19,13 @@ import {
 // regardless, but the resting position echoes it too).
 const GRIP_T = 0.2;
 
+// Corner rounding on primary (orthogonal) edges. 0 gives the sharp right angles
+// this started as; React Flow's own smoothstep default is 5. 8 reads as
+// deliberately softened without losing the org-chart-bracket look. Only affects
+// the corners themselves — the straight runs, and so the grip position derived
+// from the vertical stub below, are unchanged.
+const PRIMARY_CORNER_RADIUS = 8;
+
 // Re-derives the exact cubic-bezier point React Flow's own getBezierPath
 // draws at a given t — the public API only returns the curve's fixed
 // midpoint (t=0.5, via labelX/labelY), not an arbitrary point along it, so
@@ -72,7 +79,7 @@ export interface ReportingEdgeData {
   // the drop target, firing genuine native mouseenter/mouseleave that would
   // otherwise repeatedly re-dim most of the chart).
   onDragStateChange: (dragging: boolean) => void;
-  // Primary relationships route as right angles (getSmoothStepPath); only
+  // Primary relationships route orthogonally (getSmoothStepPath); only
   // secondary/dotted ones keep the original bezier curve — see the path
   // computation below.
   isPrimary: boolean;
@@ -122,11 +129,19 @@ export function ReportingEdge({
   const { screenToFlowPosition } = useReactFlow();
   const isPrimary = data!.isPrimary;
   const isSelected = data!.isSelected;
-  // Primary edges route as sharp right angles (borderRadius: 0 — the same
-  // technique React Flow's own built-in StepEdge uses internally);
-  // secondary/dotted ones keep the bezier curve.
+  // Primary edges route orthogonally with softened corners; secondary/dotted
+  // ones keep the bezier curve, deliberately, so the two kinds of reporting
+  // line stay distinguishable at a glance rather than converging on one look.
   const [path] = isPrimary
-    ? getSmoothStepPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition, borderRadius: 0 })
+    ? getSmoothStepPath({
+        sourceX,
+        sourceY,
+        sourcePosition,
+        targetX,
+        targetY,
+        targetPosition,
+        borderRadius: PRIMARY_CORNER_RADIUS,
+      })
     : getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
   // Primary (step-routed) edges: GRIP_T applied to the vertical stub
   // leaving the manager. Secondary edges: same fraction along the bezier
