@@ -10,10 +10,23 @@
 // build with an error pointing nowhere near the cause. This captures the
 // output, validates it, and only then writes.
 //
-// Requires the Supabase CLI to be authenticated, which is interactive and
-// therefore a one-off manual step:
-//     npx supabase login
-// Or, in CI, set SUPABASE_ACCESS_TOKEN in the environment instead.
+// Two ways to reach the schema, and the first is preferred on purpose:
+//
+//   1. SUPABASE_DB_URL — the project's Postgres connection string. Scoped to
+//      this one database and nothing else. Pass it for a single run without
+//      writing the password to disk:
+//          SUPABASE_DB_URL='postgresql://...' npm run gen:types
+//      Use the *Session pooler* string from the dashboard's Connect modal, not
+//      the "Direct connection" one — same reason the backup workflow does (the
+//      direct host is IPv6-only). Also read from .env.local if you would rather
+//      keep it there; that file is gitignored.
+//
+//   2. `npx supabase login` — falls back to --project-id. Note this is an
+//      ACCOUNT-level token, not a per-project one: it grants the CLI access to
+//      every organization and project the account can see, and Supabase
+//      Personal Access Tokens cannot be scoped to a single project. Prefer (1)
+//      unless you specifically want the CLI logged in for other reasons.
+//      SUPABASE_ACCESS_TOKEN works the same way in CI.
 
 import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -49,19 +62,38 @@ if (!urlMatch) {
 }
 const projectRef = urlMatch[2];
 
-console.log(`Generating types for project ${projectRef}…`);
+// Environment first so a one-off `SUPABASE_DB_URL=... npm run gen:types` never
+// has to touch a file; .env.local second for convenience if you'd rather keep it.
+const dbUrl =
+  process.env.SUPABASE_DB_URL?.trim() ||
+  env.match(/^SUPABASE_DB_URL\s*=\s*"?([^"\s]+)"?\s*$/m)?.[1] ||
+  '';
+
+// The connection string carries the database password, so it must never be
+// echoed — not into the console, not into an error message.
+const args = dbUrl
+  ? ['--yes', 'supabase@latest', 'gen', 'types', 'typescript', '--db-url', dbUrl]
+  : ['--yes', 'supabase@latest', 'gen', 'types', 'typescript', '--project-id', projectRef];
+
+console.log(
+  dbUrl
+    ? `Generating types for project ${projectRef} via its database connection…`
+    : `Generating types for project ${projectRef} via the Management API (account login)…`,
+);
 
 let generated;
 try {
-  generated = execFileSync(
-    'npx',
-    ['--yes', 'supabase@latest', 'gen', 'types', 'typescript', '--project-id', projectRef],
-    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'], cwd: root },
-  );
+  generated = execFileSync('npx', args, {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'inherit'],
+    cwd: root,
+  });
 } catch {
   fail(
     'The Supabase CLI failed (see its output above).',
-    'Most often this means it is not authenticated — run `npx supabase login` once, or set SUPABASE_ACCESS_TOKEN.',
+    dbUrl
+      ? 'Check the connection string — use the dashboard\'s Session pooler string, not the IPv6-only "Direct connection" one.'
+      : 'Most often this means the CLI is not authenticated. Either set SUPABASE_DB_URL (scoped to this one database — preferred) or run `npx supabase login` (an account-wide token).',
   );
 }
 
