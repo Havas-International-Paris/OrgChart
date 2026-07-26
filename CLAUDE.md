@@ -11,11 +11,13 @@ Internal org chart tool for Havas International: an editable spreadsheet (left) 
 ```bash
 npm run dev       # start Vite dev server (http://localhost:5173)
 npm run build     # tsc -b (typecheck) && vite build — this is the primary correctness check, run it after any change
+npm test          # vitest run — the pure-logic unit tests
+npm run test:watch
 npm run lint      # oxlint
 npm run preview   # preview a production build
 ```
 
-There is no test suite in this repo. `npm run build` (which runs `tsc -b` first) is the main way to catch mistakes before manual verification.
+`npm run build` (which runs `tsc -b` first) plus `npm test` are the two automated checks; run both after any change. Coverage is unit-level only and deliberately narrow — see "Known issues" for exactly what it does and doesn't reach, and why there are no end-to-end tests yet.
 
 The dev server requires `.env.local` (copy from `.env.example`) with `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` from a Supabase project that has had the migrations in `supabase/migrations/` applied (see README.md for the full setup sequence — order matters, `0004` in particular is easy to forget and silently breaks realtime). Without `.env.local`, the app renders a "Configuration Supabase requise" screen instead of crashing (see `isSupabaseConfigured` in `src/lib/supabaseClient.ts`).
 
@@ -72,10 +74,13 @@ Production: https://orgchart-dun.vercel.app, deployed by Vercel from `Havas-Inte
 **GitHub Actions + Supabase Postgres gotchas** (hit both when setting up `.github/workflows/supabase-backup.yml`, now documented inline in that file too):
 - Supabase's "Direct connection" string (`db.<ref>.supabase.co`) is **IPv6-only**; GitHub's hosted runners have no IPv6 egress and fail with `Network is unreachable`. Use the **Session pooler** connection string instead (`aws-0-<region>.pooler.supabase.com`, found via the Connect modal's "Direct" tab).
 - `pg_dump` refuses to dump from a server newer than itself. Supabase currently runs Postgres 17, but Ubuntu's default `postgresql-client` package is older — install `postgresql-client-17` from the official PGDG apt repo and invoke it by full path (`/usr/lib/postgresql/17/bin/pg_dump`), since the older bundled one stays first on `PATH`.
-- The three repo secrets (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_DB_URL`) have similar names — easy to edit the wrong one via GitHub's secrets UI (it happened once already). `SUPABASE_URL` must stay a plain `https://` URL (used by the keep-alive ping); the Postgres connection string belongs only in `SUPABASE_DB_URL`.
+- The three repo secrets (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_DB_URL`) have similar names — easy to edit the wrong one via GitHub's secrets UI (it happened once already). `SUPABASE_URL` must stay a plain `https://` URL (used by the keep-alive ping *and* by the backup's photo download step); the Postgres connection string belongs only in `SUPABASE_DB_URL`.
+
+**The backup covers Storage as well as Postgres.** The `employee-photos` bucket is archived alongside the `pg_dump`, driven by the `photo_path` values in `employees` rather than by listing the bucket — that is exactly the set of objects a restore of the same dump would need, it requires no Storage credentials (the bucket is public), and any orphaned object in the bucket is by definition not worth restoring. Object keys are preserved inside `photos-<date>.tar.gz` so a restore can put them back at the same paths. A referenced object that 404s is recorded in `photos-missing.txt` and does not fail the run (it is already a broken reference in production, and aborting would lose the photos that *are* fine), but a `psql` failure fails the step outright rather than silently producing an empty photo archive.
 
 ## Known issues
 
 - No optimistic locking: if two users edit the same field at the same moment, last write wins silently.
 - No granular roles — every authenticated user can edit or delete anything.
-- The weekly backup workflow (`.github/workflows/supabase-backup.yml`) only `pg_dump`s the Postgres database — it does not back up the `employee-photos` Storage bucket. Restoring from that backup would bring back every `employees.photo_path` value pointing at objects that may no longer exist.
+- No automated test coverage beyond the pure-logic modules. `npm test` (Vitest, `vitest.config.ts`, node environment — no jsdom) covers `layoutEngine`, `useVisibleGraph`, `useReportingChain`, `wouldCreateCycle`, `etpStatus`, `departmentColor` and `photoFrameMath`; everything involving React rendering, AG Grid, React Flow interaction or Supabase I/O is still verified only by hand. `useVisibleGraph`/`useReportingChain` each expose their body as a plain `compute*` function precisely so the hook can be tested without React — keep that split if you touch them, and don't inline the logic back into the `useMemo`.
+- No end-to-end tests, and adding them is blocked on an environment question rather than effort: the same Supabase project backs local dev and production, so any smoke test that creates or deletes an employee writes to live data. Needs either a dedicated Supabase project, or a throwaway `org_charts` row used only by tests, before Playwright is worth wiring up.

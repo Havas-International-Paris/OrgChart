@@ -1,8 +1,14 @@
 name: Supabase backup
 
 # The Supabase free tier has no automated backups. This weekly job dumps
-# the database and keeps it as a workflow artifact (90-day retention by
-# default) as a safety net. Requires one repo secret:
+# the database and the employee-photos Storage bucket, keeping both as a
+# workflow artifact (90-day retention by default) as a safety net. Requires two
+# repo secrets:
+#   SUPABASE_URL    - plain https://<ref>.supabase.co project URL, used to pull
+#                     the public photo objects. Must NOT hold a Postgres
+#                     connection string; that belongs in SUPABASE_DB_URL below.
+#                     The two secrets have confusingly similar names and the
+#                     wrong one has been pasted here before.
 #   SUPABASE_DB_URL - Postgres connection string, but the "Direct connection"
 #                     one (db.<ref>.supabase.co) is IPv6-only and GitHub's
 #                     runners have no IPv6 egress ("Network is unreachable").
@@ -40,9 +46,66 @@ jobs:
             --no-owner --no-privileges \
             -f "backup-$(date +%Y-%m-%d).sql"
 
+      - name: Download employee photos
+        # pg_dump covers Postgres only, so without this the dump restores every
+        # employees.photo_path pointing at Storage objects that may no longer
+        # exist — rows referencing images that were never backed up.
+        #
+        # The list is driven by photo_path values in the database rather than by
+        # listing the bucket: that is exactly the set of objects a restore of
+        # this dump would need, it needs no Storage credentials, and any extra
+        # orphaned object in the bucket is by definition not worth restoring.
+        #
+        # employee-photos is a public bucket (0010_employee_photos.sql), so the
+        # public object endpoint serves these without an apikey header.
+        run: |
+          set -uo pipefail
+          mkdir -p photos
+          # Guarded explicitly: without -e a failing psql would leave an empty
+          # list, and the step would report "0 photos" instead of failing —
+          # a silently empty photo backup is the exact failure this step exists
+          # to prevent.
+          if ! /usr/lib/postgresql/17/bin/psql "${{ secrets.SUPABASE_DB_URL }}" \
+            --no-psqlrc --tuples-only --no-align --set ON_ERROR_STOP=1 \
+            -c "select photo_path from public.employees where photo_path is not null order by photo_path" \
+            > photo-paths.txt; then
+            echo "psql failed to list photo_path values" >&2
+            exit 1
+          fi
+          total=0
+          missing=0
+          while IFS= read -r path; do
+            [ -n "$path" ] || continue
+            total=$((total + 1))
+            mkdir -p "photos/$(dirname "$path")"
+            if curl --fail --silent --show-error --location \
+                 "${{ secrets.SUPABASE_URL }}/storage/v1/object/public/employee-photos/$path" \
+                 -o "photos/$path"; then
+              :
+            else
+              # A referenced object that 404s is already a broken reference in
+              # production, not a reason to abort the backup — record it and
+              # carry on, so the rest of the photos still get archived.
+              echo "MISSING: $path" >> photos-missing.txt
+              rm -f "photos/$path"
+              missing=$((missing + 1))
+            fi
+          done < photo-paths.txt
+          echo "Photos referenced: $total, downloaded: $((total - missing)), missing: $missing"
+          if [ "$total" -gt 0 ]; then
+            tar -czf "photos-$(date +%Y-%m-%d).tar.gz" photos
+          fi
+
       - name: Upload backup artifact
         uses: actions/upload-artifact@v4
         with:
           name: supabase-backup-${{ github.run_id }}
-          path: backup-*.sql
+          # if-no-files-found stays at its default (warn) for the photo entries:
+          # an org chart with no photos at all is a legitimate state, and the
+          # SQL dump — the one file that must always be there — is covered by
+          # the job failing outright if pg_dump did not produce it.
+          path: |
+            backup-*.sql
+            photos-*.tar.gz
+            photos-missing.txt
           retention-days: 90
