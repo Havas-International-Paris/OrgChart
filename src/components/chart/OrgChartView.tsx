@@ -28,7 +28,12 @@ import { registerIdBox } from '../../stores/idRegistryStore';
 import { useVisibleGraph } from './useVisibleGraph';
 import { useReportingChain } from './useReportingChain';
 import { layoutWithDagre, NODE_WIDTH, NODE_HEIGHT } from './layoutEngine';
-import { ROOT_GROUP_KEY, SIBLING_ORDER_GAP } from './siblingOrder';
+import { ROOT_GROUP_KEY } from './siblingOrder';
+import {
+  computeReorder,
+  findDisplacementTargets,
+  type ChartGeometry,
+} from './siblingReorderGeometry';
 import { EmployeeNode, type EmployeeNodeActions, type EmployeeNodeData } from './EmployeeNode';
 import { ReportingEdge, type ReportingEdgeData } from './ReportingEdge';
 import { LinkExistingEmployeeModal } from '../shared/LinkExistingEmployeeModal';
@@ -498,22 +503,25 @@ export function OrgChartView() {
     return new Map(laidOut.map((n) => [n.id, n]));
   }, [employees, primaryEdges, employeeById]);
 
-  // Given a sibling group's OTHER members' sibling_order values (ascending,
-  // never including the dragged node itself) and the index the dragged node
-  // should land at (0..length), returns its new value: the midpoint of its
-  // two new neighbors, or ±SIBLING_ORDER_GAP past whichever end it's
-  // dropped at. Classic fractional/gap-based reorder indexing — lets a
-  // single reorder touch only the dragged row once a group is backfilled.
-  const computeNewOrderValue = (sortedNeighbors: number[], index: number): number => {
-    if (sortedNeighbors.length === 0) return 0;
-    if (index <= 0) return sortedNeighbors[0] - SIBLING_ORDER_GAP;
-    if (index >= sortedNeighbors.length) return sortedNeighbors[sortedNeighbors.length - 1] + SIBLING_ORDER_GAP;
-    return (sortedNeighbors[index - 1] + sortedNeighbors[index]) / 2;
-  };
+  // The chart's current geometry, as the plain lookups siblingReorderGeometry.ts
+  // works from. Shared by the drop handler and the live mid-drag feedback so the
+  // two can never disagree about whether a position is inside the cluster.
+  const reorderGeometry = useMemo<ChartGeometry>(
+    () => ({
+      allIds: employees.map((e) => e.id),
+      groupKeyOf: (id) => primaryManagerOf.get(id) ?? ROOT_GROUP_KEY,
+      visibleIds: new Set(finalVisibleEmployees.map((e) => e.id)),
+      baseXOf: (id) => layoutedNodeById.get(id)?.position.x ?? 0,
+      childrenOf: (id) => childrenOf.get(id) ?? [],
+      siblingOrderOf: (id) => employeeById.get(id)?.sibling_order ?? null,
+    }),
+    [employees, primaryManagerOf, finalVisibleEmployees, layoutedNodeById, childrenOf, employeeById],
+  );
 
   // Drag-to-reorder among same-manager siblings ONLY — never a re-parent
-  // (that's ReportingEdge.tsx's grip drag). A drop outside the dragged
-  // node's own sibling cluster snaps back as a no-op.
+  // (that's ReportingEdge.tsx's grip drag). All the geometry lives in
+  // siblingReorderGeometry.ts (and is unit-tested there); this is just the glue
+  // that turns its decision into either a snap-back or a persisted reorder.
   const handleNodeDragStop = useCallback(
     (_event: unknown, node: Node) => {
       // The drag itself is over the instant this fires — resume the
@@ -523,86 +531,25 @@ export function OrgChartView() {
       isDraggingRef.current = false;
       setDisplacementTargetIds(new Set());
 
-      const employeeId = node.id;
-      const baseX = (id: string) => layoutedNodeById.get(id)?.position.x ?? 0;
+      const outcome = computeReorder(reorderGeometry, node.id, node.position.x);
 
-      // On an invalid drop, no mutation runs — nothing forces computedNodes
-      // to a new reference, so flowNodes would otherwise keep the dropped
-      // (wrong) position for this node indefinitely. Reset it directly in
-      // the controlled array we own.
-      const snapBack = () => {
-        const committed = layoutedNodeById.get(employeeId);
+      if (outcome.kind === 'snap-back') {
+        // No mutation runs, so nothing forces computedNodes to a new reference
+        // and flowNodes would otherwise keep the dropped (wrong) position for
+        // this node indefinitely. Reset it directly in the array we control.
+        const committed = layoutedNodeById.get(node.id);
         if (!committed) return;
         setFlowNodes((nds) =>
-          nds.map((n) => (n.id === employeeId ? { ...n, position: committed.position } : n)),
+          nds.map((n) => (n.id === node.id ? { ...n, position: committed.position } : n)),
         );
-      };
-
-      const currentGroupKey = primaryManagerOf.get(employeeId) ?? ROOT_GROUP_KEY;
-      const groupMemberIds = employees
-        .filter((e) => (primaryManagerOf.get(e.id) ?? ROOT_GROUP_KEY) === currentGroupKey)
-        .map((e) => e.id);
-      if (groupMemberIds.length < 2) {
-        snapBack();
         return;
       }
 
-      // Only currently-visible siblings have a real on-screen x to compare
-      // against — hidden ones (collapsed elsewhere) can't be geometrically
-      // tested, but still get backfilled below since the whole group must
-      // stay consistent (§2 of the plan's backfill invariant).
-      const visibleIds = new Set(finalVisibleEmployees.map((e) => e.id));
-      const visibleGroupIds = groupMemberIds.filter((id) => id === employeeId || visibleIds.has(id));
-      if (visibleGroupIds.length < 2) {
-        snapBack();
-        return;
-      }
-
-      const otherVisibleXs = visibleGroupIds.filter((id) => id !== employeeId).map(baseX);
-      const minX = Math.min(...otherVisibleXs);
-      const maxX = Math.max(...otherVisibleXs);
-      // A little slack past the cluster's own span still counts as "within
-      // this group" — dragging slightly past an edge sibling shouldn't read
-      // as leaving the cluster. Further than that is an invalid re-parent
-      // attempt, out of scope for this gesture.
-      const slack = NODE_WIDTH;
-      if (node.position.x < minX - slack || node.position.x > maxX + slack) {
-        snapBack();
-        return;
-      }
-
-      const xOf = (id: string) => (id === employeeId ? node.position.x : baseX(id));
-
-      // Step 1: ensure every member of the FULL group (visible or not) has
-      // a real sibling_order — backfill from natural (dagre) order, using
-      // each member's pre-drag base position, the first time this group is
-      // ever manually touched.
-      const untouched = groupMemberIds.every((id) => (employeeById.get(id)?.sibling_order ?? null) == null);
-      const orderById = new Map<string, number>();
-      if (untouched) {
-        const naturalOrder = [...groupMemberIds].sort((a, b) => baseX(a) - baseX(b));
-        naturalOrder.forEach((id, i) => orderById.set(id, (i + 1) * SIBLING_ORDER_GAP));
-      } else {
-        for (const id of groupMemberIds) orderById.set(id, employeeById.get(id)?.sibling_order ?? 0);
-      }
-
-      // Step 2: compute the dragged node's NEW value from where it was
-      // dropped among the (now-numeric) VISIBLE siblings only.
-      const sortedVisibleWithDragged = [...visibleGroupIds].sort((a, b) => xOf(a) - xOf(b));
-      const draggedIndex = sortedVisibleWithDragged.indexOf(employeeId);
-      const neighborValues = sortedVisibleWithDragged.filter((id) => id !== employeeId).map((id) => orderById.get(id)!);
-      const newValue = computeNewOrderValue(neighborValues, draggedIndex);
-      orderById.set(employeeId, newValue);
-
-      const updates = untouched
-        ? [...orderById.entries()].map(([id, siblingOrder]) => ({ id, siblingOrder }))
-        : [{ id: employeeId, siblingOrder: newValue }];
-
-      const employee = employeeById.get(employeeId);
+      const employee = employeeById.get(node.id);
       const label = employee ? `Réordonner ${employee.first_name} ${employee.last_name}` : 'Réordonner';
-      updateSiblingOrders(updates, label);
+      updateSiblingOrders(outcome.updates, label);
     },
-    [employees, primaryManagerOf, finalVisibleEmployees, layoutedNodeById, employeeById, updateSiblingOrders],
+    [reorderGeometry, layoutedNodeById, employeeById, updateSiblingOrders],
   );
 
   const { nodes: computedNodes, edges } = useMemo(() => {
@@ -835,57 +782,18 @@ export function OrgChartView() {
     (changes: NodeChange[]) => {
       setFlowNodes((nds) => applyNodeChanges(changes, nds));
 
+      // Recomputed on every drag frame, so it must stay cheap: no dagre
+      // re-layout, no styling pass, only position reads (see
+      // findDisplacementTargets). A batch carrying several position changes
+      // ends on the last one, same as before.
       for (const change of changes) {
         if (change.type !== 'position' || !change.position) continue;
-        const employeeId = change.id;
-        const currentGroupKey = primaryManagerOf.get(employeeId) ?? ROOT_GROUP_KEY;
-        const visibleIds = new Set(finalVisibleEmployees.map((e) => e.id));
-        const otherVisibleIds = employees
-          .filter(
-            (e) =>
-              e.id !== employeeId &&
-              visibleIds.has(e.id) &&
-              (primaryManagerOf.get(e.id) ?? ROOT_GROUP_KEY) === currentGroupKey,
-          )
-          .map((e) => e.id);
-
-        if (otherVisibleIds.length === 0) {
-          setDisplacementTargetIds(new Set());
-          continue;
-        }
-
-        const baseX = (id: string) => layoutedNodeById.get(id)?.position.x ?? 0;
-        const otherXs = otherVisibleIds.map(baseX);
-        const minX = Math.min(...otherXs);
-        const maxX = Math.max(...otherXs);
-        const slack = NODE_WIDTH;
-        if (change.position.x < minX - slack || change.position.x > maxX + slack) {
-          setDisplacementTargetIds(new Set());
-          continue;
-        }
-
-        let nearestId = otherVisibleIds[0];
-        let nearestDist = Math.abs(baseX(nearestId) - change.position.x);
-        for (const id of otherVisibleIds) {
-          const dist = Math.abs(baseX(id) - change.position.x);
-          if (dist < nearestDist) {
-            nearestDist = dist;
-            nearestId = id;
-          }
-        }
-
-        const targets = new Set<string>([nearestId]);
-        const collectDescendants = (id: string) => {
-          for (const childId of childrenOf.get(id) ?? []) {
-            targets.add(childId);
-            collectDescendants(childId);
-          }
-        };
-        collectDescendants(nearestId);
-        setDisplacementTargetIds(targets);
+        setDisplacementTargetIds(
+          findDisplacementTargets(reorderGeometry, change.id, change.position.x),
+        );
       }
     },
-    [employees, primaryManagerOf, finalVisibleEmployees, layoutedNodeById, childrenOf],
+    [reorderGeometry],
   );
 
   const handleNodeDragStart = useCallback(() => {
