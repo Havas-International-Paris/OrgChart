@@ -21,8 +21,45 @@ import { AssignmentEditorModal } from '../shared/AssignmentEditorModal';
 import { ErrorBoundary } from '../shared/ErrorBoundary';
 import { Toast } from '../shared/Toast';
 
+function LoadingScreen({ label }: { label: string }) {
+  return <div className="flex h-full items-center justify-center text-slate-500">{label}</div>;
+}
+
+// Auth gate only. Everything that reads data lives in AuthenticatedApp below and
+// is mounted ONLY once a session exists — that ordering is the whole point, not
+// a stylistic choice.
+//
+// The data hooks fetch on mount and (for the global catalogs) never refetch, so
+// mounting them while still anonymous meant every RLS-protected table came back
+// empty — `auth.role() = 'authenticated'` denies, which PostgREST reports as a
+// perfectly successful 200 carrying zero rows, no error anywhere. Signing in
+// then produced a session but nothing re-ran the fetches, so `orgCharts` stayed
+// empty and the app sat on "Chargement…" forever. It only ever worked because a
+// returning browser already had a session in localStorage at mount; a fresh
+// browser, a private window, cleared storage or an expired refresh token all hit
+// the hang. Found by the first authenticated E2E run.
+//
+// `key` on the user id so signing in as somebody else remounts the whole subtree
+// rather than reusing another account's fetched data.
 export function AppShell() {
   const { session, loading, signOut } = useAuth();
+
+  if (!isSupabaseConfigured) {
+    return <SupabaseSetupNotice />;
+  }
+
+  if (loading) {
+    return <LoadingScreen label="Vérification de la session…" />;
+  }
+
+  if (!session) {
+    return <LoginPage />;
+  }
+
+  return <AuthenticatedApp key={session.user.id} signOut={signOut} />;
+}
+
+function AuthenticatedApp({ signOut }: { signOut: () => void }) {
   const {
     orgCharts,
     loading: orgChartsLoading,
@@ -78,20 +115,27 @@ export function AppShell() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentOrgChartId, orgCharts]);
 
-  if (!isSupabaseConfigured) {
-    return <SupabaseSetupNotice />;
+  // Each waiting state says which one it is. They all used to read "Chargement…",
+  // which made the hang above genuinely hard to place: the page gave no way to
+  // tell "still checking the session" from "session fine, no chart to open".
+  if (orgChartsLoading) {
+    return <LoadingScreen label="Chargement des organigrammes…" />;
   }
 
-  if (loading) {
-    return <div className="flex h-full items-center justify-center text-slate-500">Chargement…</div>;
+  // A signed-in user with no chart at all would otherwise sit on a spinner
+  // forever, since nothing can be selected. Reachable by deleting the last
+  // chart, and previously indistinguishable from a network stall.
+  if (orgCharts.length === 0) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-2 text-sm text-slate-500">
+        <p>Aucun organigramme n’existe encore.</p>
+        <p className="text-slate-400">Créez-en un pour commencer.</p>
+      </div>
+    );
   }
 
-  if (!session) {
-    return <LoginPage />;
-  }
-
-  if (orgChartsLoading || !currentOrgChartId) {
-    return <div className="flex h-full items-center justify-center text-slate-500">Chargement…</div>;
+  if (!currentOrgChartId) {
+    return <LoadingScreen label="Ouverture de l’organigramme…" />;
   }
 
   const assignmentsEmployee = employees.find((e) => e.id === assignmentsEmployeeId) ?? null;

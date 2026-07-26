@@ -2,53 +2,61 @@ import { expect, test } from '@playwright/test';
 import { MISSING_ACCOUNT_REASON, hasTestAccount } from '../support/env';
 import { readTestChart } from '../support/testChart';
 
-// NOTE: this spec has not yet been executed — running it needs a test account
-// that only the repo owner can create. Treat the selectors below as a first
-// draft: AG Grid and React Flow are both awkward to drive (see the project's
-// browser-testing notes), so expect to adjust them on the first real run.
-// Everything before the grid interaction is straightforward and should hold.
-test.describe('employee lifecycle in a throwaway org chart', () => {
+// Runs inside the throwaway org chart provisioned by auth.setup.ts. Nothing here
+// can reach real data — that is what the isolation test below asserts, and it is
+// the precondition for everything else.
+test.describe('throwaway org chart', () => {
   test.skip(!hasTestAccount, MISSING_ACCOUNT_REASON);
 
   test.beforeEach(async ({ page }) => {
     const chart = readTestChart();
     await page.goto('/');
-    // Selecting by label rather than value: the option label is what a human
-    // sees, and the id is not stable across runs.
+
+    // selectionStore is in-memory, so a fresh page always lands on orgCharts[0]
+    // — the real chart — before this switches away from it.
     await page.getByRole('combobox').selectOption({ label: `${chart.name} – E2E` });
+
+    // Then WAIT for the switch to actually land. This is a safety interlock, not
+    // politeness: switching charts triggers an async refetch, so for a moment the
+    // grid still shows the real chart's rows. A test proceeding on that stale view
+    // would be asserting against production data — the first run of this spec did
+    // exactly that, and only failed because a selector happened to be ambiguous.
+    await expect(page.locator('.ag-center-cols-container .ag-row')).toHaveCount(0);
+    await expect(page.locator('.react-flow__node')).toHaveCount(0);
   });
 
-  // The safety claim the whole E2E setup rests on: the throwaway chart really is
-  // empty, so nothing below can touch production data. If this fails, stop —
-  // do not let the rest of the spec run against a populated chart.
-  test('the throwaway chart starts empty', async ({ page }) => {
+  // The claim the whole setup rests on. Kept as its own test so a failure reads as
+  // "isolation is broken" rather than as some later interaction bug.
+  test('is empty, and is not the real chart', async ({ page }) => {
     await expect(page.locator('.react-flow__node')).toHaveCount(0);
     await expect(page.locator('.ag-center-cols-container .ag-row')).toHaveCount(0);
+    await expect(page.getByRole('combobox')).toHaveValue(readTestChart().id);
   });
 
-  test('adds an employee, then undoes it', async ({ page }) => {
-    await page.getByRole('button', { name: '+ Ajouter' }).click();
-
-    // A freshly-created row is pinned to the top until the user leaves it
-    // (useRowStabilizer.ts), which is what makes it findable here.
-    const pinnedRow = page.locator('.ag-floating-top-container .ag-row').first();
-    await expect(pinnedRow).toBeVisible();
-
-    await pinnedRow.getByRole('gridcell').nth(1).dblclick();
-    await page.keyboard.type('Camille');
-    await page.keyboard.press('Tab');
-    await page.keyboard.type('Testeur');
-    await page.keyboard.press('Enter');
-
-    // Grid → chart propagation goes through Supabase Realtime, not local state,
-    // so this also covers the subscription actually delivering the INSERT.
-    await expect(page.locator('.react-flow__node').filter({ hasText: 'Camille' })).toBeVisible({
-      timeout: 15_000,
-    });
-
-    await page.keyboard.press('ControlOrMeta+z');
-    await expect(page.locator('.react-flow__node').filter({ hasText: 'Camille' })).toHaveCount(0, {
-      timeout: 15_000,
-    });
-  });
+  // NOT YET WORKING — do not delete, and do not trust the absence of a failure
+  // here as coverage. This is the spec backlog item 30 needs as a regression
+  // guard, and it is the one thing this suite still cannot do.
+  //
+  // Two separate obstacles, both hit for real:
+  //
+  // 1. Creating the first employee in an empty chart is only possible through AG
+  //    Grid cell editing, and that cannot be driven reliably: the editor mounts
+  //    asynchronously, so typing straight after Enter produced "Ca" instead of
+  //    "Camille" on one run, and on the next the editor never opened at all.
+  //    Waiting for the editor's own input did not help — it is not exposed as a
+  //    textbox in the accessibility tree where the row renders it. That
+  //    interaction is itself slated for rework (item 31), so it is not worth
+  //    hardening against now.
+  //
+  // 2. Seeding an employee directly (bypassing the grid) and driving the chart's
+  //    own "+ Nouvel employé" button instead — the obvious way around (1) — made
+  //    the chart-switch in beforeEach intermittently fail to take effect: the
+  //    assertions saw the real chart's 7 cards rather than the throwaway's. That
+  //    is unexplained, and shipping an isolation interlock that only usually holds
+  //    would be worse than shipping none.
+  //
+  // Next step is (2): find out why the switch sometimes does not land. Until then
+  // the undo/redo coverage item 30 wants does not exist, and manual browser
+  // verification remains the only check on it.
+  test.fixme('quick-adds a subordinate, then undoes it', async () => {});
 });
