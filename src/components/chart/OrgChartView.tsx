@@ -4,8 +4,10 @@ import ReactFlow, {
   Controls,
   MiniMap,
   Panel,
+  applyNodeChanges,
   type Edge,
   type Node,
+  type NodeChange,
   type ReactFlowInstance,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
@@ -26,6 +28,7 @@ import { registerIdBox } from '../../stores/idRegistryStore';
 import { useVisibleGraph } from './useVisibleGraph';
 import { useReportingChain } from './useReportingChain';
 import { layoutWithDagre, NODE_WIDTH, NODE_HEIGHT } from './layoutEngine';
+import { ROOT_GROUP_KEY, SIBLING_ORDER_GAP } from './siblingOrder';
 import { EmployeeNode, type EmployeeNodeActions, type EmployeeNodeData } from './EmployeeNode';
 import { ReportingEdge, type ReportingEdgeData } from './ReportingEdge';
 import { LinkExistingEmployeeModal } from '../shared/LinkExistingEmployeeModal';
@@ -57,6 +60,7 @@ export function OrgChartView() {
     deleteEmployee,
     updateEmployeePhoto,
     updateEmployeePhotoFrame,
+    updateSiblingOrders,
   } = useEmployees(currentOrgChartId);
   const { replacePhoto, saveFrame, deletePhoto } = usePhotoActions(employees, updateEmployeePhoto, updateEmployeePhotoFrame);
   const [photoEditEmployeeId, setPhotoEditEmployeeId] = useState<string | null>(null);
@@ -96,6 +100,18 @@ export function OrgChartView() {
     }
     return counts;
   }, [employees]);
+
+  const clientMissionFilterIds = useSelectionStore((s) => s.clientMissionFilterIds);
+  // null = filter inactive (everyone matches); otherwise the set of
+  // employees with at least one assignment to a selected client/mission.
+  const matchingEmployeeIds = useMemo(() => {
+    if (clientMissionFilterIds.size === 0) return null;
+    const ids = new Set<string>();
+    for (const a of assignments) {
+      if (clientMissionFilterIds.has(a.client_mission_id)) ids.add(a.employee_id);
+    }
+    return ids;
+  }, [assignments, clientMissionFilterIds]);
 
   const expandedNodeIds = useSelectionStore((s) => s.expandedNodeIds);
   const setExpandedNodeIds = useSelectionStore((s) => s.setExpandedNodeIds);
@@ -158,22 +174,25 @@ export function OrgChartView() {
   // true. Multiple people can be focused at once (a Set), in which case
   // everyone kept is the union of each focused person's own subtree.
   const finalVisibleEmployees = useMemo(() => {
-    if (focusedNodeIds.size === 0) return visibleEmployees;
+    let result = visibleEmployees;
 
-    const visibleIds = new Set(visibleEmployees.map((e) => e.id));
-    const keep = new Set<string>();
-    const addWithVisibleDescendants = (id: string) => {
-      if (keep.has(id)) return;
-      keep.add(id);
-      for (const childId of childrenOf.get(id) ?? []) {
-        if (visibleIds.has(childId)) addWithVisibleDescendants(childId);
+    if (focusedNodeIds.size > 0) {
+      const visibleIds = new Set(result.map((e) => e.id));
+      const keep = new Set<string>();
+      const addWithVisibleDescendants = (id: string) => {
+        if (keep.has(id)) return;
+        keep.add(id);
+        for (const childId of childrenOf.get(id) ?? []) {
+          if (visibleIds.has(childId)) addWithVisibleDescendants(childId);
+        }
+      };
+      for (const id of focusedNodeIds) {
+        if (visibleIds.has(id)) addWithVisibleDescendants(id);
       }
-    };
-    for (const id of focusedNodeIds) {
-      if (visibleIds.has(id)) addWithVisibleDescendants(id);
+      result = result.filter((e) => keep.has(e.id));
     }
 
-    return visibleEmployees.filter((e) => keep.has(e.id));
+    return result;
   }, [visibleEmployees, focusedNodeIds, childrenOf]);
 
   // Global count shown on every active focus badge ("+N masqués") — matches
@@ -475,11 +494,118 @@ export function OrgChartView() {
       data: null,
     }));
     const primaryEdgeAll = primaryEdges.map((r) => ({ id: r.id, source: r.manager_id, target: r.employee_id }));
-    const laidOut = layoutWithDagre(rawNodes, primaryEdgeAll);
+    const laidOut = layoutWithDagre(rawNodes, primaryEdgeAll, (id) => employeeById.get(id)?.sibling_order ?? null);
     return new Map(laidOut.map((n) => [n.id, n]));
-  }, [employees, primaryEdges]);
+  }, [employees, primaryEdges, employeeById]);
 
-  const { nodes, edges } = useMemo(() => {
+  // Given a sibling group's OTHER members' sibling_order values (ascending,
+  // never including the dragged node itself) and the index the dragged node
+  // should land at (0..length), returns its new value: the midpoint of its
+  // two new neighbors, or ±SIBLING_ORDER_GAP past whichever end it's
+  // dropped at. Classic fractional/gap-based reorder indexing — lets a
+  // single reorder touch only the dragged row once a group is backfilled.
+  const computeNewOrderValue = (sortedNeighbors: number[], index: number): number => {
+    if (sortedNeighbors.length === 0) return 0;
+    if (index <= 0) return sortedNeighbors[0] - SIBLING_ORDER_GAP;
+    if (index >= sortedNeighbors.length) return sortedNeighbors[sortedNeighbors.length - 1] + SIBLING_ORDER_GAP;
+    return (sortedNeighbors[index - 1] + sortedNeighbors[index]) / 2;
+  };
+
+  // Drag-to-reorder among same-manager siblings ONLY — never a re-parent
+  // (that's ReportingEdge.tsx's grip drag). A drop outside the dragged
+  // node's own sibling cluster snaps back as a no-op.
+  const handleNodeDragStop = useCallback(
+    (_event: unknown, node: Node) => {
+      // The drag itself is over the instant this fires — resume the
+      // computedNodes→flowNodes sync (and hover tracking) now, regardless
+      // of whether the resulting mutation below is still in flight, and
+      // clear the live "who's about to be displaced" highlight.
+      isDraggingRef.current = false;
+      setDisplacementTargetIds(new Set());
+
+      const employeeId = node.id;
+      const baseX = (id: string) => layoutedNodeById.get(id)?.position.x ?? 0;
+
+      // On an invalid drop, no mutation runs — nothing forces computedNodes
+      // to a new reference, so flowNodes would otherwise keep the dropped
+      // (wrong) position for this node indefinitely. Reset it directly in
+      // the controlled array we own.
+      const snapBack = () => {
+        const committed = layoutedNodeById.get(employeeId);
+        if (!committed) return;
+        setFlowNodes((nds) =>
+          nds.map((n) => (n.id === employeeId ? { ...n, position: committed.position } : n)),
+        );
+      };
+
+      const currentGroupKey = primaryManagerOf.get(employeeId) ?? ROOT_GROUP_KEY;
+      const groupMemberIds = employees
+        .filter((e) => (primaryManagerOf.get(e.id) ?? ROOT_GROUP_KEY) === currentGroupKey)
+        .map((e) => e.id);
+      if (groupMemberIds.length < 2) {
+        snapBack();
+        return;
+      }
+
+      // Only currently-visible siblings have a real on-screen x to compare
+      // against — hidden ones (collapsed elsewhere) can't be geometrically
+      // tested, but still get backfilled below since the whole group must
+      // stay consistent (§2 of the plan's backfill invariant).
+      const visibleIds = new Set(finalVisibleEmployees.map((e) => e.id));
+      const visibleGroupIds = groupMemberIds.filter((id) => id === employeeId || visibleIds.has(id));
+      if (visibleGroupIds.length < 2) {
+        snapBack();
+        return;
+      }
+
+      const otherVisibleXs = visibleGroupIds.filter((id) => id !== employeeId).map(baseX);
+      const minX = Math.min(...otherVisibleXs);
+      const maxX = Math.max(...otherVisibleXs);
+      // A little slack past the cluster's own span still counts as "within
+      // this group" — dragging slightly past an edge sibling shouldn't read
+      // as leaving the cluster. Further than that is an invalid re-parent
+      // attempt, out of scope for this gesture.
+      const slack = NODE_WIDTH;
+      if (node.position.x < minX - slack || node.position.x > maxX + slack) {
+        snapBack();
+        return;
+      }
+
+      const xOf = (id: string) => (id === employeeId ? node.position.x : baseX(id));
+
+      // Step 1: ensure every member of the FULL group (visible or not) has
+      // a real sibling_order — backfill from natural (dagre) order, using
+      // each member's pre-drag base position, the first time this group is
+      // ever manually touched.
+      const untouched = groupMemberIds.every((id) => (employeeById.get(id)?.sibling_order ?? null) == null);
+      const orderById = new Map<string, number>();
+      if (untouched) {
+        const naturalOrder = [...groupMemberIds].sort((a, b) => baseX(a) - baseX(b));
+        naturalOrder.forEach((id, i) => orderById.set(id, (i + 1) * SIBLING_ORDER_GAP));
+      } else {
+        for (const id of groupMemberIds) orderById.set(id, employeeById.get(id)?.sibling_order ?? 0);
+      }
+
+      // Step 2: compute the dragged node's NEW value from where it was
+      // dropped among the (now-numeric) VISIBLE siblings only.
+      const sortedVisibleWithDragged = [...visibleGroupIds].sort((a, b) => xOf(a) - xOf(b));
+      const draggedIndex = sortedVisibleWithDragged.indexOf(employeeId);
+      const neighborValues = sortedVisibleWithDragged.filter((id) => id !== employeeId).map((id) => orderById.get(id)!);
+      const newValue = computeNewOrderValue(neighborValues, draggedIndex);
+      orderById.set(employeeId, newValue);
+
+      const updates = untouched
+        ? [...orderById.entries()].map(([id, siblingOrder]) => ({ id, siblingOrder }))
+        : [{ id: employeeId, siblingOrder: newValue }];
+
+      const employee = employeeById.get(employeeId);
+      const label = employee ? `Réordonner ${employee.first_name} ${employee.last_name}` : 'Réordonner';
+      updateSiblingOrders(updates, label);
+    },
+    [employees, primaryManagerOf, finalVisibleEmployees, layoutedNodeById, employeeById, updateSiblingOrders],
+  );
+
+  const { nodes: computedNodes, edges } = useMemo(() => {
     const visibleIds = new Set(finalVisibleEmployees.map((e) => e.id));
 
     const primaryEdgeBase = primaryEdges
@@ -500,6 +626,7 @@ export function OrgChartView() {
         .filter((name): name is string => Boolean(name));
       const isDimmed =
         (deptFilter !== null && employee.department !== deptFilter) ||
+        (matchingEmployeeIds !== null && !matchingEmployeeIds.has(employee.id)) ||
         (activeEmployeeId !== null && !relatedIds.has(employee.id));
 
       return [
@@ -517,6 +644,12 @@ export function OrgChartView() {
             // department-legend filter, which is independent of the active
             // hover chain) — see the plan's note on this interaction.
             isChainHighlighted: !isDimmed && activeEmployeeId !== null && relatedIds.has(employee.id),
+            // Static default here — this memo must NOT depend on drag-
+            // transient state (it's the expensive per-render styling pass
+            // over every visible employee). The real, live value is merged
+            // in separately via the lightweight `renderedNodes` derivation
+            // below, the same way flowNodes overrides live drag position.
+            isDisplacementTarget: false,
             assignmentsCount: assignmentsOf(employee.id).length,
             assignmentsTotalEtpVendu: totalEtpOf(employee.id),
             assignmentsTotalEtpReel: totalEtpReelOf(employee.id),
@@ -638,6 +771,7 @@ export function OrgChartView() {
     managersOf,
     clientMissionNameById,
     deptFilter,
+    matchingEmployeeIds,
     jobTitleNames,
     departmentNames,
     departmentColorByName,
@@ -646,6 +780,117 @@ export function OrgChartView() {
     handleReassignManager,
     selectedEdgeId,
   ]);
+
+  // React Flow only renders a node's position from its OWN internal store
+  // during a live drag if that node is under "controlled" management (a
+  // `nodes` prop paired with `onNodesChange`) — otherwise the drag ends up
+  // computing a final position (which is all `onNodeDragStop` needs) without
+  // ever visibly tracking the cursor. `flowNodes` is the controlled array
+  // React Flow actually renders; `computedNodes` (above) is kept as the
+  // single source of truth and re-synced into it whenever it legitimately
+  // changes (real data, hover/selection-driven dimming, etc.) — safe to do
+  // via a plain effect now that every one of computedNodes's dependencies is
+  // properly memoized (see useEmployees.ts/useReportingGraph.ts's useCallback
+  // wrapping), so this effect fires only on real changes, not every render —
+  // an earlier attempt at this same pattern, before that stabilization
+  // existed, looped infinitely for exactly that reason.
+  //
+  // `isDraggingRef` additionally skips this sync WHILE a drag is in flight:
+  // dragging one node moves the cursor over OTHER cards too, firing their
+  // onNodeMouseEnter/Leave — which changes hoverEmployeeId, which legitimately
+  // recomputes computedNodes (the hover/chain-highlight dimming depends on
+  // it) — and without this guard, every such recompute would overwrite the
+  // in-progress drag's live position with the last-committed one, fighting
+  // the drag update every time the cursor crosses another card (visible as
+  // flicker, worse the longer/more cards a drag crosses). Syncing resumes
+  // the instant the drag stops, so the eventual post-mutation layout still
+  // takes over normally.
+  const [flowNodes, setFlowNodes] = useState<Node[]>([]);
+  const isDraggingRef = useRef(false);
+
+  useEffect(() => {
+    if (isDraggingRef.current) return;
+    setFlowNodes(computedNodes);
+  }, [computedNodes]);
+
+  // Live drag-only feedback: while dragging, whichever sibling (+ their
+  // descendants) is nearest the dragged card's current x is who's about to
+  // be displaced if dropped here — the same geometry handleNodeDragStop
+  // uses to decide the actual reorder, just run continuously and only ever
+  // reading positions, never writing. Kept as its OWN small piece of state
+  // rather than folded into flowNodes/computedNodes so recomputing it on
+  // every drag frame stays cheap (no dagre re-layout, no full styling pass).
+  const [displacementTargetIds, setDisplacementTargetIds] = useState<Set<string>>(new Set());
+
+  const renderedNodes = useMemo(() => {
+    if (displacementTargetIds.size === 0) return flowNodes;
+    return flowNodes.map((n) =>
+      displacementTargetIds.has(n.id) !== Boolean((n.data as EmployeeNodeData | null)?.isDisplacementTarget)
+        ? { ...n, data: { ...n.data, isDisplacementTarget: displacementTargetIds.has(n.id) } }
+        : n,
+    );
+  }, [flowNodes, displacementTargetIds]);
+
+  const handleNodesChange = useCallback(
+    (changes: NodeChange[]) => {
+      setFlowNodes((nds) => applyNodeChanges(changes, nds));
+
+      for (const change of changes) {
+        if (change.type !== 'position' || !change.position) continue;
+        const employeeId = change.id;
+        const currentGroupKey = primaryManagerOf.get(employeeId) ?? ROOT_GROUP_KEY;
+        const visibleIds = new Set(finalVisibleEmployees.map((e) => e.id));
+        const otherVisibleIds = employees
+          .filter(
+            (e) =>
+              e.id !== employeeId &&
+              visibleIds.has(e.id) &&
+              (primaryManagerOf.get(e.id) ?? ROOT_GROUP_KEY) === currentGroupKey,
+          )
+          .map((e) => e.id);
+
+        if (otherVisibleIds.length === 0) {
+          setDisplacementTargetIds(new Set());
+          continue;
+        }
+
+        const baseX = (id: string) => layoutedNodeById.get(id)?.position.x ?? 0;
+        const otherXs = otherVisibleIds.map(baseX);
+        const minX = Math.min(...otherXs);
+        const maxX = Math.max(...otherXs);
+        const slack = NODE_WIDTH;
+        if (change.position.x < minX - slack || change.position.x > maxX + slack) {
+          setDisplacementTargetIds(new Set());
+          continue;
+        }
+
+        let nearestId = otherVisibleIds[0];
+        let nearestDist = Math.abs(baseX(nearestId) - change.position.x);
+        for (const id of otherVisibleIds) {
+          const dist = Math.abs(baseX(id) - change.position.x);
+          if (dist < nearestDist) {
+            nearestDist = dist;
+            nearestId = id;
+          }
+        }
+
+        const targets = new Set<string>([nearestId]);
+        const collectDescendants = (id: string) => {
+          for (const childId of childrenOf.get(id) ?? []) {
+            targets.add(childId);
+            collectDescendants(childId);
+          }
+        };
+        collectDescendants(nearestId);
+        setDisplacementTargetIds(targets);
+      }
+    },
+    [employees, primaryManagerOf, finalVisibleEmployees, layoutedNodeById, childrenOf],
+  );
+
+  const handleNodeDragStart = useCallback(() => {
+    isDraggingRef.current = true;
+  }, []);
 
   // Re-arm the auto-fit whenever the user switches to a different chart —
   // otherwise the view would stay wherever it was left on the previous
@@ -668,7 +913,7 @@ export function OrgChartView() {
   useEffect(() => {
     if (hasAutoFitRef.current) return;
     if (employeesLoading || relationshipsLoading) return;
-    if (expandedNodeIds.size === 0 || nodes.length === 0) return;
+    if (expandedNodeIds.size === 0 || computedNodes.length === 0) return;
     const instance = reactFlowInstanceRef.current;
     if (!instance) return;
 
@@ -682,7 +927,7 @@ export function OrgChartView() {
     return () => {
       cancelled = true;
     };
-  }, [employeesLoading, relationshipsLoading, expandedNodeIds, nodes]);
+  }, [employeesLoading, relationshipsLoading, expandedNodeIds, computedNodes]);
 
   // Pan to the selected node once it's laid out and visible, without
   // changing the user's current zoom level (React Flow's setCenter zooms to
@@ -704,7 +949,7 @@ export function OrgChartView() {
       return;
     }
     if (lastCenteredIdRef.current === selectedEmployeeId || !reactFlowInstanceRef.current) return;
-    const node = nodes.find((n) => n.id === selectedEmployeeId);
+    const node = computedNodes.find((n) => n.id === selectedEmployeeId);
     if (!node) return;
     lastCenteredIdRef.current = selectedEmployeeId;
     reactFlowInstanceRef.current.setCenter(
@@ -712,7 +957,7 @@ export function OrgChartView() {
       node.position.y + NODE_HEIGHT / 2,
       { zoom: reactFlowInstanceRef.current.getZoom(), duration: 400 },
     );
-  }, [selectedEmployeeId, nodes]);
+  }, [selectedEmployeeId, computedNodes]);
 
   if (!employeesLoading && !relationshipsLoading && employees.length === 0) {
     return (
@@ -733,10 +978,11 @@ export function OrgChartView() {
       await new Promise(requestAnimationFrame);
       const date = new Date().toISOString().slice(0, 10);
       // Use the live instance's nodes (auto-measured width/height once
-      // mounted), not the local `nodes` array — that one only carries the
-      // dagre layout's approximate NODE_WIDTH/NODE_HEIGHT, which under-counts
-      // actual card size and clips the rightmost/bottommost nodes.
-      const measuredNodes = reactFlowInstanceRef.current?.getNodes() ?? nodes;
+      // mounted), not the local `flowNodes` array — that one only carries
+      // the dagre layout's approximate NODE_WIDTH/NODE_HEIGHT, which
+      // under-counts actual card size and clips the rightmost/bottommost
+      // nodes.
+      const measuredNodes = reactFlowInstanceRef.current?.getNodes() ?? renderedNodes;
       await exportChartAsPng(measuredNodes, `organigramme_${date}.png`);
     } catch (err) {
       setExportError(err instanceof Error ? err.message : String(err));
@@ -757,9 +1003,13 @@ export function OrgChartView() {
       <ReactFlow
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
-        nodes={nodes}
+        nodes={renderedNodes}
         edges={edges}
+        onNodesChange={handleNodesChange}
         minZoom={0.1}
+        nodesDraggable
+        onNodeDragStart={handleNodeDragStart}
+        onNodeDragStop={handleNodeDragStop}
         onInit={(instance) => {
           reactFlowInstanceRef.current = instance;
         }}
@@ -772,10 +1022,10 @@ export function OrgChartView() {
           setSelectedEdgeId(null);
         }}
         onNodeMouseEnter={(_, node) => {
-          if (!isReassigningEdgeRef.current) setHoverEmployeeId(node.id);
+          if (!isReassigningEdgeRef.current && !isDraggingRef.current) setHoverEmployeeId(node.id);
         }}
         onNodeMouseLeave={() => {
-          if (!isReassigningEdgeRef.current) setHoverEmployeeId(null);
+          if (!isReassigningEdgeRef.current && !isDraggingRef.current) setHoverEmployeeId(null);
         }}
       >
         <Panel position="top-right" className="flex flex-col items-end gap-1">

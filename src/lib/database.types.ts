@@ -19,6 +19,7 @@ export interface Database {
           photo_zoom: number;
           photo_pan_x: number;
           photo_pan_y: number;
+          sibling_order: number | null;
           org_chart_id: string;
           created_at: string;
           updated_at: string;
@@ -36,6 +37,7 @@ export interface Database {
           photo_zoom?: number;
           photo_pan_x?: number;
           photo_pan_y?: number;
+          sibling_order?: number | null;
           org_chart_id: string;
         };
         Update: {
@@ -48,6 +50,7 @@ export interface Database {
           photo_zoom?: number;
           photo_pan_x?: number;
           photo_pan_y?: number;
+          sibling_order?: number | null;
         };
         Relationships: [];
       };

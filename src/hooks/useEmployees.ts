@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import * as employeeService from '../services/employeeService';
 import type { Employee, EmployeeInput, PhotoFrameValues } from '../types/domain';
-import { useHistoryStore } from '../stores/historyStore';
+import { useHistoryStore, withSuppressedRecording } from '../stores/historyStore';
 import { boxFor } from '../stores/idRegistryStore';
 
 export function useEmployees(orgChartId: string | null) {
@@ -60,66 +60,87 @@ export function useEmployees(orgChartId: string | null) {
     };
   }, [orgChartId, refresh]);
 
-  const createEmployee = async (input: EmployeeInput): Promise<Employee> => {
-    if (!orgChartId) throw new Error('No active org chart');
-    const created = await employeeService.createEmployee(orgChartId, input);
-    await refresh();
-    const box = boxFor(created.id);
-    useHistoryStore.getState().push({
-      label: `Créer ${created.first_name} ${created.last_name}`,
-      orgChartId,
-      undo: () => deleteEmployee(box.id),
-      redo: async () => {
-        const recreated = await employeeService.createEmployee(orgChartId, input);
-        box.id = recreated.id;
-        await refresh();
-      },
-    });
-    return created;
-  };
-
-  const updateEmployee = async (
-    id: string,
-    changes: Partial<EmployeeInput>,
-    // AG Grid mutates its row data object in place (the same object sitting
-    // in `employees`) BEFORE firing onCellValueChanged, so by the time this
-    // runs, employees.find(id) can no longer be trusted for the pre-edit
-    // value of an AG-Grid-edited field — the grid callers pass the real old
-    // values here (from the event's own oldValue) instead. Non-grid callers
-    // (EmployeeNode's inline editor) omit this and fall back to the array
-    // lookup, which is accurate for them since nothing mutates it early.
-    oldValuesHint?: Partial<EmployeeInput>,
-  ): Promise<Employee> => {
-    const before = employees.find((e) => e.id === id);
-    const updated = await employeeService.updateEmployee(id, changes);
-    await refresh();
-    if (before && orgChartId) {
-      const box = boxFor(id);
-      const oldChanges: Partial<EmployeeInput> = {};
-      for (const key of Object.keys(changes) as (keyof EmployeeInput)[]) {
-        (oldChanges as Record<string, unknown>)[key] =
-          oldValuesHint && key in oldValuesHint ? oldValuesHint[key] : before[key];
-      }
-      useHistoryStore.getState().push({
-        label: `Modifier ${before.first_name} ${before.last_name}`,
-        orgChartId,
-        undo: async () => { await updateEmployee(box.id, oldChanges); },
-        redo: async () => { await updateEmployee(box.id, changes); },
-      });
-    }
-    return updated;
-  };
-
   // Deliberately NOT auto-recorded: deleting an employee cascades (FK) and
   // silently removes every ReportingRelationship/Assignment row referencing
   // it too, which a plain "recreate the employee" undo can't see from here.
   // Callers that need undo (OrgChartView, EmployeeGrid) build a compound
   // command via useEmployeeDeletion.ts instead, which has all three data
   // hooks in scope to capture and restore.
-  const deleteEmployee = async (id: string) => {
-    await employeeService.deleteEmployee(id);
-    await refresh();
-  };
+  //
+  // Wrapped in useCallback (like every mutator below) so this hook's return
+  // value stays reference-stable across renders when nothing it depends on
+  // actually changed — components consuming these (OrgChartView.tsx in
+  // particular) build their own memoized values on top, and a fresh
+  // function reference every render defeats that memoization all the way
+  // up. This was a latent, harmless inefficiency until the chart's own
+  // drag-to-reorder feature started relying on its node array staying
+  // stable during a drag — an unstable `nodes` prop breaks React Flow's
+  // internal drag-position tracking (and, worse, can thrash it into a
+  // crash) — so treat this as a correctness fix, not just cleanup.
+  const deleteEmployee = useCallback(
+    async (id: string) => {
+      await employeeService.deleteEmployee(id);
+      await refresh();
+    },
+    [refresh],
+  );
+
+  const createEmployee = useCallback(
+    async (input: EmployeeInput): Promise<Employee> => {
+      if (!orgChartId) throw new Error('No active org chart');
+      const created = await employeeService.createEmployee(orgChartId, input);
+      await refresh();
+      const box = boxFor(created.id);
+      useHistoryStore.getState().push({
+        label: `Créer ${created.first_name} ${created.last_name}`,
+        orgChartId,
+        undo: () => deleteEmployee(box.id),
+        redo: async () => {
+          const recreated = await employeeService.createEmployee(orgChartId, input);
+          box.id = recreated.id;
+          await refresh();
+        },
+      });
+      return created;
+    },
+    [orgChartId, refresh, deleteEmployee],
+  );
+
+  const updateEmployee = useCallback(
+    async (
+      id: string,
+      changes: Partial<EmployeeInput>,
+      // AG Grid mutates its row data object in place (the same object
+      // sitting in `employees`) BEFORE firing onCellValueChanged, so by the
+      // time this runs, employees.find(id) can no longer be trusted for
+      // the pre-edit value of an AG-Grid-edited field — the grid callers
+      // pass the real old values here (from the event's own oldValue)
+      // instead. Non-grid callers (EmployeeNode's inline editor) omit this
+      // and fall back to the array lookup, which is accurate for them
+      // since nothing mutates it early.
+      oldValuesHint?: Partial<EmployeeInput>,
+    ): Promise<Employee> => {
+      const before = employees.find((e) => e.id === id);
+      const updated = await employeeService.updateEmployee(id, changes);
+      await refresh();
+      if (before && orgChartId) {
+        const box = boxFor(id);
+        const oldChanges: Partial<EmployeeInput> = {};
+        for (const key of Object.keys(changes) as (keyof EmployeeInput)[]) {
+          (oldChanges as Record<string, unknown>)[key] =
+            oldValuesHint && key in oldValuesHint ? oldValuesHint[key] : before[key];
+        }
+        useHistoryStore.getState().push({
+          label: `Modifier ${before.first_name} ${before.last_name}`,
+          orgChartId,
+          undo: async () => { await updateEmployee(box.id, oldChanges); },
+          redo: async () => { await updateEmployee(box.id, changes); },
+        });
+      }
+      return updated;
+    },
+    [employees, orgChartId, refresh],
+  );
 
   // Deliberately NOT auto-recorded: usePhotoActions.ts's replacePhoto/
   // deletePhoto delete the old Storage object with a fire-and-forget
@@ -127,32 +148,77 @@ export function useEmployees(orgChartId: string | null) {
   // undo could never losslessly restore them. Excluded from this system
   // entirely, unlike updateEmployeePhotoFrame below (a pure DB field swap,
   // no storage mutation).
-  const updateEmployeePhoto = async (id: string, photoPath: string | null): Promise<Employee> => {
-    const updated = await employeeService.updateEmployeePhoto(id, photoPath);
-    await refresh();
-    return updated;
-  };
+  const updateEmployeePhoto = useCallback(
+    async (id: string, photoPath: string | null): Promise<Employee> => {
+      const updated = await employeeService.updateEmployeePhoto(id, photoPath);
+      await refresh();
+      return updated;
+    },
+    [refresh],
+  );
 
-  const updateEmployeePhotoFrame = async (id: string, frame: PhotoFrameValues): Promise<Employee> => {
-    const before = employees.find((e) => e.id === id);
-    const updated = await employeeService.updateEmployeePhotoFrame(id, frame);
-    await refresh();
-    if (before && orgChartId) {
-      const box = boxFor(id);
-      const oldFrame: PhotoFrameValues = {
-        zoom: before.photo_zoom,
-        panX: before.photo_pan_x,
-        panY: before.photo_pan_y,
-      };
+  const updateEmployeePhotoFrame = useCallback(
+    async (id: string, frame: PhotoFrameValues): Promise<Employee> => {
+      const before = employees.find((e) => e.id === id);
+      const updated = await employeeService.updateEmployeePhotoFrame(id, frame);
+      await refresh();
+      if (before && orgChartId) {
+        const box = boxFor(id);
+        const oldFrame: PhotoFrameValues = {
+          zoom: before.photo_zoom,
+          panX: before.photo_pan_x,
+          panY: before.photo_pan_y,
+        };
+        useHistoryStore.getState().push({
+          label: `Recadrer la photo de ${before.first_name} ${before.last_name}`,
+          orgChartId,
+          undo: async () => { await updateEmployeePhotoFrame(box.id, oldFrame); },
+          redo: async () => { await updateEmployeePhotoFrame(box.id, frame); },
+        });
+      }
+      return updated;
+    },
+    [employees, orgChartId, refresh],
+  );
+
+  // Drag-to-reorder support (siblingOrder.ts). `updates` may cover more than
+  // just the dragged employee — the first manual reorder in a sibling group
+  // backfills real values for every member in the same write (see
+  // OrgChartView.tsx's handleNodeDragStop) — but it's still one user
+  // gesture, so it must record as a single undo/redo command regardless of
+  // how many rows it touches.
+  const updateSiblingOrders = useCallback(
+    async (updates: { id: string; siblingOrder: number | null }[], label: string): Promise<void> => {
+      if (!orgChartId) throw new Error('No active org chart');
+      const before = updates.map((u) => ({
+        id: u.id,
+        oldSiblingOrder: employees.find((e) => e.id === u.id)?.sibling_order ?? null,
+      }));
+      await employeeService.updateSiblingOrders(updates);
+      await refresh();
+
+      const boxes = updates.map((u) => boxFor(u.id));
       useHistoryStore.getState().push({
-        label: `Recadrer la photo de ${before.first_name} ${before.last_name}`,
+        label,
         orgChartId,
-        undo: async () => { await updateEmployeePhotoFrame(box.id, oldFrame); },
-        redo: async () => { await updateEmployeePhotoFrame(box.id, frame); },
+        undo: () =>
+          withSuppressedRecording(async () => {
+            await employeeService.updateSiblingOrders(
+              before.map((b, i) => ({ id: boxes[i].id, siblingOrder: b.oldSiblingOrder })),
+            );
+            await refresh();
+          }),
+        redo: () =>
+          withSuppressedRecording(async () => {
+            await employeeService.updateSiblingOrders(
+              updates.map((u, i) => ({ id: boxes[i].id, siblingOrder: u.siblingOrder })),
+            );
+            await refresh();
+          }),
       });
-    }
-    return updated;
-  };
+    },
+    [employees, orgChartId, refresh],
+  );
 
   return {
     employees,
@@ -163,5 +229,6 @@ export function useEmployees(orgChartId: string | null) {
     deleteEmployee,
     updateEmployeePhoto,
     updateEmployeePhotoFrame,
+    updateSiblingOrders,
   };
 }

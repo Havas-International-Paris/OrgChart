@@ -66,6 +66,7 @@ export function EmployeeGrid() {
   const setSelectedEmployee = useSelectionStore((s) => s.setSelectedEmployee);
   const setAssignmentsEmployeeId = useSelectionStore((s) => s.setAssignmentsEmployeeId);
   const searchQuery = useSelectionStore((s) => s.searchQuery);
+  const clientMissionFilterIds = useSelectionStore((s) => s.clientMissionFilterIds);
 
   const {
     gridApiRef,
@@ -84,10 +85,22 @@ export function EmployeeGrid() {
   );
   const departmentColorByName = useMemo(() => departmentColorMap(departments), [departments]);
 
-  const mainRowData = useMemo(
-    () => (pinnedTopId ? employees.filter((e) => e.id !== pinnedTopId) : employees),
-    [employees, pinnedTopId],
-  );
+  // null = filter inactive; otherwise employees with an assignment to at
+  // least one selected client/mission (union across the selection).
+  const matchingEmployeeIds = useMemo(() => {
+    if (clientMissionFilterIds.size === 0) return null;
+    const ids = new Set<string>();
+    for (const a of assignments) {
+      if (clientMissionFilterIds.has(a.client_mission_id)) ids.add(a.employee_id);
+    }
+    return ids;
+  }, [assignments, clientMissionFilterIds]);
+
+  const mainRowData = useMemo(() => {
+    let rows = pinnedTopId ? employees.filter((e) => e.id !== pinnedTopId) : employees;
+    if (matchingEmployeeIds) rows = rows.filter((e) => matchingEmployeeIds.has(e.id));
+    return rows;
+  }, [employees, pinnedTopId, matchingEmployeeIds]);
   const pinnedTopRowData = useMemo(() => {
     if (!pinnedTopId) return undefined;
     const row = employees.find((e) => e.id === pinnedTopId);

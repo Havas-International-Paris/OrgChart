@@ -26,7 +26,7 @@ export function PhotoAvatar({ employeeId, firstName, lastName, color, photoPath,
 
   return (
     <div
-      className="relative shrink-0 cursor-pointer"
+      className="nodrag relative shrink-0 cursor-pointer"
       style={{ width: size, height: size }}
       onMouseEnter={() => setHovering(true)}
       onMouseLeave={() => setHovering(false)}

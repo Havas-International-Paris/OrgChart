@@ -60,3 +60,19 @@ export async function updateEmployeePhotoFrame(id: string, frame: PhotoFrameValu
   if (error) throw error;
   return data as Employee;
 }
+
+// Drag-to-reorder support (siblingOrder.ts) — a single reorder gesture may
+// need to backfill several siblings' sibling_order in one go (see
+// useEmployees.ts's updateSiblingOrders), hence the batch shape rather than
+// one id/value pair at a time.
+export async function updateSiblingOrders(
+  updates: { id: string; siblingOrder: number | null }[],
+): Promise<void> {
+  const results = await Promise.all(
+    updates.map(({ id, siblingOrder }) =>
+      supabase.from('employees').update({ sibling_order: siblingOrder }).eq('id', id),
+    ),
+  );
+  const firstError = results.find((r) => r.error)?.error;
+  if (firstError) throw firstError;
+}

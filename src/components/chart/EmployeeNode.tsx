@@ -26,6 +26,13 @@ export interface EmployeeNodeData {
   isMatch: boolean;
   isDimmed: boolean;
   isChainHighlighted: boolean;
+  // Live, drag-only feedback (siblingOrder.ts's drag-to-reorder): while
+  // dragging a card near this one's sibling cluster, this person (and their
+  // descendants) is who's nearest to being displaced/swapped if dropped
+  // here — a distinct amber treatment from the department-colored chain
+  // highlight above, since it means something different ("this is about to
+  // move" vs. "this is in the hovered/selected reporting chain").
+  isDisplacementTarget: boolean;
   assignmentsCount: number;
   assignmentsTotalEtpVendu: number;
   assignmentsTotalEtpReel: number;
@@ -59,7 +66,7 @@ function AddButton({
   const isTop = corner === 'top-right';
 
   return (
-    <div data-export-hide className={`absolute right-[-9px] ${isTop ? 'top-[-9px]' : 'bottom-[-9px]'}`}>
+    <div data-export-hide className={`nodrag absolute right-[-9px] ${isTop ? 'top-[-9px]' : 'bottom-[-9px]'}`}>
       <button
         onClick={(e) => {
           e.stopPropagation();
@@ -126,7 +133,7 @@ function CollapseBadge({
         onToggle();
       }}
       title={title}
-      className={`absolute left-1/2 z-[6] flex h-[22px] w-[22px] -translate-x-1/2 items-center justify-center rounded-full border bg-white font-bold leading-none shadow-sm hover:bg-slate-50 ${
+      className={`nodrag absolute left-1/2 z-[6] flex h-[22px] w-[22px] -translate-x-1/2 items-center justify-center rounded-full border bg-white font-bold leading-none shadow-sm hover:bg-slate-50 ${
         isCount ? 'text-[8px]' : 'text-[13px]'
       } ${position === 'top' ? '-top-[11px]' : '-bottom-[11px]'}`}
       style={{ borderColor: trackColor, color: swatch }}
@@ -176,7 +183,7 @@ function AdvertisersRow({ names }: { names: string[] }) {
             e.stopPropagation();
             setExpanded((v) => !v);
           }}
-          className="shrink-0 rounded-full bg-slate-100 px-1.5 text-[9px] font-bold leading-4 text-slate-500 hover:bg-slate-200"
+          className="nodrag shrink-0 rounded-full bg-slate-100 px-1.5 text-[9px] font-bold leading-4 text-slate-500 hover:bg-slate-200"
         >
           {expanded ? '−' : `+${names.length - 2}`}
         </button>
@@ -196,6 +203,7 @@ function EmployeeNodeImpl({ data }: NodeProps<EmployeeNodeData>) {
     isMatch,
     isDimmed,
     isChainHighlighted,
+    isDisplacementTarget,
     assignmentsTotalEtpVendu,
     assignmentsTotalEtpReel,
     advertiserNames,
@@ -240,22 +248,29 @@ function EmployeeNodeImpl({ data }: NodeProps<EmployeeNodeData>) {
   const swatch = departmentColor ?? NEUTRAL_DEPARTMENT_COLOR;
   const trackColor = withAlpha(swatch, 0.15);
 
-  // Chain-highlight (colored border + glow, in the card's OWN department
-  // color) takes total precedence over the older isSelected/isMatch
-  // styling — activeEmployeeId already falls back to selectedEmployeeId
-  // and relatedIds always includes the active id itself, so the pinned
-  // card always satisfies isChainHighlighted whenever a chain is active;
-  // this cleanly replaces its old black ring too, matching the reference.
-  const borderClass = isChainHighlighted
-    ? 'border'
-    : isSelected
-      ? 'border-slate-900 ring-2 ring-slate-900'
-      : isMatch
-        ? 'border-amber-400 ring-2 ring-amber-300'
-        : 'border-slate-300';
+  // Displacement-target (drag-to-reorder, amber) takes precedence over
+  // everything else — it only ever applies while a drag is in progress, at
+  // which point hover-driven chain highlighting is deliberately suppressed
+  // (see OrgChartView.tsx's isDraggingRef), so there's no real competing
+  // signal to lose. Chain-highlight (colored border + glow, in the card's
+  // OWN department color) takes precedence over the older isSelected/isMatch
+  // styling otherwise — activeEmployeeId already falls back to
+  // selectedEmployeeId and relatedIds always includes the active id itself,
+  // so the pinned card always satisfies isChainHighlighted whenever a chain
+  // is active; this cleanly replaces its old black ring too, matching the
+  // reference.
+  const borderClass = isDisplacementTarget
+    ? 'border-2 border-amber-500'
+    : isChainHighlighted
+      ? 'border'
+      : isSelected
+        ? 'border-slate-900 ring-2 ring-slate-900'
+        : isMatch
+          ? 'border-amber-400 ring-2 ring-amber-300'
+          : 'border-slate-300';
 
   const textInputClass =
-    'min-w-0 flex-1 rounded border border-slate-300 px-1 py-0.5 text-sm font-semibold text-slate-900';
+    'nodrag min-w-0 flex-1 rounded border border-slate-300 px-1 py-0.5 text-sm font-semibold text-slate-900';
   const showBadge = directReportsCount > 0 || functionalManagerCount > 0;
   const badgeText =
     directReportsCount > 0
@@ -267,9 +282,11 @@ function EmployeeNodeImpl({ data }: NodeProps<EmployeeNodeData>) {
       className={`relative w-[220px] rounded-lg border bg-white px-3 pb-6 pt-3 shadow-sm ${borderClass}`}
       style={{
         opacity: isDimmed ? 0.3 : 1,
-        ...(isChainHighlighted
-          ? { borderColor: swatch, boxShadow: `0 0 0 1px ${swatch}, 0 0 16px ${withAlpha(swatch, 0.5)}` }
-          : {}),
+        ...(isDisplacementTarget
+          ? { boxShadow: '0 0 0 1px #f59e0b, 0 0 16px rgba(245, 158, 11, 0.5)' }
+          : isChainHighlighted
+            ? { borderColor: swatch, boxShadow: `0 0 0 1px ${swatch}, 0 0 16px ${withAlpha(swatch, 0.5)}` }
+            : {}),
       }}
     >
       <Handle type="target" position={Position.Top} className="!bg-slate-400" />
@@ -282,7 +299,7 @@ function EmployeeNodeImpl({ data }: NodeProps<EmployeeNodeData>) {
           actions.deleteEmployee(employee.id);
         }}
         title="Supprimer cet employé"
-        className="absolute left-[-9px] top-[-9px] flex h-[18px] w-[18px] items-center justify-center rounded-full border border-dashed border-slate-300 bg-white text-[11px] font-bold leading-none text-slate-400 shadow-sm hover:border-red-300 hover:bg-red-50 hover:text-red-500"
+        className="nodrag absolute left-[-9px] top-[-9px] flex h-[18px] w-[18px] items-center justify-center rounded-full border border-dashed border-slate-300 bg-white text-[11px] font-bold leading-none text-slate-400 shadow-sm hover:border-red-300 hover:bg-red-50 hover:text-red-500"
       >
         ✕
       </button>
@@ -394,7 +411,7 @@ function EmployeeNodeImpl({ data }: NodeProps<EmployeeNodeData>) {
                 if (e.key === 'Escape') cancelEdit();
               }}
               onMouseDown={(e) => e.stopPropagation()}
-              className="mt-0.5 w-full rounded border border-slate-300 px-1 py-0.5 text-xs text-slate-700"
+              className="nodrag mt-0.5 w-full rounded border border-slate-300 px-1 py-0.5 text-xs text-slate-700"
             >
               <option value="" disabled>
                 Choisir un poste…
@@ -439,7 +456,7 @@ function EmployeeNodeImpl({ data }: NodeProps<EmployeeNodeData>) {
             if (e.key === 'Escape') cancelEdit();
           }}
           onMouseDown={(e) => e.stopPropagation()}
-          className="mt-2 w-full rounded border border-slate-300 px-1 py-0.5 text-xs text-slate-700"
+          className="nodrag mt-2 w-full rounded border border-slate-300 px-1 py-0.5 text-xs text-slate-700"
         >
           <option value="" disabled>
             Choisir une business unit…
@@ -480,7 +497,7 @@ function EmployeeNodeImpl({ data }: NodeProps<EmployeeNodeData>) {
           actions.openAssignments(employee.id);
         }}
         title="Modifier les missions"
-        className="mt-2 block w-full text-left"
+        className="nodrag mt-2 block w-full text-left"
       >
         <MetricRow
           label="Vendu"

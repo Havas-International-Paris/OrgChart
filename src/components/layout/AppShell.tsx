@@ -16,6 +16,7 @@ import { LeftPanel } from './LeftPanel';
 import { OrgChartManagerModal } from './OrgChartManagerModal';
 import { OrgChartView } from '../chart/OrgChartView';
 import { SearchBar } from '../shared/SearchBar';
+import { ClientMissionFilter } from '../shared/ClientMissionFilter';
 import { AssignmentEditorModal } from '../shared/AssignmentEditorModal';
 import { ErrorBoundary } from '../shared/ErrorBoundary';
 import { Toast } from '../shared/Toast';
@@ -137,6 +138,7 @@ export function AppShell() {
             Gérer
           </button>
           <SearchBar />
+          <ClientMissionFilter orgChartId={currentOrgChartId} />
           <button
             onClick={() => signOut()}
             className="rounded px-2 py-1 text-sm text-slate-500 hover:bg-slate-100"

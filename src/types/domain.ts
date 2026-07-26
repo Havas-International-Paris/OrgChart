@@ -16,6 +16,13 @@ export interface Employee {
   photo_zoom: number;
   photo_pan_x: number;
   photo_pan_y: number;
+  // Manual left-to-right position among siblings sharing the same primary
+  // manager (or among roots, if this employee has none) — null means "no
+  // manual order set", so dagre's own natural crossing-minimization order
+  // is used. Set only via drag-to-reorder in the chart (layoutEngine.ts),
+  // never through the create/edit form — deliberately excluded from
+  // EmployeeInput below, same as photo_path/photo_zoom.
+  sibling_order: number | null;
   org_chart_id: string;
   created_at: string;
   updated_at: string;
