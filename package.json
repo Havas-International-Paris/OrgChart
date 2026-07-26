@@ -9,6 +9,7 @@
     "lint": "oxlint",
     "test": "vitest run",
     "test:watch": "vitest",
+    "gen:types": "node scripts/gen-types.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
