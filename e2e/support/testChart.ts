@@ -39,6 +39,24 @@ export async function createTestChart(): Promise<TestChart> {
     .select()
     .single();
   if (error) throw new Error(`Could not create the throwaway org chart: ${error.message}`);
+
+  // Seed one root employee directly rather than through the UI. Creating the
+  // first employee is otherwise only possible via AG Grid cell editing, which
+  // cannot be driven reliably (the editor mounts asynchronously and can close
+  // mid-keystroke — see the browser-testing notes) and is itself due for rework.
+  // Seeding sidesteps it and lets the specs exercise the chart's own button-driven
+  // actions, which is where the undo/redo behaviour worth covering lives.
+  // "Exactly one, named Racine" is also a sharper isolation assertion than
+  // "empty": a wrong chart would show its real headcount instead.
+  const { error: employeeError } = await supabase.from('employees').insert({
+    first_name: 'Racine',
+    last_name: 'E2E',
+    org_chart_id: data.id,
+  });
+  if (employeeError) {
+    throw new Error(`Could not seed the throwaway chart's employee: ${employeeError.message}`);
+  }
+
   const chart = { id: data.id, name };
   writeFileSync(TEST_CHART_FILE, JSON.stringify(chart));
   return chart;

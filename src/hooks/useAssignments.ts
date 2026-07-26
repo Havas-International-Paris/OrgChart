@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useRef, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import * as assignmentService from '../services/assignmentService';
 import type { Assignment, RemunerationModel } from '../types/domain';
@@ -10,15 +10,25 @@ export function useAssignments(orgChartId: string | null) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Stale-response guard — see useEmployees.ts for the full why. Short version:
+  // the unfiltered realtime subscription makes refresh() fire on any change to
+  // this table anywhere, so a fetch for the previous chart can resolve after a
+  // switch and overwrite the new chart's data.
+  const latestRequestRef = useRef(0);
+
   const refresh = useCallback(async () => {
     if (!orgChartId) return;
+    const requestId = ++latestRequestRef.current;
     try {
-      setAssignments(await assignmentService.fetchAssignments(orgChartId));
+      const rows = await assignmentService.fetchAssignments(orgChartId);
+      if (requestId !== latestRequestRef.current) return;
+      setAssignments(rows);
       setError(null);
     } catch (err) {
+      if (requestId !== latestRequestRef.current) return;
       setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setLoading(false);
+      if (requestId === latestRequestRef.current) setLoading(false);
     }
   }, [orgChartId]);
 

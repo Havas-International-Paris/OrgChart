@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useRef, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import * as employeeService from '../services/employeeService';
 import type { Employee, EmployeeInput, PhotoFrameValues } from '../types/domain';
@@ -10,15 +10,30 @@ export function useEmployees(orgChartId: string | null) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Guards against a stale response overwriting a newer one. The realtime
+  // subscription below is deliberately unfiltered, so ANY change to this table —
+  // in any org chart — fires refresh() in every mounted consumer. Switch charts
+  // while one of those fetches is in flight and it resolves afterwards, writing
+  // the PREVIOUS chart's rows over the new chart's. Hit for real: switching
+  // charts left the chart pane showing the old org's cards for as long as it was
+  // watched, while the grid (a separate hook instance that happened not to race)
+  // correctly showed the new, empty one. Same guard in useReportingGraph.ts and
+  // useAssignments.ts — keep all three in step.
+  const latestRequestRef = useRef(0);
+
   const refresh = useCallback(async () => {
     if (!orgChartId) return;
+    const requestId = ++latestRequestRef.current;
     try {
-      setEmployees(await employeeService.fetchEmployees(orgChartId));
+      const rows = await employeeService.fetchEmployees(orgChartId);
+      if (requestId !== latestRequestRef.current) return;
+      setEmployees(rows);
       setError(null);
     } catch (err) {
+      if (requestId !== latestRequestRef.current) return;
       setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setLoading(false);
+      if (requestId === latestRequestRef.current) setLoading(false);
     }
   }, [orgChartId]);
 
