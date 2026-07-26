@@ -10,6 +10,7 @@ import { ReportingEdge } from './ReportingEdge';
 import { DepartmentLegend } from './DepartmentLegend';
 import { EmployeeDetailPanel } from './EmployeeDetailPanel';
 import { exportChartAsPng } from './exportChartImage';
+import { isE2EMode } from '../../lib/e2eMode';
 import { useChartData } from './useChartData';
 import { useChartVisibility } from './useChartVisibility';
 import { useChartActions } from './useChartActions';
@@ -93,15 +94,22 @@ export function OrgChartView() {
     ? (data.employeeById.get(actions.photoEditEmployeeId) ?? null)
     : null;
 
+  // The decorative overlays sit on top of the canvas and intercept pointer events
+  // on any card beneath them, which is what makes the chart unclickable under
+  // automation. Hidden in test mode only — see lib/e2eMode.ts.
+  const showOverlays = !isE2EMode();
+
   return (
     <div className="relative h-full w-full">
-      <DepartmentLegend
-        departments={data.departments}
-        colorByName={data.departmentColorByName}
-        counts={data.departmentCounts}
-        activeFilter={deptFilter}
-        onToggle={toggleDeptFilter}
-      />
+      {showOverlays && (
+        <DepartmentLegend
+          departments={data.departments}
+          colorByName={data.departmentColorByName}
+          counts={data.departmentCounts}
+          activeFilter={deptFilter}
+          onToggle={toggleDeptFilter}
+        />
+      )}
       <ReactFlow
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
@@ -126,23 +134,25 @@ export function OrgChartView() {
         onNodeMouseEnter={nodes.handleNodeMouseEnter}
         onNodeMouseLeave={nodes.handleNodeMouseLeave}
       >
-        <Panel position="top-right" className="flex flex-col items-end gap-1">
-          <button
-            onClick={handleExport}
-            disabled={exporting}
-            className="rounded border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
-          >
-            {exporting ? 'Export…' : 'Exporter en image'}
-          </button>
-          {exportError && (
-            <p className="max-w-[220px] rounded bg-red-50 px-2 py-1 text-right text-xs text-red-600">
-              {exportError}
-            </p>
-          )}
-        </Panel>
+        {showOverlays && (
+          <Panel position="top-right" className="flex flex-col items-end gap-1">
+            <button
+              onClick={handleExport}
+              disabled={exporting}
+              className="rounded border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+            >
+              {exporting ? 'Export…' : 'Exporter en image'}
+            </button>
+            {exportError && (
+              <p className="max-w-[220px] rounded bg-red-50 px-2 py-1 text-right text-xs text-red-600">
+                {exportError}
+              </p>
+            )}
+          </Panel>
+        )}
         <Background />
-        <Controls />
-        <MiniMap />
+        {showOverlays && <Controls />}
+        {showOverlays && <MiniMap />}
       </ReactFlow>
       {/* Positioned to clear React Flow's own bottom-left zoom/fit-view
           controls (a plain absolutely-positioned div, not a react-flow

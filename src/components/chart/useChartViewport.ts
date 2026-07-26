@@ -3,6 +3,7 @@ import type { Node, ReactFlowInstance } from 'reactflow';
 import type { Employee, ReportingRelationship } from '../../types/domain';
 import { useSelectionStore } from '../../stores/selectionStore';
 import { NODE_HEIGHT, NODE_WIDTH } from './layoutEngine';
+import { isE2EMode } from '../../lib/e2eMode';
 
 // Above this headcount, default to roots + one level instead of fully
 // expanded — see the effect below for why.
@@ -151,7 +152,12 @@ export function useChartViewport({
     reactFlowInstanceRef.current.setCenter(
       node.position.x + NODE_WIDTH / 2,
       node.position.y + NODE_HEIGHT / 2,
-      { zoom: reactFlowInstanceRef.current.getZoom(), duration: 400 },
+      {
+        zoom: reactFlowInstanceRef.current.getZoom(),
+        // Instant in test mode: a 400ms pan means a click can be attempted
+        // against a card that is still travelling. See lib/e2eMode.ts.
+        duration: isE2EMode() ? 0 : 400,
+      },
     );
   }, [selectedEmployeeId, computedNodes]);
 

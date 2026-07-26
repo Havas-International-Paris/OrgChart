@@ -40,7 +40,9 @@ test.describe('throwaway org chart', () => {
 
   test.beforeEach(async ({ page }) => {
     const chart = readTestChart();
-    await page.goto('/');
+    // ?e2e=1 removes the canvas overlays and makes viewport moves instant — see
+    // src/lib/e2eMode.ts. Nothing about data, mutations or undo changes.
+    await page.goto('/?e2e=1');
 
     // selectionStore is in-memory, so a fresh page always lands on orgCharts[0]
     // — the real chart — before this switches away from it.
@@ -63,25 +65,15 @@ test.describe('throwaway org chart', () => {
     await expect(page.getByRole('combobox')).toHaveValue(readTestChart().id);
   });
 
-  // MARKED FIXME BECAUSE IT IS FLAKY, and the cause is the chart canvas being
-  // hard to click reliably — NOT, as first suspected, the undo path being broken.
-  // Established by probing:
-  //
-  //   * The department legend is an absolutely-positioned overlay at top-left of
-  //     the canvas, and Playwright names it explicitly as intercepting pointer
-  //     events on any card beneath it. Whether the seeded card lands under it
-  //     depends on the auto-fit, which is why the failure came and went.
-  //   * Panning the canvas clear of the legend first does not fully fix it: the
-  //     click then retries against an element reported visible/enabled/stable
-  //     until the test times out, alongside ResizeObserver warnings — consistent
-  //     with the viewport still moving (auto-fit, and setCenter's 400ms animation
-  //     on selection) while the click is being attempted.
-  //
-  // So this is a testability problem in the chart, not evidence about undo. Do
-  // not cite it as a reason to change the undo design. Making these pass needs a
-  // way to quiet the viewport during tests (or to assert against the grid
-  // instead), which is worth doing but is its own piece of work.
-  test.fixme('quick-adds a subordinate, then undoes it', async ({ page }) => {
+  // These two were flaky at ~50% until `?e2e=1` (see src/lib/e2eMode.ts). The
+  // cause was never the undo path — it was the canvas being unclickable: the
+  // department legend is an absolutely-positioned overlay that Playwright named
+  // outright as intercepting pointer events on cards beneath it, and the viewport
+  // was still moving (auto-fit, plus setCenter's 400ms pan on selection) while
+  // clicks were being attempted. Test mode removes the overlays and makes the pan
+  // instant; six consecutive runs then passed. If these ever go flaky again, look
+  // at what is being drawn over the canvas before suspecting the mutation path.
+  test('quick-adds a subordinate, then undoes it', async ({ page }) => {
     // The bottom-right "+" opens a two-item popover; "+ Nouvel employé" creates
     // the employee AND links it in one action, recorded as a single undo command
     // (useChartActions' quickAddSubordinate).
@@ -98,8 +90,7 @@ test.describe('throwaway org chart', () => {
     await expect(cards(page).first()).toContainText('Racine');
   });
 
-  // Same flake as above — see the note there.
-  test.fixme('redoes what it undid', async ({ page }) => {
+  test('redoes what it undid', async ({ page }) => {
     await quickAddSubordinate(page);
     await expect(cards(page)).toHaveCount(2, { timeout: 15_000 });
 
