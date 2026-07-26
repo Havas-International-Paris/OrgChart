@@ -63,16 +63,24 @@ test.describe('throwaway org chart', () => {
     await expect(page.getByRole('combobox')).toHaveValue(readTestChart().id);
   });
 
-  // MARKED FIXME BECAUSE IT IS FLAKY, NOT BECAUSE IT IS UNFINISHED — and the
-  // flake may well be a real defect rather than test fragility. Roughly half of
-  // runs end with 2 cards where 1 is expected: the undo simply does not take
-  // effect. It alternates between this test and the redo one, so it is not a
-  // selector problem, and it survived switching from Ctrl+Z to the toolbar button
-  // (which waits for the button to be enabled, i.e. for the history command to
-  // have landed). That points at the undo path itself being intermittently
-  // unreliable — which is exactly what backlog item 30 is about to replace, and a
-  // strong argument for doing so. Re-enable and watch these two once item 30
-  // lands; if they go green, that is the confirmation.
+  // MARKED FIXME BECAUSE IT IS FLAKY, and the cause is the chart canvas being
+  // hard to click reliably — NOT, as first suspected, the undo path being broken.
+  // Established by probing:
+  //
+  //   * The department legend is an absolutely-positioned overlay at top-left of
+  //     the canvas, and Playwright names it explicitly as intercepting pointer
+  //     events on any card beneath it. Whether the seeded card lands under it
+  //     depends on the auto-fit, which is why the failure came and went.
+  //   * Panning the canvas clear of the legend first does not fully fix it: the
+  //     click then retries against an element reported visible/enabled/stable
+  //     until the test times out, alongside ResizeObserver warnings — consistent
+  //     with the viewport still moving (auto-fit, and setCenter's 400ms animation
+  //     on selection) while the click is being attempted.
+  //
+  // So this is a testability problem in the chart, not evidence about undo. Do
+  // not cite it as a reason to change the undo design. Making these pass needs a
+  // way to quiet the viewport during tests (or to assert against the grid
+  // instead), which is worth doing but is its own piece of work.
   test.fixme('quick-adds a subordinate, then undoes it', async ({ page }) => {
     // The bottom-right "+" opens a two-item popover; "+ Nouvel employé" creates
     // the employee AND links it in one action, recorded as a single undo command
