@@ -224,7 +224,15 @@ function EmployeeNodeImpl({ data }: NodeProps<EmployeeNodeData>) {
   const [editingField, setEditingField] = useState<EditableField | null>(null);
   const [draft, setDraft] = useState('');
 
+  // Only a card that was ALREADY selected before this gesture can open an
+  // inline editor — otherwise the first click of a double-click (which also
+  // bubbles up and selects the card, via React Flow's own onNodeClick) reads
+  // as "select", and only a second, separate double-click on an
+  // already-selected card opens the field. Without this guard, simply
+  // double-clicking a not-yet-selected card to select it could accidentally
+  // pop open a name/poste/department editor the user never meant to touch.
   function startEdit(field: EditableField, currentValue: string) {
+    if (!isSelected) return;
     setDraft(currentValue);
     setEditingField(field);
   }
@@ -493,6 +501,14 @@ function EmployeeNodeImpl({ data }: NodeProps<EmployeeNodeData>) {
       <button
         type="button"
         onClick={(e) => {
+          // Same "must already be selected" guard as startEdit above, and for
+          // the same reason: a plain click here used to stopPropagation and
+          // open the assignments modal unconditionally, even on a card that
+          // had never been selected — so a single click meant for
+          // "select this card" could open a modal instead. Not stopping
+          // propagation here lets the click bubble up to React Flow's
+          // onNodeClick and select the card normally.
+          if (!isSelected) return;
           e.stopPropagation();
           actions.openAssignments(employee.id);
         }}
