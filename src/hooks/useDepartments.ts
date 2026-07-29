@@ -55,11 +55,9 @@ export function useDepartments() {
     return created;
   };
 
-  // oldNameHint: AG Grid mutates its row data object in place before firing
-  // onCellValueChanged (see useEmployees.ts's updateEmployee), so
-  // DepartmentsGrid passes the event's real oldValue rather than letting
-  // this fall back to departments.find(id), which can no longer be trusted
-  // by then.
+  // oldNameHint lets a caller pass the pre-edit value explicitly rather than
+  // relying on departments.find(id), in case its own local state has already
+  // moved on by the time this runs.
   const updateDepartment = async (id: string, name: string, oldNameHint?: string) => {
     const before = departments.find((d) => d.id === id);
     await departmentService.updateDepartment(id, name);
@@ -72,6 +70,22 @@ export function useDepartments() {
         orgChartId,
         undo: async () => { await updateDepartment(id, oldName); },
         redo: async () => { await updateDepartment(id, name); },
+      });
+    }
+  };
+
+  const updateDepartmentColor = async (id: string, color: string | null) => {
+    const before = departments.find((d) => d.id === id);
+    await departmentService.updateDepartmentColor(id, color);
+    await refresh();
+    const orgChartId = useSelectionStore.getState().currentOrgChartId;
+    if (before && orgChartId) {
+      const oldColor = before.color;
+      useHistoryStore.getState().push({
+        label: `Changer la couleur de ${before.name}`,
+        orgChartId,
+        undo: async () => { await updateDepartmentColor(id, oldColor); },
+        redo: async () => { await updateDepartmentColor(id, color); },
       });
     }
   };
@@ -103,6 +117,7 @@ export function useDepartments() {
     error,
     createDepartment,
     updateDepartment,
+    updateDepartmentColor,
     deleteDepartment,
   };
 }

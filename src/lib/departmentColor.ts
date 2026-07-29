@@ -15,11 +15,11 @@ const PALETTE = [
 ];
 
 // Colors are assigned by creation order (departments is fetched sorted by
-// created_at) rather than stored, so the mapping stays in sync everywhere
-// (grid, chart, legend) without a schema column to keep consistent.
+// created_at) unless a department has an explicit stored `color` (set via
+// the Business Units grid's color picker), which always takes precedence.
 export function departmentColorMap(departments: Department[]): Map<string, string> {
   const map = new Map<string, string>();
-  departments.forEach((d, i) => map.set(d.name, PALETTE[i % PALETTE.length]));
+  departments.forEach((d, i) => map.set(d.name, d.color ?? PALETTE[i % PALETTE.length]));
   return map;
 }
 

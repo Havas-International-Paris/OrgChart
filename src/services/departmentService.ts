@@ -18,6 +18,11 @@ export async function updateDepartment(id: string, name: string): Promise<void> 
   if (error) throw error;
 }
 
+export async function updateDepartmentColor(id: string, color: string | null): Promise<void> {
+  const { error } = await supabase.from('departments').update({ color }).eq('id', id);
+  if (error) throw error;
+}
+
 export async function deleteDepartment(id: string): Promise<void> {
   const { error } = await supabase.from('departments').delete().eq('id', id);
   if (error) throw error;
@@ -27,7 +32,7 @@ export async function deleteDepartment(id: string): Promise<void> {
 export async function restoreDepartment(row: Department): Promise<Department> {
   const { data, error } = await supabase
     .from('departments')
-    .insert({ id: row.id, name: row.name })
+    .insert({ id: row.id, name: row.name, color: row.color })
     .select()
     .single();
   if (error) throw error;

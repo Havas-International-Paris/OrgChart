@@ -96,5 +96,6 @@ export interface JobTitle {
 export interface Department {
   id: string;
   name: string;
+  color: string | null;
   created_at: string;
 }

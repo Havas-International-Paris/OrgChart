@@ -142,14 +142,17 @@ export interface Database {
         Row: {
           id: string;
           name: string;
+          color: string | null;
           created_at: string;
         };
         Insert: {
           id?: string;
           name: string;
+          color?: string | null;
         };
         Update: {
           name?: string;
+          color?: string | null;
         };
         Relationships: [];
       };
