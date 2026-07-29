@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useEmployees } from '../../hooks/useEmployees';
 import { useReportingGraph } from '../../hooks/useReportingGraph';
 import { useAssignments } from '../../hooks/useAssignments';
@@ -17,16 +17,20 @@ import { etpStatus } from '../../lib/etpStatus';
 import { departmentColorMap, NEUTRAL_DEPARTMENT_COLOR } from '../../lib/departmentColor';
 import { buildEmployeesCsv, downloadCsv } from '../../lib/exportEmployeesCsv';
 import type { Employee, EmployeeInput } from '../../types/domain';
-import {
-  EDITABLE_FIELDS,
-  FIELD_KIND,
-  compareValues,
-  draftHasContent,
-  effectiveForSort,
-  mergeDraftField,
-  nextEditableField,
-  type EditableField,
-} from './editableGridLogic';
+import { EditableCell } from './EditableCell';
+import { useEditableRows } from './useEditableRows';
+import { compareValues, densityClasses, effectiveForSort, type FieldKind } from './editableGridLogic';
+
+const EDITABLE_FIELDS = ['first_name', 'last_name', 'job_title', 'role_desc', 'department'] as const;
+type EditableField = (typeof EDITABLE_FIELDS)[number];
+
+const FIELD_KIND: Record<EditableField, FieldKind> = {
+  first_name: 'text',
+  last_name: 'text',
+  job_title: 'select',
+  role_desc: 'text',
+  department: 'select',
+};
 
 const FIELD_LABEL: Record<EditableField, string> = {
   first_name: 'Prénom',
@@ -35,6 +39,10 @@ const FIELD_LABEL: Record<EditableField, string> = {
   role_desc: 'Rôle',
   department: 'Business Unit',
 };
+
+// A name is what makes a draft worth persisting — a poste or Business Unit
+// alone is not enough to create an employee row.
+const REQUIRED_FIELDS = ['first_name', 'last_name'] as const;
 
 function emptyDraft(orgChartId: string): Employee {
   const now = new Date().toISOString();
@@ -58,16 +66,9 @@ function emptyDraft(orgChartId: string): Employee {
   };
 }
 
-interface ActiveCell {
-  rowId: string;
-  field: EditableField;
-}
-
-// Rebuilt on TanStack Table + hand-rolled cells, replacing AG Grid for this one
-// grid (backlog item 31). The other 3 grids (Postes, Business Units,
-// Clients/Missions) stay on AG Grid + useRowStabilizer.ts for now — see
-// CLAUDE.md for why running two grid systems briefly, rather than indefinitely,
-// was the deliberate call here.
+// Hand-rolled table + cells, replacing AG Grid (backlog item 31). This grid
+// went first and the three catalog grids followed; the editing state machine
+// they all share now lives in useEditableRows.ts.
 //
 // AG Grid's own machinery caused all three diagnosed symptoms: (a) rows jumping
 // mid-edit came from its cell-focus event resolving a row by POST-resort index,
@@ -134,168 +135,35 @@ export function EmployeeGrid() {
     return ids;
   }, [assignments, clientMissionFilterIds]);
 
-  // A row created by "+ Ajouter" that has not been written to Supabase yet —
-  // see editableGridLogic.ts's draftHasContent for why. Always rendered pinned
-  // above the sorted list, mirroring AG Grid's old pinnedTopRowData but as a
-  // plain local value instead of a library feature.
-  const [draft, setDraft] = useState<Employee | null>(null);
-
-  const [activeCell, setActiveCell] = useState<ActiveCell | null>(null);
-  // Captured the moment a row is FIRST activated for editing (any field), and
-  // kept until the user leaves the row entirely — Tab-ing between fields of the
-  // same row must not re-take the snapshot. This is what freezes the row's sort
-  // position while it's being edited: see effectiveForSort.
-  const [frozenRow, setFrozenRow] = useState<{ id: string; snapshot: Employee } | null>(null);
-  const [draftValue, setDraftValue] = useState('');
-  // Deliberately only ONE place ever commits a field: handleBlur. Keydown
-  // handlers never call commitField themselves — they record what should
-  // happen once the blur arrives, then force it immediately via `.blur()`.
-  // An earlier version had keydown handlers commit directly and set a
-  // "suppress the next blur" flag to stop it from double-committing — that
-  // broke the moment a blur DIDN'T reliably follow (Tab at the end of a row,
-  // where nothing else takes focus): the flag stayed stuck true, so the very
-  // next unrelated blur anywhere in the grid was silently swallowed. Found by
-  // testing a fresh "+ Ajouter" draft live, right after an unrelated Tab-to-
-  // end-of-row edit in the same session — clicking away from the still-blank
-  // draft no longer discarded it. Forcing the blur ourselves removes the
-  // "did a blur happen or not" question entirely.
-  const pendingActionRef = useRef<{ kind: 'cancel' } | { kind: 'move'; next: EditableField } | { kind: 'close' }>({
-    kind: 'close',
-  });
-  const activeInputRef = useRef<HTMLInputElement | HTMLSelectElement | null>(null);
-
   const [sortField, setSortField] = useState<EditableField>('last_name');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
-  useEffect(() => {
-    if (!activeInputRef.current) return;
-    activeInputRef.current.focus();
-    if (activeInputRef.current instanceof HTMLInputElement) activeInputRef.current.select();
-  }, [activeCell]);
-
-  // Takes the row OBJECT, never just an id to look up — on purpose. Every
-  // caller either already has a guaranteed-fresh row in hand (the one it's
-  // rendering, or the one it just got back from createEmployee/updateEmployee)
-  // or would have to fetch one via `employeeById`, which is a snapshot of
-  // whatever `employees` was in the render that created THIS closure — after
-  // an `await`, that snapshot can be one or more renders behind the row this
-  // call is actually about. Taking the row directly removes that lookup
-  // entirely, so there's nothing left to go stale.
-  const activateCell = useCallback((row: Employee, field: EditableField) => {
-    setActiveCell({ rowId: row.id, field });
-    setFrozenRow((prev) => (prev?.id === row.id ? prev : { id: row.id, snapshot: row }));
-    setDraftValue((row[field] as string | null) ?? '');
-  }, []);
-
-  const deactivate = useCallback((discardBlankDraft = false) => {
-    setActiveCell(null);
-    setFrozenRow(null);
-    if (discardBlankDraft) setDraft(null);
-  }, []);
-
-  // Takes and returns the row OBJECT, not an id — same reasoning as
-  // activateCell above. `row` must be the caller's own fresh copy (the one it
-  // is rendering, or one a PREVIOUS commitField call just handed back); this
-  // never looks anything up via `employeeById`, so there's no snapshot for an
-  // await to leave behind. The returned row is what the caller should treat
-  // as current from this point on: unchanged for a plain edit, or the newly
-  // created row once a still-local draft gets promoted.
-  const commitField = useCallback(
-    async (
-      row: Employee,
-      field: EditableField,
-      value: string | null,
-    ): Promise<{ row: Employee; isDraftStillBlank: boolean }> => {
-      if (draft && row.id === draft.id) {
-        const merged = mergeDraftField(draft, field, value);
-        if (!draftHasContent(merged)) {
-          setDraft(merged);
-          return { row: merged, isDraftStillBlank: true };
-        }
-        const created = await createEmployee({
-          first_name: merged.first_name,
-          last_name: merged.last_name,
-          job_title: merged.job_title ?? undefined,
-          role_desc: merged.role_desc ?? undefined,
-          department: merged.department ?? undefined,
-        });
-        setDraft(null);
-        return { row: created, isDraftStillBlank: false };
-      }
-      if (row[field] !== value) {
-        await updateEmployee(row.id, { [field]: value } as Partial<EmployeeInput>, { [field]: row[field] } as Partial<EmployeeInput>);
-      }
-      return { row: { ...row, [field]: value }, isDraftStillBlank: false };
-    },
-    [draft, createEmployee, updateEmployee],
-  );
-
-  const isDraftBlank = useCallback(
-    (row: Employee) => Boolean(draft && row.id === draft.id && !draftHasContent(draft)),
-    [draft],
-  );
-
-  // Keydown only ever records intent + forces the blur that will act on it —
-  // see pendingActionRef's own comment for why it never commits directly.
-  const handleKeyDown = useCallback((e: React.KeyboardEvent, field: EditableField) => {
-    if (e.key === 'Escape') {
-      pendingActionRef.current = { kind: 'cancel' };
-      (e.target as HTMLElement).blur();
-      return;
-    }
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      pendingActionRef.current = { kind: 'close' };
-      (e.target as HTMLElement).blur();
-      return;
-    }
-    if (e.key === 'Tab' && !e.shiftKey) {
-      e.preventDefault();
-      // Tab stops at the end of the row rather than wrapping to the next
-      // row's first field — explicit 2026-07-27 decision, no spreadsheet-
-      // style keyboard navigation.
-      const next = nextEditableField(field);
-      pendingActionRef.current = next ? { kind: 'move', next } : { kind: 'close' };
-      (e.target as HTMLElement).blur();
-    }
-  }, []);
-
-  // The single place that ever commits a field or decides a draft's fate.
-  // Every keydown path above and every plain click-away funnel through here.
-  // Takes `row` (the caller's fresh copy), never an id — see commitField.
-  const handleBlur = useCallback(
-    async (row: Employee, field: EditableField, currentValue: string | null) => {
-      const action = pendingActionRef.current;
-      pendingActionRef.current = { kind: 'close' };
-
-      if (action.kind === 'cancel') {
-        deactivate(isDraftBlank(row));
-        return;
-      }
-
-      let effectiveRow = row;
-      let isDraftStillBlank = isDraftBlank(row);
-      if (FIELD_KIND[field] === 'text') {
-        const result = await commitField(row, field, currentValue);
-        effectiveRow = result.row;
-        isDraftStillBlank = result.isDraftStillBlank;
-      }
-      if (action.kind === 'move') activateCell(effectiveRow, action.next);
-      else deactivate(isDraftStillBlank);
-    },
-    [commitField, activateCell, deactivate, isDraftBlank],
-  );
-
-  // A select commits on its own onChange (there is no separate "typed but
-  // uncommitted" state for a dropdown) but deliberately does NOT deactivate —
-  // it stays open so Tab can still move on to the next field, matching every
-  // other field's behaviour while filling a row.
-  const handleSelectChange = useCallback(
-    (row: Employee, field: EditableField, value: string) => {
-      void commitField(row, field, value || null);
-    },
-    [commitField],
-  );
+  const editing = useEditableRows<Employee, EditableField>({
+    fields: EDITABLE_FIELDS,
+    fieldKind: FIELD_KIND,
+    requiredFields: REQUIRED_FIELDS,
+    createRow: useCallback(
+      (draft: Employee) =>
+        createEmployee({
+          first_name: draft.first_name,
+          last_name: draft.last_name,
+          job_title: draft.job_title ?? undefined,
+          role_desc: draft.role_desc ?? undefined,
+          department: draft.department ?? undefined,
+        }),
+      [createEmployee],
+    ),
+    updateField: useCallback(
+      async (row: Employee, field: EditableField, value: string | null) => {
+        await updateEmployee(
+          row.id,
+          { [field]: value } as Partial<EmployeeInput>,
+          { [field]: row[field] } as Partial<EmployeeInput>,
+        );
+      },
+      [updateEmployee],
+    ),
+  });
 
   const toggleSort = useCallback(
     (field: EditableField) => {
@@ -312,20 +180,18 @@ export function EmployeeGrid() {
       ? base.filter((e) => `${e.first_name} ${e.last_name}`.toLowerCase().includes(query))
       : base;
     const sorted = [...filtered].sort((a, b) => {
-      const ea = effectiveForSort(a, frozenRow);
-      const eb = effectiveForSort(b, frozenRow);
+      const ea = effectiveForSort(a, editing.frozenRow);
+      const eb = effectiveForSort(b, editing.frozenRow);
       const cmp = compareValues(ea[sortField], eb[sortField]);
       return sortDir === 'asc' ? cmp : -cmp;
     });
     return sorted;
-  }, [employees, matchingEmployeeIds, searchQuery, sortField, sortDir, frozenRow]);
+  }, [employees, matchingEmployeeIds, searchQuery, sortField, sortDir, editing.frozenRow]);
 
   const handleAddEmployee = useCallback(() => {
-    if (!currentOrgChartId || draft) return;
-    const created = emptyDraft(currentOrgChartId);
-    setDraft(created);
-    activateCell(created, 'first_name');
-  }, [currentOrgChartId, draft, activateCell]);
+    if (!currentOrgChartId || editing.draft) return;
+    editing.startDraft(emptyDraft(currentOrgChartId));
+  }, [currentOrgChartId, editing]);
 
   const handleExport = useCallback(() => {
     const csv = buildEmployeesCsv(employees, employeeById, managersOf, assignmentsOf, clientMissionById);
@@ -333,81 +199,41 @@ export function EmployeeGrid() {
     downloadCsv(csv, `employes_export_${date}.csv`);
   }, [employees, employeeById, managersOf, assignmentsOf, clientMissionById]);
 
-  const rowPad = gridDensity === 'compact' ? 'py-1' : 'py-2';
-  const cellText = gridDensity === 'compact' ? 'text-xs' : 'text-sm';
-  const avatarSize = gridDensity === 'compact' ? 24 : 28;
+  const { rowPad, cellText, avatarSize } = densityClasses(gridDensity);
 
-  const rows = draft ? [draft, ...sortedEmployees] : sortedEmployees;
+  const rows = editing.draft ? [editing.draft, ...sortedEmployees] : sortedEmployees;
 
-  function renderCell(row: Employee, field: EditableField) {
-    const isActive = activeCell?.rowId === row.id && activeCell.field === field;
-    const kind = FIELD_KIND[field];
-
-    if (isActive && kind === 'select') {
-      const values = field === 'job_title' ? jobTitles.map((jt) => jt.name) : departments.map((d) => d.name);
-      return (
-        <select
-          ref={(el) => {
-            activeInputRef.current = el;
-          }}
-          value={(row[field] as string | null) ?? ''}
-          onChange={(e) => handleSelectChange(row, field, e.target.value)}
-          onKeyDown={(e) => handleKeyDown(e, field)}
-          onBlur={() => handleBlur(row, field, row[field] as string | null)}
-          className="w-full rounded border border-slate-300 bg-white px-1 py-0.5 text-inherit outline-none"
-        >
-          <option value="">—</option>
-          {values.map((v) => (
-            <option key={v} value={v}>
-              {v}
-            </option>
-          ))}
-        </select>
-      );
-    }
-
-    if (isActive) {
-      return (
-        <input
-          ref={(el) => {
-            activeInputRef.current = el;
-          }}
-          value={draftValue}
-          onChange={(e) => setDraftValue(e.target.value)}
-          onKeyDown={(e) => handleKeyDown(e, field)}
-          onBlur={() => handleBlur(row, field, draftValue)}
-          className="w-full rounded border border-slate-300 bg-white px-1 py-0.5 text-inherit outline-none"
-        />
-      );
-    }
-
-    // Closed display. department gets the colour dot; job_title/role_desc are
-    // plain text; first/last name are plain text too but never blank once a
-    // row is real (drafts render via their own dedicated placeholder below).
+  // Only the Business Unit cell needs a custom closed rendering (its colour
+  // dot) and only the two selects need options; everything else is
+  // EditableCell's own default.
+  function cellFor(row: Employee, field: EditableField) {
     const value = row[field] as string | null;
+    const options =
+      field === 'job_title'
+        ? jobTitles.map((jt) => ({ value: jt.name, label: jt.name }))
+        : field === 'department'
+          ? departments.map((d) => ({ value: d.name, label: d.name }))
+          : undefined;
     const display =
-      field === 'department' ? (
-        value ? (
-          <span className="flex items-center gap-1.5">
-            <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: departmentColorByName.get(value) }} />
-            <span className="truncate">{value}</span>
-          </span>
-        ) : (
-          <span className="text-slate-300">—</span>
-        )
-      ) : (
-        <span className="truncate">{value}</span>
-      );
+      field === 'department' && value ? (
+        <span className="flex items-center gap-1.5">
+          <span
+            className="h-2 w-2 shrink-0 rounded-full"
+            style={{ backgroundColor: departmentColorByName.get(value) }}
+          />
+          <span className="truncate">{value}</span>
+        </span>
+      ) : undefined;
 
     return (
-      <button
-        type="button"
-        onClick={() => activateCell(row, field)}
-        className="block w-full truncate text-left"
+      <EditableCell
+        editing={editing}
+        row={row}
+        field={field}
+        options={options}
+        display={display}
         title={`Modifier ${FIELD_LABEL[field].toLowerCase()}`}
-      >
-        {display}
-      </button>
+      />
     );
   }
 
@@ -425,7 +251,7 @@ export function EmployeeGrid() {
           <UndoRedoButtons />
           <button
             onClick={handleAddEmployee}
-            disabled={Boolean(draft)}
+            disabled={Boolean(editing.draft)}
             className="rounded bg-slate-900 px-3 py-1 text-xs font-medium text-white disabled:opacity-50"
           >
             + Ajouter
@@ -471,7 +297,7 @@ export function EmployeeGrid() {
               </tr>
             )}
             {rows.map((row) => {
-              const isDraftRow = row.id === draft?.id;
+              const isDraftRow = row.id === editing.draft?.id;
               const isSelected = row.id === selectedEmployeeId;
               const managers = managersOf(row.id);
               const managerNames = managers
@@ -510,7 +336,7 @@ export function EmployeeGrid() {
                   </td>
                   {EDITABLE_FIELDS.map((field) => (
                     <td key={field} role="gridcell" className={`${rowPad} px-2`}>
-                      {renderCell(row, field)}
+                      {cellFor(row, field)}
                     </td>
                   ))}
                   <td role="gridcell" className={`${rowPad} px-2`}>

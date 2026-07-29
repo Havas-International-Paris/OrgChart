@@ -1,133 +1,125 @@
 import { useCallback, useMemo, useState } from 'react';
-import { AgGridReact } from 'ag-grid-react';
-import {
-  ModuleRegistry,
-  AllCommunityModule,
-  type CellValueChangedEvent,
-  type ColDef,
-  type GridReadyEvent,
-} from 'ag-grid-community';
 import { useJobTitles } from '../../hooks/useJobTitles';
-import { useRowStabilizer } from './useRowStabilizer';
 import { useUiPreferencesStore } from '../../stores/uiPreferencesStore';
-import { getGridTheme, scaleColumnWidth } from '../../lib/gridTheme';
+import { EditableCell } from './EditableCell';
+import { useEditableRows } from './useEditableRows';
+import { compareValues, densityClasses, effectiveForSort, type FieldKind } from './editableGridLogic';
 import type { JobTitle } from '../../types/domain';
 
-ModuleRegistry.registerModules([AllCommunityModule]);
+const FIELDS = ['name'] as const;
+type Field = (typeof FIELDS)[number];
+const FIELD_KIND: Record<Field, FieldKind> = { name: 'text' };
+
+function emptyDraft(): JobTitle {
+  return { id: `draft-${crypto.randomUUID()}`, name: '', created_at: new Date().toISOString() };
+}
 
 export function JobTitlesGrid() {
   const { jobTitles, loading, error, createJobTitle, updateJobTitle, deleteJobTitle } = useJobTitles();
   const gridDensity = useUiPreferencesStore((s) => s.gridDensity);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
-  const {
-    gridApiRef,
-    containerRef,
-    pinnedTopId,
-    pinNewRow,
-    comparatorFor,
-    handleCellEditingStarted,
-    handleCellFocused,
-  } = useRowStabilizer<JobTitle>();
-
-  const mainRowData = useMemo(
-    () => (pinnedTopId ? jobTitles.filter((jt) => jt.id !== pinnedTopId) : jobTitles),
-    [jobTitles, pinnedTopId],
-  );
-  const pinnedTopRowData = useMemo(() => {
-    if (!pinnedTopId) return undefined;
-    const row = jobTitles.find((jt) => jt.id === pinnedTopId);
-    return row ? [row] : undefined;
-  }, [jobTitles, pinnedTopId]);
-
-  const handleGridReady = useCallback(
-    (event: GridReadyEvent<JobTitle>) => {
-      gridApiRef.current = event.api;
-    },
-    [gridApiRef],
-  );
-
-  const handleCellValueChanged = useCallback(
-    (event: CellValueChangedEvent<JobTitle>) => {
-      if (!event.data) return;
-      updateJobTitle(event.data.id, event.newValue, event.oldValue).catch((err) =>
-        setActionError(err instanceof Error ? err.message : String(err)),
-      );
-    },
-    [updateJobTitle],
-  );
+  const editing = useEditableRows<JobTitle, Field>({
+    fields: FIELDS,
+    fieldKind: FIELD_KIND,
+    requiredFields: FIELDS,
+    createRow: useCallback((draft: JobTitle) => createJobTitle(draft.name), [createJobTitle]),
+    updateField: useCallback(
+      async (row: JobTitle, _field: Field, value: string | null) => {
+        await updateJobTitle(row.id, value ?? '', row.name);
+      },
+      [updateJobTitle],
+    ),
+  });
 
   const handleDelete = useCallback(
     (id: string) => {
       setActionError(null);
-      deleteJobTitle(id).catch((err) =>
-        setActionError(err instanceof Error ? err.message : String(err)),
-      );
+      deleteJobTitle(id).catch((err) => setActionError(err instanceof Error ? err.message : String(err)));
     },
     [deleteJobTitle],
   );
 
-  const columnDefs = useMemo<ColDef<JobTitle>[]>(
-    () => [
-      {
-        field: 'name',
-        headerName: 'Poste',
-        editable: true,
-        flex: 1,
-        minWidth: scaleColumnWidth(200, gridDensity),
-        comparator: comparatorFor('name'),
-      },
-      {
-        headerName: '',
-        width: 56,
-        sortable: false,
-        filter: false,
-        cellRenderer: (params: { data: JobTitle }) => (
-          <button
-            onClick={() => handleDelete(params.data.id)}
-            title="Supprimer"
-            className="text-slate-400 hover:text-red-600"
-          >
-            ✕
-          </button>
-        ),
-      },
-    ],
-    [handleDelete, comparatorFor, gridDensity],
-  );
+  const sorted = useMemo(() => {
+    const rows = [...jobTitles].sort((a, b) => {
+      const cmp = compareValues(
+        effectiveForSort(a, editing.frozenRow).name,
+        effectiveForSort(b, editing.frozenRow).name,
+      );
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+    return rows;
+  }, [jobTitles, sortDir, editing.frozenRow]);
 
-  const handleAdd = useCallback(async () => {
-    const created = await createJobTitle('Nouveau poste');
-    pinNewRow(created.id);
-  }, [createJobTitle, pinNewRow]);
+  const { rowPad, cellText } = densityClasses(gridDensity);
+  const rows = editing.draft ? [editing.draft, ...sorted] : sorted;
 
   return (
     <div className="flex h-full flex-col gap-2">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold text-slate-700">Postes</h2>
         <button
-          onClick={handleAdd}
-          className="rounded bg-slate-900 px-3 py-1 text-xs font-medium text-white"
+          onClick={() => editing.startDraft(emptyDraft())}
+          disabled={Boolean(editing.draft)}
+          className="rounded bg-slate-900 px-3 py-1 text-xs font-medium text-white disabled:opacity-50"
         >
           + Ajouter
         </button>
       </div>
       {(error || actionError) && <p className="text-sm text-red-600">{error ?? actionError}</p>}
-      <div className="min-h-0 flex-1" ref={containerRef}>
-        <AgGridReact<JobTitle>
-          theme={getGridTheme(gridDensity)}
-          rowData={mainRowData}
-          pinnedTopRowData={pinnedTopRowData}
-          columnDefs={columnDefs}
-          getRowId={(params) => params.data.id}
-          loading={loading}
-          popupParent={containerRef.current ?? undefined}
-          onGridReady={handleGridReady}
-          onCellValueChanged={handleCellValueChanged}
-          onCellEditingStarted={handleCellEditingStarted}
-          onCellFocused={handleCellFocused}
-          animateRows
-        />
+      <div className="min-h-0 flex-1 overflow-auto">
+        <table role="grid" className={`w-full border-collapse ${cellText}`}>
+          <thead>
+            <tr role="row" className="border-b border-slate-200 text-left text-slate-500">
+              <th className={`${rowPad} px-2 font-medium`}>
+                <button
+                  type="button"
+                  onClick={() => setSortDir((dir) => (dir === 'asc' ? 'desc' : 'asc'))}
+                  className="flex items-center gap-1 hover:text-slate-800"
+                >
+                  Poste
+                  <span className="text-[10px]">{sortDir === 'asc' ? '▲' : '▼'}</span>
+                </button>
+              </th>
+              <th className="w-10" />
+            </tr>
+          </thead>
+          <tbody>
+            {loading && (
+              <tr role="row">
+                <td colSpan={2} className="p-4 text-center text-slate-400">
+                  Chargement…
+                </td>
+              </tr>
+            )}
+            {!loading && rows.length === 0 && (
+              <tr role="row">
+                <td colSpan={2} className="p-4 text-center text-slate-400">
+                  Aucun poste.
+                </td>
+              </tr>
+            )}
+            {rows.map((row) => (
+              <tr key={row.id} role="row" className="border-b border-slate-100 hover:bg-slate-50">
+                <td role="gridcell" className={`${rowPad} px-2`}>
+                  <EditableCell editing={editing} row={row} field="name" title="Modifier le poste" />
+                </td>
+                <td role="gridcell" className={`${rowPad} px-2`}>
+                  {row.id !== editing.draft?.id && (
+                    <button
+                      onClick={() => handleDelete(row.id)}
+                      title="Supprimer"
+                      className="text-slate-400 hover:text-red-600"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );

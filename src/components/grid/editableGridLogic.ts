@@ -1,35 +1,29 @@
-import type { Employee } from '../../types/domain';
+import type { GridDensity } from '../../stores/uiPreferencesStore';
 
-// Pure logic behind EmployeeGrid's own inline editing — extracted so the two
+// Pure logic behind the left panel's inline editing — extracted so the two
 // trickiest decisions (what Tab does next, and when a freshly-added row becomes
-// a real database row) are unit-testable without mounting the grid. This is what
+// a real database row) are unit-testable without mounting a grid. This is what
 // replaced AG Grid's built-in cell-to-cell navigation, whose default behaviour is
 // exactly what caused backlog item 31's symptom (c): Tab silently entering edit
 // mode on an unrelated select column.
+//
+// Everything here is generic over the row type: the same helpers back the
+// employees grid and the three catalog grids (Postes, Business Units,
+// Clients/Missions), which differ only in their field list.
 
-export const EDITABLE_FIELDS = ['first_name', 'last_name', 'job_title', 'role_desc', 'department'] as const;
-export type EditableField = (typeof EDITABLE_FIELDS)[number];
-
-export const FIELD_KIND: Record<EditableField, 'text' | 'select'> = {
-  first_name: 'text',
-  last_name: 'text',
-  job_title: 'select',
-  role_desc: 'text',
-  department: 'select',
-};
+export type FieldKind = 'text' | 'select';
 
 // Tab moves to the next editable field of the SAME row and stops at the end —
 // it deliberately never wraps to the next row's first field. Per-user decision
 // (2026-07-27): explicit request, consistent with "no spreadsheet-style keyboard
 // navigation" from the item 31 interview.
-export function nextEditableField(current: EditableField): EditableField | null {
-  const index = EDITABLE_FIELDS.indexOf(current);
-  return EDITABLE_FIELDS[index + 1] ?? null;
+export function nextField<F extends string>(fields: readonly F[], current: F): F | null {
+  const index = fields.indexOf(current);
+  if (index === -1) return null;
+  return fields[index + 1] ?? null;
 }
 
-// null/empty sorts first, matching the comparator useRowStabilizer.ts used for
-// the other 3 (still-AG-Grid) grids, so switching sort direction/columns doesn't
-// change which end of the list blanks land on between the two grid systems.
+// null/empty sorts first — the single sort rule for all four grids.
 export function compareValues(a: string | null, b: string | null): number {
   if (a == null && b == null) return 0;
   if (a == null) return -1;
@@ -43,23 +37,34 @@ export function compareValues(a: string | null, b: string | null): number {
 // being typed into) matches the old AG Grid comparator's behaviour: editing
 // Poste must not let the row jump because Nom's snapshot went stale, since both
 // still reflect the same pre-edit moment.
-export function effectiveForSort(employee: Employee, frozen: { id: string; snapshot: Employee } | null): Employee {
-  return frozen && frozen.id === employee.id ? frozen.snapshot : employee;
+export function effectiveForSort<Row extends { id: string }>(
+  row: Row,
+  frozen: { id: string; snapshot: Row } | null,
+): Row {
+  return frozen && frozen.id === row.id ? frozen.snapshot : row;
 }
 
-// A row created by "+ Ajouter" is a local-only draft (never written to Supabase)
-// until it has a first or last name — this is the fix for backlog item 31's
-// symptom (b): today, clicking "+ Ajouter" inserts a real, permanently blank
-// employee immediately, before the user has typed anything, and clicking away
-// leaves a ghost row with no indication anything needs cleaning up.
-export function draftHasContent(draft: Pick<Employee, 'first_name' | 'last_name'>): boolean {
-  return draft.first_name.trim() !== '' || draft.last_name.trim() !== '';
+// A row created by "+ Ajouter" stays a local-only draft (never written to
+// Supabase) until at least one of its identifying fields has real content —
+// this is the fix for backlog item 31's symptom (b): the AG Grid version
+// inserted a real, permanently blank row immediately, before the user had typed
+// anything, and clicking away left a ghost row with no indication anything
+// needed cleaning up. Whitespace alone never counts.
+export function hasContentIn<Row>(row: Row, fields: readonly (keyof Row)[]): boolean {
+  return fields.some((field) => String(row[field] ?? '').trim() !== '');
 }
 
-export function mergeDraftField(
-  draft: Employee,
-  field: EditableField,
-  value: string | null,
-): Employee {
-  return { ...draft, [field]: value };
+export function mergeDraftField<Row, F extends keyof Row>(draft: Row, field: F, value: Row[F]): Row {
+  return { ...draft, [field]: value } as Row;
+}
+
+// The density toggle (uiPreferencesStore.ts) used to drive AG Grid's Theming
+// API through lib/gridTheme.ts; owning the markup, it is just two class names.
+export function densityClasses(density: GridDensity) {
+  const compact = density === 'compact';
+  return {
+    rowPad: compact ? 'py-1' : 'py-2',
+    cellText: compact ? 'text-xs' : 'text-sm',
+    avatarSize: compact ? 24 : 28,
+  };
 }

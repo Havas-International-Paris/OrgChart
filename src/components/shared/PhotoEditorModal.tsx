@@ -184,7 +184,7 @@ export function PhotoEditorModal({ employeeName, photoPath, currentFrame, onSave
   }
 
   return (
-    <div data-row-stabilizer-ignore className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
       <div className="w-full max-w-xs rounded-lg bg-white p-5 shadow-lg">
         <h2 className="mb-3 text-sm font-semibold text-slate-900">Photo de {employeeName}</h2>
 

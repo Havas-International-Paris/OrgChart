@@ -1,38 +1,45 @@
 import { describe, expect, it } from 'vitest';
 import {
-  EDITABLE_FIELDS,
   compareValues,
-  draftHasContent,
   effectiveForSort,
+  hasContentIn,
   mergeDraftField,
-  nextEditableField,
+  nextField,
 } from './editableGridLogic';
 import { emp } from '../../test/fixtures';
 
-describe('nextEditableField', () => {
+const EMPLOYEE_FIELDS = ['first_name', 'last_name', 'job_title', 'role_desc', 'department'] as const;
+
+describe('nextField', () => {
   it('walks the fields in the declared fill order', () => {
-    expect(nextEditableField('first_name')).toBe('last_name');
-    expect(nextEditableField('last_name')).toBe('job_title');
-    expect(nextEditableField('job_title')).toBe('role_desc');
-    expect(nextEditableField('role_desc')).toBe('department');
+    expect(nextField(EMPLOYEE_FIELDS, 'first_name')).toBe('last_name');
+    expect(nextField(EMPLOYEE_FIELDS, 'last_name')).toBe('job_title');
+    expect(nextField(EMPLOYEE_FIELDS, 'job_title')).toBe('role_desc');
+    expect(nextField(EMPLOYEE_FIELDS, 'role_desc')).toBe('department');
   });
 
   // The explicit 2026-07-27 decision: Tab stops at the end of the row rather
   // than wrapping to the next row's first field — no spreadsheet-style nav.
   it('stops at the last field instead of wrapping to the next row', () => {
-    expect(nextEditableField('department')).toBeNull();
+    expect(nextField(EMPLOYEE_FIELDS, 'department')).toBeNull();
   });
 
-  it('covers every declared editable field exactly once', () => {
+  it('covers every declared field exactly once', () => {
     const visited: string[] = ['first_name'];
-    let current = 'first_name' as (typeof EDITABLE_FIELDS)[number];
+    let current = 'first_name' as (typeof EMPLOYEE_FIELDS)[number];
     while (true) {
-      const next = nextEditableField(current);
+      const next = nextField(EMPLOYEE_FIELDS, current);
       if (!next) break;
       visited.push(next);
       current = next;
     }
-    expect(visited).toEqual([...EDITABLE_FIELDS]);
+    expect(visited).toEqual([...EMPLOYEE_FIELDS]);
+  });
+
+  // A single-field grid (Postes, Business Units) — the whole reason this is
+  // generic over the field list instead of hardcoded to the employee shape.
+  it('stops immediately for a single-field grid', () => {
+    expect(nextField(['name'] as const, 'name')).toBeNull();
   });
 });
 
@@ -75,18 +82,25 @@ describe('effectiveForSort', () => {
   });
 });
 
-describe('draftHasContent', () => {
+describe('hasContentIn', () => {
   it('is false for a brand new, untouched draft', () => {
-    expect(draftHasContent({ first_name: '', last_name: '' })).toBe(false);
+    expect(hasContentIn({ first_name: '', last_name: '' }, ['first_name', 'last_name'])).toBe(false);
   });
 
   it('is false for whitespace-only input — spaces alone must not promote a draft', () => {
-    expect(draftHasContent({ first_name: '   ', last_name: '\t' })).toBe(false);
+    expect(hasContentIn({ first_name: '   ', last_name: '\t' }, ['first_name', 'last_name'])).toBe(false);
   });
 
-  it('is true as soon as either name field has real content', () => {
-    expect(draftHasContent({ first_name: 'Camille', last_name: '' })).toBe(true);
-    expect(draftHasContent({ first_name: '', last_name: 'Dupont' })).toBe(true);
+  it('is true as soon as any required field has real content', () => {
+    expect(hasContentIn({ first_name: 'Camille', last_name: '' }, ['first_name', 'last_name'])).toBe(true);
+    expect(hasContentIn({ first_name: '', last_name: 'Dupont' }, ['first_name', 'last_name'])).toBe(true);
+  });
+
+  // The catalog grids (Postes, Business Units, Clients/Missions) only require
+  // a single field ('name') — the generic function must not assume two.
+  it('supports a single required field', () => {
+    expect(hasContentIn({ name: '' }, ['name'])).toBe(false);
+    expect(hasContentIn({ name: 'Nouveau poste' }, ['name'])).toBe(true);
   });
 });
 

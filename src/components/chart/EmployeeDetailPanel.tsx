@@ -63,10 +63,7 @@ export function EmployeeDetailPanel({
   const swatch = departmentColor ?? NEUTRAL_DEPARTMENT_COLOR;
 
   return (
-    <div
-      data-row-stabilizer-ignore
-      className="absolute right-3 top-16 z-20 max-h-[calc(100%-80px)] w-[300px] overflow-y-auto rounded-xl border border-slate-200 bg-white p-5 shadow-lg"
-    >
+    <div className="absolute right-3 top-16 z-20 max-h-[calc(100%-80px)] w-[300px] overflow-y-auto rounded-xl border border-slate-200 bg-white p-5 shadow-lg">
       <button
         type="button"
         onClick={onClose}
