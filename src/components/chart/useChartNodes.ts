@@ -85,6 +85,14 @@ export function useChartNodes({ data, visibility, actions, deptFilter }: ChartNo
   // setState had flushed.
   const isReassigningEdgeRef = useRef(false);
   const isDraggingRef = useRef(false);
+  // Debounces the mouseLeave→null transition so crossing the small gap
+  // between two adjacent cards doesn't flash "nothing hovered" for a frame —
+  // React Flow's per-node native mouseenter/mouseleave have no cross-node
+  // ordering guarantee, so leaving card A and entering card B are two
+  // independent events with a real gap between them. A fresh mouseEnter
+  // cancels this before it fires; the guards are re-checked INSIDE the
+  // timeout too, since a drag/reassign can start during the delay.
+  const clearHoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // `flowNodes` is the controlled array React Flow renders; `computedNodes`
   // (below) is the single source of truth, re-synced into it whenever it
@@ -414,11 +422,25 @@ export function useChartNodes({ data, visibility, actions, deptFilter }: ChartNo
   // the target, firing genuine native enter/leave that would otherwise re-dim
   // most of the chart mid-gesture.
   const handleNodeMouseEnter = useCallback((_event: unknown, node: Node) => {
+    if (clearHoverTimeoutRef.current) {
+      clearTimeout(clearHoverTimeoutRef.current);
+      clearHoverTimeoutRef.current = null;
+    }
     if (!isReassigningEdgeRef.current && !isDraggingRef.current) setHoverEmployeeId(node.id);
   }, []);
 
   const handleNodeMouseLeave = useCallback(() => {
-    if (!isReassigningEdgeRef.current && !isDraggingRef.current) setHoverEmployeeId(null);
+    if (isReassigningEdgeRef.current || isDraggingRef.current) return;
+    clearHoverTimeoutRef.current = setTimeout(() => {
+      clearHoverTimeoutRef.current = null;
+      if (!isReassigningEdgeRef.current && !isDraggingRef.current) setHoverEmployeeId(null);
+    }, 120);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (clearHoverTimeoutRef.current) clearTimeout(clearHoverTimeoutRef.current);
+    };
   }, []);
 
   return {
