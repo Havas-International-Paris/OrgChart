@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Edge, Node } from 'reactflow';
+import type { Edge, Node } from '@xyflow/react';
 import { NODE_HEIGHT, NODE_WIDTH, layoutWithDagre } from './layoutEngine';
 
 // dagre's ranksep, kept in sync with the graph options in layoutEngine.ts.

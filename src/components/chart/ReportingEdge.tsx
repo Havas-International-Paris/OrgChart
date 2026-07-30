@@ -7,8 +7,9 @@ import {
   getStraightPath,
   useReactFlow,
   Position,
+  type Edge,
   type EdgeProps,
-} from 'reactflow';
+} from '@xyflow/react';
 
 // How far from the employee toward the manager the controls sit (t=0 is
 // the manager/source end, t=1 is the employee/target end — see the edge
@@ -69,7 +70,9 @@ function bezierPointAt(
 
 export type DropValidity = 'valid' | 'invalid';
 
-export interface ReportingEdgeData {
+// Extends Record<string, unknown> because @xyflow/react v12's Edge<T> now
+// requires its data generic to satisfy that shape.
+export interface ReportingEdgeData extends Record<string, unknown> {
   onDelete: () => void;
   onReassignHover: (targetEmployeeId: string) => DropValidity;
   onReassignDrop: (targetEmployeeId: string) => void;
@@ -124,7 +127,7 @@ export function ReportingEdge({
   style,
   markerEnd,
   data,
-}: EdgeProps<ReportingEdgeData>) {
+}: EdgeProps<Edge<ReportingEdgeData>>) {
   const [dragPoint, setDragPoint] = useState<{ x: number; y: number } | null>(null);
   const { screenToFlowPosition } = useReactFlow();
   const isPrimary = data!.isPrimary;

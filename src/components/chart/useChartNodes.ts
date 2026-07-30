@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { applyNodeChanges, type Edge, type Node, type NodeChange } from 'reactflow';
+import { applyNodeChanges, type Edge, type Node, type NodeChange } from '@xyflow/react';
 import type { ReportingRelationship } from '../../types/domain';
 import { useSelectionStore } from '../../stores/selectionStore';
 import { NEUTRAL_DEPARTMENT_COLOR } from '../../lib/departmentColor';
@@ -99,7 +99,7 @@ export function useChartNodes({ data, visibility, actions, deptFilter }: ChartNo
   // legitimately changes. Declared before the handlers that write to them so
   // the file reads in dependency order — in the original single-file version
   // these sat 300 lines *below* their first use.
-  const [flowNodes, setFlowNodes] = useState<Node[]>([]);
+  const [flowNodes, setFlowNodes] = useState<Node<EmployeeNodeData>[]>([]);
   // Live drag-only feedback: whichever sibling (+ their descendants) is nearest
   // the dragged card is who's about to be displaced. Kept as its OWN small
   // piece of state rather than folded into flowNodes/computedNodes so
@@ -128,7 +128,9 @@ export function useChartNodes({ data, visibility, actions, deptFilter }: ChartNo
       id: employee.id,
       type: 'employee',
       position: { x: 0, y: 0 },
-      data: null,
+      // Placeholder — only .position is ever read back off layoutedNodeById;
+      // real per-node data is attached later, in the styled nodes memo below.
+      data: {},
     }));
     const primaryEdgeAll = primaryEdges.map((r) => ({ id: r.id, source: r.manager_id, target: r.employee_id }));
     const laidOut = layoutWithDagre(rawNodes, primaryEdgeAll, (id) => employeeById.get(id)?.sibling_order ?? null);
@@ -189,7 +191,7 @@ export function useChartNodes({ data, visibility, actions, deptFilter }: ChartNo
   );
 
   const handleNodesChange = useCallback(
-    (changes: NodeChange[]) => {
+    (changes: NodeChange<Node<EmployeeNodeData>>[]) => {
       setFlowNodes((nds) => applyNodeChanges(changes, nds));
 
       // Recomputed on every drag frame, so it must stay cheap: no dagre

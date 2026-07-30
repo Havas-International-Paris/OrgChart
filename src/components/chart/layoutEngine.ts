@@ -1,5 +1,5 @@
 import dagre from 'dagre';
-import type { Node, Edge } from 'reactflow';
+import type { Node, Edge } from '@xyflow/react';
 import { ROOT_GROUP_KEY } from './siblingOrder';
 
 export const NODE_WIDTH = 220;

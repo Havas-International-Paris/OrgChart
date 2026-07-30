@@ -1,9 +1,11 @@
 import { useEffect, useRef } from 'react';
-import type { Node, ReactFlowInstance } from 'reactflow';
+import type { Edge, Node, ReactFlowInstance } from '@xyflow/react';
 import type { Employee } from '../../types/domain';
 import { useSelectionStore } from '../../stores/selectionStore';
 import { NODE_HEIGHT, NODE_WIDTH } from './layoutEngine';
 import { isE2EMode } from '../../lib/e2eMode';
+import type { EmployeeNodeData } from './EmployeeNode';
+import type { ReportingEdgeData } from './ReportingEdge';
 
 interface ViewportInput {
   currentOrgChartId: string | null;
@@ -35,7 +37,10 @@ export function useChartViewport({
   const setExpandedNodeIds = useSelectionStore((s) => s.setExpandedNodeIds);
   const expandAncestors = useSelectionStore((s) => s.expandAncestors);
 
-  const reactFlowInstanceRef = useRef<ReactFlowInstance | null>(null);
+  const reactFlowInstanceRef = useRef<ReactFlowInstance<
+    Node<EmployeeNodeData>,
+    Edge<ReportingEdgeData>
+  > | null>(null);
   // Whether the initial auto-fit has run for the currently-loaded chart —
   // see the effect below for why this can't just be the `fitView` prop.
   const hasAutoFitRef = useRef(false);

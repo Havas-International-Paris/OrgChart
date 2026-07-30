@@ -1,5 +1,5 @@
 import { memo, useState } from 'react';
-import { Handle, Position, type NodeProps } from 'reactflow';
+import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 import { NEUTRAL_DEPARTMENT_COLOR, withAlpha } from '../../lib/departmentColor';
 import { PhotoAvatar } from '../shared/PhotoAvatar';
 import type { Employee } from '../../types/domain';
@@ -18,7 +18,9 @@ export interface EmployeeNodeActions {
   deleteEmployee: (employeeId: string) => void;
 }
 
-export interface EmployeeNodeData {
+// Extends Record<string, unknown> because @xyflow/react v12's Node<T> now
+// requires its data generic to satisfy that shape.
+export interface EmployeeNodeData extends Record<string, unknown> {
   employee: Employee;
   hasChildren: boolean;
   isExpanded: boolean;
@@ -194,7 +196,7 @@ function AdvertisersRow({ names }: { names: string[] }) {
 
 type EditableField = 'first_name' | 'last_name' | 'job_title' | 'department';
 
-function EmployeeNodeImpl({ data }: NodeProps<EmployeeNodeData>) {
+function EmployeeNodeImpl({ data }: NodeProps<Node<EmployeeNodeData>>) {
   const {
     employee,
     hasChildren,

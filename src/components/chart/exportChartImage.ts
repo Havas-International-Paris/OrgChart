@@ -1,4 +1,4 @@
-import { getNodesBounds, type Node } from 'reactflow';
+import { getNodesBounds, type Node } from '@xyflow/react';
 import { toPng } from 'html-to-image';
 
 // Padding (px) around the exported nodes so borders/shadows aren't clipped.
