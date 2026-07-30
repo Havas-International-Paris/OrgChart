@@ -1,5 +1,5 @@
 import { memo, useState } from 'react';
-import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
+import { Handle, Position, useConnection, type Node, type NodeProps } from '@xyflow/react';
 import { NEUTRAL_DEPARTMENT_COLOR, withAlpha } from '../../lib/departmentColor';
 import { PhotoAvatar } from '../shared/PhotoAvatar';
 import type { Employee } from '../../types/domain';
@@ -35,6 +35,17 @@ export interface EmployeeNodeData extends Record<string, unknown> {
   // highlight above, since it means something different ("this is about to
   // move" vs. "this is in the hovered/selected reporting chain").
   isDisplacementTarget: boolean;
+  // This card is one of the two endpoints (manager or employee) of the
+  // currently-HOVERED link — see useChartNodes.ts's hoveredEdgeId. Narrower
+  // than isChainHighlighted on purpose: the point is to pick out one
+  // specific relationship among several that can visually overlap (a
+  // manager with many reports), not the whole ancestor/descendant chain.
+  isHoverEdgeEndpoint: boolean;
+  // Ordered relationship ids, one Handle rendered per entry — see
+  // useChartNodes.ts for how the order (by each neighbor's laid-out x) and
+  // the fallback synthetic id for a childless node are derived.
+  incomingHandleIds: string[];
+  outgoingHandleIds: string[];
   assignmentsCount: number;
   assignmentsTotalEtpVendu: number;
   assignmentsTotalEtpReel: number;
@@ -206,6 +217,9 @@ function EmployeeNodeImpl({ data }: NodeProps<Node<EmployeeNodeData>>) {
     isDimmed,
     isChainHighlighted,
     isDisplacementTarget,
+    isHoverEdgeEndpoint,
+    incomingHandleIds,
+    outgoingHandleIds,
     assignmentsTotalEtpVendu,
     assignmentsTotalEtpReel,
     advertiserNames,
@@ -258,26 +272,48 @@ function EmployeeNodeImpl({ data }: NodeProps<Node<EmployeeNodeData>>) {
   const swatch = departmentColor ?? NEUTRAL_DEPARTMENT_COLOR;
   const trackColor = withAlpha(swatch, 0.15);
 
-  // Displacement-target (drag-to-reorder, amber) takes precedence over
-  // everything else — it only ever applies while a drag is in progress, at
-  // which point hover-driven chain highlighting is deliberately suppressed
-  // (see useChartNodes.ts's isDraggingRef), so there's no real competing
-  // signal to lose. Chain-highlight (colored border + glow, in the card's
-  // OWN department color) takes precedence over the older isSelected/isMatch
-  // styling otherwise — activeEmployeeId already falls back to
-  // selectedEmployeeId and relatedIds always includes the active id itself,
-  // so the pinned card always satisfies isChainHighlighted whenever a chain
-  // is active; this cleanly replaces its old black ring too, matching the
-  // reference.
-  const borderClass = isDisplacementTarget
-    ? 'border-2 border-amber-500'
-    : isChainHighlighted
-      ? 'border'
-      : isSelected
-        ? 'border-slate-900 ring-2 ring-slate-900'
-        : isMatch
-          ? 'border-amber-400 ring-2 ring-amber-300'
-          : 'border-slate-300';
+  // Live drop-candidate feedback for a native edge-reconnect drag (dragging
+  // a relationship's manager end onto this card): replaces the old
+  // ReportingEdge.tsx grip's manual `style.outline` DOM mutation with normal
+  // render state, via React Flow's own connection store. `isValid` reflects
+  // whatever <ReactFlow>'s isValidConnection prop returned for the current
+  // candidate (OrgChartView.tsx wires it to computeDropValidity).
+  const reconnectTarget = useConnection((c) =>
+    c.inProgress && c.toNode?.id === employee.id ? { active: true, isValid: c.isValid } : { active: false, isValid: null },
+  );
+
+  // Reconnect-target feedback (green/red, only while a drag is actually
+  // hovering this specific card) takes precedence over everything else — it
+  // only ever applies mid-gesture, same reasoning as displacement-target
+  // below. Displacement-target (drag-to-reorder, amber) is next — it only
+  // ever applies while a drag is in progress, at which point hover-driven
+  // chain highlighting is deliberately suppressed (see useChartNodes.ts's
+  // isDraggingRef), so there's no real competing signal to lose.
+  // Hover-edge-endpoint (indigo, this card is one of the two ends of a
+  // currently-hovered LINK) ranks next — a deliberate, specific "which link
+  // is this" signal, so it should read clearly even over an unrelated
+  // pinned selection elsewhere on the chart. Chain-highlight (colored
+  // border + glow, in the card's OWN department color) takes precedence
+  // over the older isSelected/isMatch styling otherwise — activeEmployeeId
+  // already falls back to selectedEmployeeId and relatedIds always includes
+  // the active id itself, so the pinned card always satisfies
+  // isChainHighlighted whenever a chain is active; this cleanly replaces
+  // its old black ring too, matching the reference.
+  const borderClass = reconnectTarget.active
+    ? reconnectTarget.isValid
+      ? 'border-2 border-emerald-500'
+      : 'border-2 border-red-500'
+    : isDisplacementTarget
+      ? 'border-2 border-amber-500'
+      : isHoverEdgeEndpoint
+        ? 'border-2 border-indigo-500'
+        : isChainHighlighted
+          ? 'border'
+          : isSelected
+            ? 'border-slate-900 ring-2 ring-slate-900'
+            : isMatch
+              ? 'border-amber-400 ring-2 ring-amber-300'
+              : 'border-slate-300';
 
   const textInputClass =
     'nodrag min-w-0 flex-1 rounded border border-slate-300 px-1 py-0.5 text-sm font-semibold text-slate-900';
@@ -292,14 +328,37 @@ function EmployeeNodeImpl({ data }: NodeProps<Node<EmployeeNodeData>>) {
       className={`relative w-[220px] rounded-lg border bg-white px-3 pb-6 pt-3 shadow-sm ${borderClass}`}
       style={{
         opacity: isDimmed ? 0.3 : 1,
-        ...(isDisplacementTarget
-          ? { boxShadow: '0 0 0 1px #f59e0b, 0 0 16px rgba(245, 158, 11, 0.5)' }
-          : isChainHighlighted
-            ? { borderColor: swatch, boxShadow: `0 0 0 1px ${swatch}, 0 0 16px ${withAlpha(swatch, 0.5)}` }
-            : {}),
+        ...(reconnectTarget.active
+          ? reconnectTarget.isValid
+            ? { boxShadow: '0 0 0 1px #10b981, 0 0 16px rgba(16, 185, 129, 0.5)' }
+            : { boxShadow: '0 0 0 1px #ef4444, 0 0 16px rgba(239, 68, 68, 0.5)' }
+          : isDisplacementTarget
+            ? { boxShadow: '0 0 0 1px #f59e0b, 0 0 16px rgba(245, 158, 11, 0.5)' }
+            : isHoverEdgeEndpoint
+              ? { boxShadow: '0 0 0 1px #6366f1, 0 0 16px rgba(99, 102, 241, 0.5)' }
+              : isChainHighlighted
+                ? { borderColor: swatch, boxShadow: `0 0 0 1px ${swatch}, 0 0 16px ${withAlpha(swatch, 0.5)}` }
+                : {}),
       }}
     >
-      <Handle type="target" position={Position.Top} className="!bg-slate-400" />
+      {/* One Handle per incoming relationship, spread evenly along the top
+          edge in the order useChartNodes.ts derived from each manager's own
+          laid-out x — lets a native reconnect (or a brand-new connect) drag
+          land on one specific relationship instead of every incoming edge
+          sharing a single point. Always at least one, even with zero
+          managers today: dragging a fresh link onto this card (a new
+          connection, not a reconnect — see OrgChartView.tsx's onConnect)
+          needs a real target handle to drop on. */}
+      {incomingHandleIds.map((id, i) => (
+        <Handle
+          key={id}
+          id={id}
+          type="target"
+          position={Position.Top}
+          style={{ left: `${((i + 1) / (incomingHandleIds.length + 1)) * 100}%` }}
+          className="!bg-slate-400"
+        />
+      ))}
 
       <button
         type="button"
@@ -532,7 +591,23 @@ function EmployeeNodeImpl({ data }: NodeProps<Node<EmployeeNodeData>>) {
         <div className="absolute bottom-1.5 right-2.5 text-[9px] font-medium text-slate-400">{badgeText}</div>
       )}
 
-      <Handle type="source" position={Position.Bottom} className="!bg-slate-400" />
+      {/* One Handle per outgoing relationship (primary or secondary — this
+          person as anyone's manager), spread along the bottom edge in the
+          order useChartNodes.ts derived from each report's own laid-out x.
+          Always at least one: a manager currently has to have SOME existing
+          bottom handle to be a valid drop target the first time someone is
+          reassigned to report to them, so useChartNodes.ts falls back to a
+          single synthetic id when directReportsOf is empty. */}
+      {outgoingHandleIds.map((id, i) => (
+        <Handle
+          key={id}
+          id={id}
+          type="source"
+          position={Position.Bottom}
+          style={{ left: `${((i + 1) / (outgoingHandleIds.length + 1)) * 100}%` }}
+          className="!bg-slate-400"
+        />
+      ))}
     </div>
   );
 }

@@ -178,6 +178,39 @@ export function useChartActions(currentOrgChartId: string | null, data: ChartDat
     [computeDropValidity, reassignManager],
   );
 
+  // Native reconnect (OrgChartView.tsx's onReconnect) only ever hands back
+  // the dragged edge's id and the new manager id — this resolves that id
+  // back to the actual relationship row and defers to the same
+  // handleReassignManager every path already uses, so there is exactly one
+  // place that validates + performs a reassignment.
+  const handleReconnect = useCallback(
+    (edgeId: string, newManagerId: string) => {
+      const relationship = relationships.find((r) => r.id === edgeId);
+      if (!relationship) return;
+      handleReassignManager(relationship, newManagerId);
+    },
+    [relationships, handleReassignManager],
+  );
+
+  // Native connect (OrgChartView.tsx's onConnect) — dragging a brand-new
+  // link between two cards ALREADY visible on the chart, a shortcut
+  // alongside (not instead of) the "+" popover's "Rattacher un existant…",
+  // which stays the only way to link an employee not yet on the graph at
+  // all. computeDropValidity is reused unchanged: "already a manager" also
+  // catches the case of dragging a duplicate of an existing link, and the
+  // cycle check applies identically to a new edge. Same primary/secondary
+  // rule as every other link-creation path (quickAddManager/openLinkManager
+  // above): the first manager an employee gets is primary, every one after
+  // is a secondary/dotted line.
+  const handleConnect = useCallback(
+    (managerId: string, employeeId: string) => {
+      if (computeDropValidity(employeeId, managerId) !== 'valid') return;
+      const hasPrimary = managersOf(employeeId).some((r) => r.is_primary);
+      addRelationship(employeeId, managerId, !hasPrimary);
+    },
+    [computeDropValidity, managersOf, addRelationship],
+  );
+
   const actions = useMemo<EmployeeNodeActions>(
     () => ({
       quickAddManager,
@@ -270,6 +303,8 @@ export function useChartActions(currentOrgChartId: string | null, data: ChartDat
     handleDeleteRelationship,
     computeDropValidity,
     handleReassignManager,
+    handleReconnect,
+    handleConnect,
 
     selectedEdgeId,
     setSelectedEdgeId,

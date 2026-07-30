@@ -147,6 +147,31 @@ export function OrgChartView() {
         }}
         onNodeMouseEnter={nodes.handleNodeMouseEnter}
         onNodeMouseLeave={nodes.handleNodeMouseLeave}
+        // Native drag-to-reconnect, replacing the old hand-rolled grip
+        // (ReportingEdge.tsx). Each edge sets its own `reconnectable:
+        // 'source'` (useChartNodes.ts), so only the manager end is ever
+        // draggable — target/target-handle stays the fixed employee end
+        // throughout. isValidConnection is what feeds both the actual
+        // drop-rejection and EmployeeNode.tsx's live green/red ring via
+        // useConnection().
+        onReconnect={(oldEdge, connection) => actions.handleReconnect(oldEdge.id, connection.source)}
+        onReconnectStart={nodes.handleReconnectStart}
+        onReconnectEnd={nodes.handleReconnectEnd}
+        // Native drag-to-connect: a shortcut for linking two employees
+        // ALREADY visible on the chart, alongside (not instead of) the "+"
+        // popover's "Rattacher un existant…", which stays the only way to
+        // link someone not yet on the graph at all. Direction is always
+        // top-down (drag from a manager candidate's own bottom/source
+        // handle to the employee's top/target handle) — connectionMode
+        // stays the default 'strict', so a connection can only ever start
+        // from a source handle, which keeps the resulting edge's
+        // source=manager/target=employee convention intact regardless of
+        // which card the user grabs first. Reuses the exact same
+        // isValidConnection/hover-suppression machinery as reconnect above.
+        onConnect={(connection) => actions.handleConnect(connection.source, connection.target)}
+        onConnectStart={nodes.handleReconnectStart}
+        onConnectEnd={nodes.handleReconnectEnd}
+        isValidConnection={(connection) => actions.computeDropValidity(connection.target, connection.source) === 'valid'}
       >
         {showOverlays && (
           <Panel position="top-right" className="flex flex-col items-end gap-1">
