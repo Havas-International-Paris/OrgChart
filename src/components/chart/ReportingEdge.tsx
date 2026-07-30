@@ -1,4 +1,4 @@
-import { BaseEdge, EdgeLabelRenderer, getBezierPath, getSmoothStepPath, type Edge, type EdgeProps } from '@xyflow/react';
+import { BaseEdge, getBezierPath, getSmoothStepPath, type Edge, type EdgeProps } from '@xyflow/react';
 
 // Corner rounding on primary (orthogonal) edges. 0 gives the sharp right angles
 // this started as; React Flow's own smoothstep default is 5. 8 reads as
@@ -11,33 +11,24 @@ export type DropValidity = 'valid' | 'invalid';
 // Extends Record<string, unknown> because @xyflow/react v12's Edge<T> now
 // requires its data generic to satisfy that shape.
 export interface ReportingEdgeData extends Record<string, unknown> {
-  onDelete: () => void;
   // Primary relationships route orthogonally (getSmoothStepPath); only
   // secondary/dotted ones keep the original bezier curve — see the path
   // computation below.
   isPrimary: boolean;
-  // Whether THIS edge is the one currently selected (click-to-select, not
-  // hover — see useChartActions.ts's selectedEdgeId). Only one edge is ever
-  // selected at a time, so there's no risk of two edges' controls
-  // rendering at once regardless of where they're positioned.
-  isSelected: boolean;
-  onSelect: () => void;
-  // Hover (not click) — see useChartNodes.ts's hoveredEdgeId. Distinct from
-  // isSelected: hovering never opens the delete button, it only drives the
-  // highlight below, so a user skimming across several stacked/overlapping
+  // Hover (not click) — see useChartNodes.ts's hoveredEdgeId. Drives the
+  // highlight below; a user skimming across several stacked/overlapping
   // links (a manager with many reports) can see at a glance which specific
   // manager/employee pair a given line connects, without clicking anything.
   onHoverChange: (hovering: boolean) => void;
 }
 
-// The delete button renders once this edge is clicked (isSelected), not on
-// hover: controls are revealed by clicking the link and stay visible until
-// it's deselected (clicking elsewhere, a different link, a node, or the same
-// link again). Reassigning the manager end used to be a second control here
-// (a hand-rolled "grip" drag) — that's now a native React Flow reconnect
-// drag on the edge's own rendered endpoint instead (see EmployeeNode.tsx's
-// per-relationship Handles and OrgChartView.tsx's onReconnect), so this
-// component only ever renders the delete affordance.
+// Deleting a relationship is now a right-click menu (OrgChartView.tsx's
+// onEdgeContextMenu + ContextMenu), not a click-to-select-then-click-the-
+// delete-button flow — this component no longer owns any click/selection
+// state at all, only the hover highlight and the path itself. Reassigning
+// the manager end is a native React Flow reconnect drag on the edge's own
+// rendered endpoint (see EmployeeNode.tsx's per-relationship Handles and
+// OrgChartView.tsx's onReconnect).
 export function ReportingEdge({
   id,
   sourceX,
@@ -51,11 +42,10 @@ export function ReportingEdge({
   data,
 }: EdgeProps<Edge<ReportingEdgeData>>) {
   const isPrimary = data!.isPrimary;
-  const isSelected = data!.isSelected;
   // Primary edges route orthogonally with softened corners; secondary/dotted
   // ones keep the bezier curve, deliberately, so the two kinds of reporting
   // line stay distinguishable at a glance rather than converging on one look.
-  const [path, labelX, labelY] = isPrimary
+  const [path] = isPrimary
     ? getSmoothStepPath({
         sourceX,
         sourceY,
@@ -80,45 +70,19 @@ export function ReportingEdge({
         shape, not just curvy/dashed ones, since both paths are 100%
         congruent regardless of curve. Moving ours after BaseEdge fixes
         this for good rather than depending on incidental geometry.
+        Right-click (context menu) is wired at the <ReactFlow> level via
+        onEdgeContextMenu, not here — it fires from this same hit-test path
+        via normal DOM bubbling, same as hover already does.
       */}
       <path
         d={path}
         fill="none"
         stroke="transparent"
         strokeWidth={20}
-        style={{ pointerEvents: 'stroke', cursor: 'pointer' }}
-        onClick={(e) => {
-          // Without this, the click also bubbles to the pane, whose own
-          // onClick immediately deselects everything (see onPaneClick in
-          // useChartNodes) — undoing the selection in the same tick.
-          e.stopPropagation();
-          data!.onSelect();
-        }}
+        style={{ pointerEvents: 'stroke', cursor: 'context-menu' }}
         onMouseEnter={() => data!.onHoverChange(true)}
         onMouseLeave={() => data!.onHoverChange(false)}
       />
-      {isSelected && (
-        <EdgeLabelRenderer>
-          <div
-            data-export-hide
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              position: 'absolute',
-              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
-              pointerEvents: 'all',
-            }}
-          >
-            <button
-              type="button"
-              onClick={() => data!.onDelete()}
-              title="Supprimer ce rattachement"
-              className="flex h-[18px] w-[18px] items-center justify-center rounded-full border border-slate-300 bg-white text-[11px] font-bold leading-none text-slate-500 shadow-sm hover:border-red-300 hover:bg-red-50 hover:text-red-500"
-            >
-              −
-            </button>
-          </div>
-        </EdgeLabelRenderer>
-      )}
     </>
   );
 }

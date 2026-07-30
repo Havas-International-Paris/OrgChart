@@ -4,18 +4,18 @@ import { NEUTRAL_DEPARTMENT_COLOR, withAlpha } from '../../lib/departmentColor';
 import { PhotoAvatar } from '../shared/PhotoAvatar';
 import type { Employee } from '../../types/domain';
 
+// Adding a manager/subordinate and deleting the employee moved out of this
+// bag entirely (2026-07-30, backlog item 34) — they're now the right-click
+// context menu's job (OrgChartView.tsx's NodeContextMenu), wired directly
+// off useChartActions.ts's own return rather than through this per-node
+// prop, since the card itself no longer renders any control for them.
 export interface EmployeeNodeActions {
-  quickAddManager: (employeeId: string) => void;
-  quickAddSubordinate: (employeeId: string) => void;
-  openLinkManager: (employeeId: string) => void;
-  openLinkSubordinate: (employeeId: string) => void;
   openAssignments: (employeeId: string) => void;
   updateEmployee: (
     id: string,
     changes: Partial<Pick<Employee, 'first_name' | 'last_name' | 'job_title' | 'department'>>,
   ) => Promise<Employee>;
   openPhotoEditor: (employeeId: string) => void;
-  deleteEmployee: (employeeId: string) => void;
 }
 
 // Extends Record<string, unknown> because @xyflow/react v12's Node<T> now
@@ -63,64 +63,6 @@ export interface EmployeeNodeData extends Record<string, unknown> {
   onToggleExpand: (employeeId: string) => void;
   onToggleFocus: (employeeId: string) => void;
   actions: EmployeeNodeActions;
-}
-
-function AddButton({
-  label,
-  corner,
-  onCreateNew,
-  onLinkExisting,
-}: {
-  label: string;
-  corner: 'top-right' | 'bottom-right';
-  onCreateNew: () => void;
-  onLinkExisting: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const isTop = corner === 'top-right';
-
-  return (
-    <div data-export-hide className={`nodrag absolute right-[-9px] ${isTop ? 'top-[-9px]' : 'bottom-[-9px]'}`}>
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          setOpen((o) => !o);
-        }}
-        title={label}
-        className="flex h-[18px] w-[18px] items-center justify-center rounded-full border border-dashed border-slate-300 bg-white text-[11px] font-bold leading-none text-slate-400 shadow-sm hover:bg-slate-50"
-      >
-        +
-      </button>
-      {open && (
-        <div
-          className={`absolute right-0 z-10 w-48 rounded-md border border-slate-200 bg-white py-1 shadow-lg ${
-            isTop ? 'top-6' : 'bottom-6'
-          }`}
-        >
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setOpen(false);
-              onCreateNew();
-            }}
-            className="block w-full px-3 py-1.5 text-left text-xs text-slate-700 hover:bg-slate-50"
-          >
-            + Nouvel employé
-          </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setOpen(false);
-              onLinkExisting();
-            }}
-            className="block w-full px-3 py-1.5 text-left text-xs text-slate-700 hover:bg-slate-50"
-          >
-            Rattacher un existant…
-          </button>
-        </div>
-      )}
-    </div>
-  );
 }
 
 function CollapseBadge({
@@ -272,6 +214,10 @@ function EmployeeNodeImpl({ data }: NodeProps<Node<EmployeeNodeData>>) {
 
   const swatch = departmentColor ?? NEUTRAL_DEPARTMENT_COLOR;
   const trackColor = withAlpha(swatch, 0.15);
+  // Deliberately its own, lighter alpha rather than reusing trackColor — a
+  // full-card background needs to read as more subtle than a small pill or
+  // gauge track filled with the same color would.
+  const selectedBackgroundColor = withAlpha(swatch, 0.1);
 
   // Live drop-candidate feedback for a native edge-reconnect drag (dragging
   // a relationship's manager end onto this card): replaces the old
@@ -329,6 +275,18 @@ function EmployeeNodeImpl({ data }: NodeProps<Node<EmployeeNodeData>>) {
       className={`relative w-[220px] rounded-lg border bg-white px-3 pb-6 pt-3 shadow-sm ${borderClass}`}
       style={{
         opacity: isDimmed ? 0.3 : 1,
+        // "Editable mode" is exactly isSelected, not the broader
+        // isChainHighlighted a hover/pin can also put an ancestor or
+        // descendant into — double-click-to-edit, the photo control, and
+        // the assignment gauges all specifically gate on isSelected (see
+        // startEdit above), so only the actual selected card should read
+        // as "you can edit this one," not everyone lit up by the chain
+        // highlight around it. A dedicated, lighter alpha of this card's own
+        // department color (selectedBackgroundColor, 10% — deliberately not
+        // trackColor's 15%, which is calibrated for a small pill/gauge track
+        // rather than a full card background), so "editable" reads as this
+        // card's own team color, softly, instead of introducing a new color.
+        ...(isSelected ? { backgroundColor: selectedBackgroundColor } : {}),
         ...(reconnectTarget.active
           ? reconnectTarget.isValid
             ? { boxShadow: '0 0 0 1px #10b981, 0 0 16px rgba(16, 185, 129, 0.5)' }
@@ -359,31 +317,6 @@ function EmployeeNodeImpl({ data }: NodeProps<Node<EmployeeNodeData>>) {
         />
       ))}
 
-      <button
-        type="button"
-        data-export-hide
-        onClick={(e) => {
-          e.stopPropagation();
-          actions.deleteEmployee(employee.id);
-        }}
-        title="Supprimer cet employé"
-        className="nodrag absolute left-[-9px] top-[-9px] flex h-[18px] w-[18px] items-center justify-center rounded-full border border-dashed border-slate-300 bg-white text-[11px] font-bold leading-none text-slate-400 shadow-sm hover:border-red-300 hover:bg-red-50 hover:text-red-500"
-      >
-        ✕
-      </button>
-
-      <AddButton
-        label="Ajouter un manager"
-        corner="top-right"
-        onCreateNew={() => actions.quickAddManager(employee.id)}
-        onLinkExisting={() => actions.openLinkManager(employee.id)}
-      />
-      <AddButton
-        label="Ajouter un subordonné"
-        corner="bottom-right"
-        onCreateNew={() => actions.quickAddSubordinate(employee.id)}
-        onLinkExisting={() => actions.openLinkSubordinate(employee.id)}
-      />
 
       {hasManager && (
         <CollapseBadge
@@ -416,6 +349,12 @@ function EmployeeNodeImpl({ data }: NodeProps<Node<EmployeeNodeData>>) {
           frame={{ zoom: employee.photo_zoom, panX: employee.photo_pan_x, panY: employee.photo_pan_y }}
           size={36}
           onOpen={actions.openPhotoEditor}
+          // Same "must already be selected" guard as the inline field editors
+          // and the assignment gauges — a click on an unselected card should
+          // just select it, not also pop the photo editor in the same
+          // gesture. The grid's own PhotoAvatar usage never passes this, so
+          // it keeps opening on a single click there, unaffected.
+          canOpen={isSelected}
         />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1 text-sm font-semibold text-slate-900">

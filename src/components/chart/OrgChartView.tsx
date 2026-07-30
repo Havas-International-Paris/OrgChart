@@ -7,6 +7,8 @@ import { LinkExistingEmployeeModal } from '../shared/LinkExistingEmployeeModal';
 import { PhotoEditorModal } from '../shared/PhotoEditorModal';
 import { EmployeeNode } from './EmployeeNode';
 import { ReportingEdge } from './ReportingEdge';
+import { NodeContextMenu } from './NodeContextMenu';
+import { ContextMenu } from './ContextMenu';
 import { DepartmentLegend } from './DepartmentLegend';
 import { EmployeeDetailPanel } from './EmployeeDetailPanel';
 import { exportChartAsPng } from './exportChartImage';
@@ -139,11 +141,26 @@ export function OrgChartView() {
         }}
         onNodeClick={(_, node) => {
           setSelectedEmployee(node.id);
-          actions.setSelectedEdgeId(null);
         }}
         onPaneClick={() => {
           setSelectedEmployee(null);
-          actions.setSelectedEdgeId(null);
+        }}
+        // Right-click menus (backlog item 34, extended to links same day) —
+        // preventDefault suppresses the browser's own native context menu.
+        // Positioned at the raw client coordinates; see ContextMenu.tsx for
+        // why they render outside <ReactFlow> rather than inside the node/edge.
+        onNodeContextMenu={(event, node) => {
+          event.preventDefault();
+          actions.openContextMenu(node.id, event.clientX, event.clientY);
+        }}
+        // Replaces the old click-to-select-then-click-the-'−'-button flow
+        // for deleting a relationship — hovering already highlights a link
+        // (useChartNodes.ts's hoveredEdgeId), so click-to-select no longer
+        // had any purpose once its one job, revealing the delete button,
+        // moved here.
+        onEdgeContextMenu={(event, edge) => {
+          event.preventDefault();
+          actions.openEdgeContextMenu(edge.id, event.clientX, event.clientY);
         }}
         onNodeMouseEnter={nodes.handleNodeMouseEnter}
         onNodeMouseLeave={nodes.handleNodeMouseLeave}
@@ -244,6 +261,43 @@ export function OrgChartView() {
           onClose={() => actions.setPhotoEditEmployeeId(null)}
         />
       )}
+      {actions.contextMenu &&
+        (() => {
+          const employee = data.employeeById.get(actions.contextMenu.employeeId);
+          if (!employee) return null;
+          const id = actions.contextMenu.employeeId;
+          return (
+            <NodeContextMenu
+              x={actions.contextMenu.x}
+              y={actions.contextMenu.y}
+              employeeName={`${employee.first_name} ${employee.last_name}`}
+              onAddManager={() => actions.quickAddManager(id)}
+              onLinkManager={() => actions.openLinkManager(id)}
+              onAddSubordinate={() => actions.quickAddSubordinate(id)}
+              onLinkSubordinate={() => actions.openLinkSubordinate(id)}
+              onDelete={() => actions.handleDeleteEmployee(id)}
+              onClose={actions.closeContextMenu}
+            />
+          );
+        })()}
+      {actions.edgeContextMenu &&
+        (() => {
+          const { edgeId, x, y } = actions.edgeContextMenu;
+          return (
+            <ContextMenu
+              x={x}
+              y={y}
+              entries={[
+                {
+                  label: 'Supprimer ce rattachement',
+                  danger: true,
+                  onSelect: () => actions.handleDeleteRelationshipById(edgeId),
+                },
+              ]}
+              onClose={actions.closeEdgeContextMenu}
+            />
+          );
+        })()}
     </div>
   );
 }

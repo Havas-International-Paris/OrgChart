@@ -12,6 +12,13 @@ interface PhotoAvatarProps {
   frame: PhotoFrameValues;
   size?: number;
   onOpen: (employeeId: string) => void;
+  // When explicitly false, a click here does nothing and — critically —
+  // does NOT stopPropagation, so it bubbles up instead of opening the
+  // editor. Lets a caller require the card be "armed" (already selected)
+  // first, the same guard the chart's inline field editors and assignment
+  // gauges use. Omitted entirely by the grid's own usage, which has no such
+  // concept and must keep opening on a single click.
+  canOpen?: boolean;
 }
 
 function initialsOf(firstName: string, lastName: string) {
@@ -21,7 +28,17 @@ function initialsOf(firstName: string, lastName: string) {
 // Purely presentational + one stable callback: a single click opens
 // PhotoEditorModal (owned by the parent — grid or chart), which handles
 // browsing, drag-and-drop, paste, reframing, and deletion all in one place.
-export function PhotoAvatar({ employeeId, firstName, lastName, color, photoPath, frame, size = 36, onOpen }: PhotoAvatarProps) {
+export function PhotoAvatar({
+  employeeId,
+  firstName,
+  lastName,
+  color,
+  photoPath,
+  frame,
+  size = 36,
+  onOpen,
+  canOpen,
+}: PhotoAvatarProps) {
   const [hovering, setHovering] = useState(false);
 
   return (
@@ -31,6 +48,7 @@ export function PhotoAvatar({ employeeId, firstName, lastName, color, photoPath,
       onMouseEnter={() => setHovering(true)}
       onMouseLeave={() => setHovering(false)}
       onClick={(e) => {
+        if (canOpen === false) return;
         e.stopPropagation();
         onOpen(employeeId);
       }}

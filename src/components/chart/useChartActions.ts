@@ -45,10 +45,6 @@ export function useChartActions(currentOrgChartId: string | null, data: ChartDat
 
   const [linkModal, setLinkModal] = useState<LinkModalState | null>(null);
   const [photoEditEmployeeId, setPhotoEditEmployeeId] = useState<string | null>(null);
-  // Which reporting-relationship edge (if any) has its delete/grip controls
-  // open — click-to-select, not hover, so it persists until deselected (a
-  // different link, a node, the pane, or clicking the same link again).
-  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
 
   const { replacePhoto, saveFrame, deletePhoto } = usePhotoActions(
     employees,
@@ -150,9 +146,21 @@ export function useChartActions(currentOrgChartId: string | null, data: ChartDat
   const handleDeleteRelationship = useCallback(
     (relationship: ReportingRelationship) => {
       removeRelationship(relationship);
-      setSelectedEdgeId(null);
     },
     [removeRelationship],
+  );
+
+  // The link's own right-click menu (below) only ever hands back the
+  // clicked edge's id, same as handleReconnect above — resolve it back to
+  // the relationship row and defer to handleDeleteRelationship rather than
+  // duplicating the lookup at the call site.
+  const handleDeleteRelationshipById = useCallback(
+    (edgeId: string) => {
+      const relationship = relationships.find((r) => r.id === edgeId);
+      if (!relationship) return;
+      handleDeleteRelationship(relationship);
+    },
+    [relationships, handleDeleteRelationship],
   );
 
   // Shared by the live drag-hover feedback and the drop itself, so a drop
@@ -173,7 +181,6 @@ export function useChartActions(currentOrgChartId: string | null, data: ChartDat
     (relationship: ReportingRelationship, newManagerId: string) => {
       if (computeDropValidity(relationship.employee_id, newManagerId) !== 'valid') return;
       reassignManager(relationship, newManagerId);
-      setSelectedEdgeId(null);
     },
     [computeDropValidity, reassignManager],
   );
@@ -211,27 +218,46 @@ export function useChartActions(currentOrgChartId: string | null, data: ChartDat
     [computeDropValidity, managersOf, addRelationship],
   );
 
+  // quickAddManager/quickAddSubordinate/openLinkManager/openLinkSubordinate/
+  // handleDeleteEmployee deliberately are NOT in this bag (backlog item 34)
+  // — the card itself no longer renders any control for them, only the
+  // right-click context menu does, which reads them straight off this
+  // hook's own return below instead of through per-node data.
   const actions = useMemo<EmployeeNodeActions>(
     () => ({
-      quickAddManager,
-      quickAddSubordinate,
-      openLinkManager,
-      openLinkSubordinate,
       openAssignments: setAssignmentsEmployeeId,
       updateEmployee,
       openPhotoEditor: setPhotoEditEmployeeId,
-      deleteEmployee: handleDeleteEmployee,
     }),
-    [
-      quickAddManager,
-      quickAddSubordinate,
-      openLinkManager,
-      openLinkSubordinate,
-      setAssignmentsEmployeeId,
-      updateEmployee,
-      handleDeleteEmployee,
-    ],
+    [setAssignmentsEmployeeId, updateEmployee, setPhotoEditEmployeeId],
   );
+
+  // The card's own right-click context menu (backlog item 34) — absorbs
+  // what used to be the ✕ delete button and the two "+" add-manager/
+  // add-subordinate popovers. Deliberately does NOT absorb the collapse/
+  // focus badges or the photo control: those carry a visible, permanent
+  // state (a "+3" badge showing a hidden team, say) and are meant to stay
+  // one direct click away, not two clicks behind a menu.
+  const [contextMenu, setContextMenu] = useState<{ employeeId: string; x: number; y: number } | null>(null);
+  const openContextMenu = useCallback(
+    (employeeId: string, x: number, y: number) => setContextMenu({ employeeId, x, y }),
+    [],
+  );
+  const closeContextMenu = useCallback(() => setContextMenu(null), []);
+
+  // A link's own right-click menu — replaces the old click-to-select-then-
+  // click-the-'−'-button flow entirely (2026-07-30, same session as the
+  // card menu above, same reasoning: a single right-click menu instead of a
+  // two-step reveal). Hovering a link already highlights it (see
+  // useChartNodes.ts's hoveredEdgeId), so click-to-select no longer served
+  // any purpose once its one remaining job — showing the delete button —
+  // moved here.
+  const [edgeContextMenu, setEdgeContextMenu] = useState<{ edgeId: string; x: number; y: number } | null>(null);
+  const openEdgeContextMenu = useCallback(
+    (edgeId: string, x: number, y: number) => setEdgeContextMenu({ edgeId, x, y }),
+    [],
+  );
+  const closeEdgeContextMenu = useCallback(() => setEdgeContextMenu(null), []);
 
   const linkModalProps = useMemo(() => {
     if (!linkModal) return null;
@@ -301,13 +327,27 @@ export function useChartActions(currentOrgChartId: string | null, data: ChartDat
   return {
     actions,
     handleDeleteRelationship,
+    handleDeleteRelationshipById,
     computeDropValidity,
     handleReassignManager,
     handleReconnect,
     handleConnect,
 
-    selectedEdgeId,
-    setSelectedEdgeId,
+    // Context-menu-only actions — see the EmployeeNodeActions comment above
+    // for why these left that bag.
+    quickAddManager,
+    quickAddSubordinate,
+    openLinkManager,
+    openLinkSubordinate,
+    handleDeleteEmployee,
+
+    contextMenu,
+    openContextMenu,
+    closeContextMenu,
+
+    edgeContextMenu,
+    openEdgeContextMenu,
+    closeEdgeContextMenu,
 
     linkModal,
     setLinkModal,

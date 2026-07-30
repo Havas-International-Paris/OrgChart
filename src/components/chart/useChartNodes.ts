@@ -59,12 +59,7 @@ export function useChartNodes({ data, visibility, actions, deptFilter }: ChartNo
     expandedNodeIds,
     focusedNodeIds,
   } = visibility;
-  const {
-    actions: nodeActions,
-    handleDeleteRelationship,
-    selectedEdgeId,
-    setSelectedEdgeId,
-  } = actions;
+  const { actions: nodeActions } = actions;
 
   const selectedEmployeeId = useSelectionStore((s) => s.selectedEmployeeId);
   const toggleExpanded = useSelectionStore((s) => s.toggleExpanded);
@@ -363,18 +358,18 @@ export function useChartNodes({ data, visibility, actions, deptFilter }: ChartNo
     // An edge is part of the highlighted chain if it touches the active
     // person directly (covers incoming-dotted reporters, whose edge
     // wouldn't otherwise qualify — see useReportingChain), or if both its
-    // ends sit inside the ancestor/descendant chain. The edge currently
-    // selected for editing (delete/drag controls open) or currently hovered
-    // is always highlighted too, regardless of any pin chain — the user
-    // needs to see at a glance which relationship they're about to change,
-    // especially with several links overlapping (a manager with many
-    // reports) where only the highlighted one's color/width picks it out.
+    // ends sit inside the ancestor/descendant chain. The currently-hovered
+    // edge is always highlighted too, regardless of any pin chain — the
+    // user needs to see at a glance which relationship a right-click would
+    // act on, especially with several links overlapping (a manager with
+    // many reports) where only the highlighted one's color/width picks it
+    // out.
     const edgeHighlight = (
       managerId: string,
       employeeId: string,
       relationshipId: string,
     ): 'highlighted' | 'dimmed' | 'normal' => {
-      if (relationshipId === selectedEdgeId || relationshipId === hoveredEdgeId) return 'highlighted';
+      if (relationshipId === hoveredEdgeId) return 'highlighted';
       if (!activeEmployeeId) return 'normal';
       if (activeEmployeeId === managerId || activeEmployeeId === employeeId) return 'highlighted';
       if (chainIds.has(managerId) && chainIds.has(employeeId)) return 'highlighted';
@@ -392,10 +387,7 @@ export function useChartNodes({ data, visibility, actions, deptFilter }: ChartNo
     };
 
     const edgeData = (relationship: ReportingRelationship): ReportingEdgeData => ({
-      onDelete: () => handleDeleteRelationship(relationship),
       isPrimary: relationship.is_primary,
-      isSelected: relationship.id === selectedEdgeId,
-      onSelect: () => setSelectedEdgeId((cur) => (cur === relationship.id ? null : relationship.id)),
       onHoverChange: (hovering) => handleEdgeHoverChange(relationship.id, hovering),
     });
 
@@ -472,9 +464,6 @@ export function useChartNodes({ data, visibility, actions, deptFilter }: ChartNo
     jobTitleNames,
     departmentNames,
     departmentColorByName,
-    handleDeleteRelationship,
-    selectedEdgeId,
-    setSelectedEdgeId,
     hoveredEdgeId,
     hoveredRelationship,
     handleEdgeHoverChange,
