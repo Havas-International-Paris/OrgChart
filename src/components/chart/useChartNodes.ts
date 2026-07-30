@@ -3,7 +3,7 @@ import { applyNodeChanges, type Edge, type Node, type NodeChange } from '@xyflow
 import type { ReportingRelationship } from '../../types/domain';
 import { useSelectionStore } from '../../stores/selectionStore';
 import { NEUTRAL_DEPARTMENT_COLOR } from '../../lib/departmentColor';
-import { layoutWithDagre } from './layoutEngine';
+import { layoutWithElk } from './layoutEngine';
 import { ROOT_GROUP_KEY } from './siblingOrder';
 import { computeReorder, findDisplacementTargets, type ChartGeometry } from './siblingReorderGeometry';
 import { useReportingChain } from './useReportingChain';
@@ -110,20 +110,32 @@ export function useChartNodes({ data, visibility, actions, deptFilter }: ChartNo
   const activeEmployeeId = hoverEmployeeId ?? selectedEmployeeId;
   const { relatedIds, chainIds } = useReportingChain(activeEmployeeId, relationships, childrenOf);
 
-  // Dagre lays out the *entire* org chart, every employee, regardless of
+  // elk lays out the *entire* org chart, every employee, regardless of
   // what's currently expanded/collapsed/focused — never just the visible
   // subset. Collapsing a team, isolating someone via focus mode, or
-  // hovering (dimming) must never shift anyone's position on screen; dagre
+  // hovering (dimming) must never shift anyone's position on screen; elk
   // isn't a stable/incremental layout, so re-running it on a smaller or
   // larger node set reflows *everyone*, not just the nodes that
   // appeared/disappeared. Laying out the full tree once and then simply
   // filtering which nodes/edges get rendered (below) keeps every visible
   // card's position fixed no matter how the visible subset changes. This
-  // also means dagre only re-runs when employees or primary reporting
-  // edges actually change — not on hover, selection, search, the dept
-  // filter, or any visibility toggle — which is what stops rapid hovering
-  // from stuttering. KEEP THIS MEMO FREE of visibility/styling deps.
-  const layoutedNodeById = useMemo(() => {
+  // also means elk only re-runs when employees or primary reporting edges
+  // actually change — not on hover, selection, search, the dept filter, or
+  // any visibility toggle — which is what stops rapid hovering from
+  // stuttering. KEEP THIS EFFECT FREE of visibility/styling deps.
+  //
+  // Unlike dagre, elk.layout() is async — this is state populated by an
+  // effect rather than a plain useMemo. layoutRequestIdRef discards a stale
+  // response if employees/primaryEdges change again before an in-flight
+  // layout call resolves. Everything downstream (computedNodes, below, and
+  // useChartViewport's fitView gate) already tolerates layoutedNodeById
+  // being empty or momentarily missing a brand-new node — see
+  // layoutEngine.ts's migration notes.
+  const [layoutedNodeById, setLayoutedNodeById] = useState<Map<string, Node>>(new Map());
+  const layoutRequestIdRef = useRef(0);
+
+  useEffect(() => {
+    const requestId = ++layoutRequestIdRef.current;
     const rawNodes: Node[] = employees.map((employee) => ({
       id: employee.id,
       type: 'employee',
@@ -133,8 +145,10 @@ export function useChartNodes({ data, visibility, actions, deptFilter }: ChartNo
       data: {},
     }));
     const primaryEdgeAll = primaryEdges.map((r) => ({ id: r.id, source: r.manager_id, target: r.employee_id }));
-    const laidOut = layoutWithDagre(rawNodes, primaryEdgeAll, (id) => employeeById.get(id)?.sibling_order ?? null);
-    return new Map(laidOut.map((n) => [n.id, n]));
+    layoutWithElk(rawNodes, primaryEdgeAll, (id) => employeeById.get(id)?.sibling_order ?? null).then((laidOut) => {
+      if (layoutRequestIdRef.current !== requestId) return;
+      setLayoutedNodeById(new Map(laidOut.map((n) => [n.id, n])));
+    });
   }, [employees, primaryEdges, employeeById]);
 
   // The chart's current geometry, as the plain lookups siblingReorderGeometry.ts
