@@ -260,3 +260,50 @@ describe('resolveOverlaps', () => {
     expect(positions.get('b')!.x).toBeCloseTo(20);
   });
 });
+
+// Real user report (2026-07-30): a manager's card sat above its LEFTMOST
+// child instead of centred over the whole team — unlike dagre, elk's own
+// node-placement strategies don't guarantee a parent centres over its
+// children. layoutWithElk now runs an unconditional centring pass (not
+// gated on sibling reordering) fixing this on every layout, tested here
+// through the public API since the whole point is to catch elk's own raw
+// (unordered) output being off-centre, not just a reordered one.
+describe('layoutWithElk parent centring', () => {
+  it('centres a manager over the midpoint of several children', async () => {
+    const { nodes, edges } = build(
+      ['m', 'c1', 'c2', 'c3', 'c4'],
+      [['m', 'c1'], ['m', 'c2'], ['m', 'c3'], ['m', 'c4']],
+    );
+    const pos = byId(await layoutWithElk(nodes, edges));
+    const childXs = ['c1', 'c2', 'c3', 'c4'].map((id) => pos.get(id)!.x);
+    const expectedCenter = (Math.min(...childXs) + Math.max(...childXs)) / 2;
+    expect(pos.get('m')!.x).toBeCloseTo(expectedCenter);
+  });
+
+  it('still centres correctly when children have very different subtree widths', async () => {
+    const { nodes, edges } = build(
+      ['m', 'wide', 'solo', 'w1', 'w2', 'w3'],
+      [['m', 'wide'], ['m', 'solo'], ['wide', 'w1'], ['wide', 'w2'], ['wide', 'w3']],
+    );
+    const pos = byId(await layoutWithElk(nodes, edges));
+    const childXs = ['wide', 'solo'].map((id) => pos.get(id)!.x);
+    const expectedCenter = (Math.min(...childXs) + Math.max(...childXs)) / 2;
+    expect(pos.get('m')!.x).toBeCloseTo(expectedCenter);
+  });
+
+  it('centres every level of a multi-generation tree, deepest first', async () => {
+    const { nodes, edges } = build(
+      ['root', 'm1', 'm2', 'a', 'b', 'c', 'd'],
+      [['root', 'm1'], ['root', 'm2'], ['m1', 'a'], ['m1', 'b'], ['m2', 'c'], ['m2', 'd']],
+    );
+    const pos = byId(await layoutWithElk(nodes, edges));
+
+    const m1Center = (pos.get('a')!.x + pos.get('b')!.x) / 2;
+    const m2Center = (pos.get('c')!.x + pos.get('d')!.x) / 2;
+    expect(pos.get('m1')!.x).toBeCloseTo(m1Center);
+    expect(pos.get('m2')!.x).toBeCloseTo(m2Center);
+
+    const rootCenter = (pos.get('m1')!.x + pos.get('m2')!.x) / 2;
+    expect(pos.get('root')!.x).toBeCloseTo(rootCenter);
+  });
+});

@@ -36,10 +36,11 @@ export interface EmployeeNodeData extends Record<string, unknown> {
   // move" vs. "this is in the hovered/selected reporting chain").
   isDisplacementTarget: boolean;
   // This card is one of the two endpoints (manager or employee) of the
-  // currently-HOVERED link — see useChartNodes.ts's hoveredEdgeId. Narrower
-  // than isChainHighlighted on purpose: the point is to pick out one
-  // specific relationship among several that can visually overlap (a
-  // manager with many reports), not the whole ancestor/descendant chain.
+  // currently-HOVERED link — see useChartNodes.ts's hoveredEdgeId. WHICH
+  // cards get this flag is narrower than isChainHighlighted on purpose (the
+  // two specific endpoints, not the whole ancestor/descendant chain — see
+  // useChartNodes.ts), but the visual treatment is deliberately identical
+  // to isChainHighlighted (below), not a distinct color.
   isHoverEdgeEndpoint: boolean;
   // Ordered relationship ids, one Handle rendered per entry — see
   // useChartNodes.ts for how the order (by each neighbor's laid-out x) and
@@ -289,31 +290,31 @@ function EmployeeNodeImpl({ data }: NodeProps<Node<EmployeeNodeData>>) {
   // ever applies while a drag is in progress, at which point hover-driven
   // chain highlighting is deliberately suppressed (see useChartNodes.ts's
   // isDraggingRef), so there's no real competing signal to lose.
-  // Hover-edge-endpoint (indigo, this card is one of the two ends of a
-  // currently-hovered LINK) ranks next — a deliberate, specific "which link
-  // is this" signal, so it should read clearly even over an unrelated
-  // pinned selection elsewhere on the chart. Chain-highlight (colored
-  // border + glow, in the card's OWN department color) takes precedence
-  // over the older isSelected/isMatch styling otherwise — activeEmployeeId
-  // already falls back to selectedEmployeeId and relatedIds always includes
-  // the active id itself, so the pinned card always satisfies
-  // isChainHighlighted whenever a chain is active; this cleanly replaces
-  // its old black ring too, matching the reference.
+  // isHoverEdgeEndpoint (this card is one of the two ends of a
+  // currently-hovered LINK) deliberately renders with the EXACT SAME
+  // treatment as isChainHighlighted below — colored border + glow, in the
+  // card's OWN department color — rather than its own distinct color, so
+  // hovering a link reads as "the same kind of highlight" a user already
+  // knows from hovering/selecting a card, not a fourth unrelated color to
+  // learn. Chain-highlight otherwise takes precedence over the older
+  // isSelected/isMatch styling — activeEmployeeId already falls back to
+  // selectedEmployeeId and relatedIds always includes the active id itself,
+  // so the pinned card always satisfies isChainHighlighted whenever a chain
+  // is active; this cleanly replaces its old black ring too, matching the
+  // reference.
   const borderClass = reconnectTarget.active
     ? reconnectTarget.isValid
       ? 'border-2 border-emerald-500'
       : 'border-2 border-red-500'
     : isDisplacementTarget
       ? 'border-2 border-amber-500'
-      : isHoverEdgeEndpoint
-        ? 'border-2 border-indigo-500'
-        : isChainHighlighted
-          ? 'border'
-          : isSelected
-            ? 'border-slate-900 ring-2 ring-slate-900'
-            : isMatch
-              ? 'border-amber-400 ring-2 ring-amber-300'
-              : 'border-slate-300';
+      : isChainHighlighted || isHoverEdgeEndpoint
+        ? 'border'
+        : isSelected
+          ? 'border-slate-900 ring-2 ring-slate-900'
+          : isMatch
+            ? 'border-amber-400 ring-2 ring-amber-300'
+            : 'border-slate-300';
 
   const textInputClass =
     'nodrag min-w-0 flex-1 rounded border border-slate-300 px-1 py-0.5 text-sm font-semibold text-slate-900';
@@ -334,11 +335,9 @@ function EmployeeNodeImpl({ data }: NodeProps<Node<EmployeeNodeData>>) {
             : { boxShadow: '0 0 0 1px #ef4444, 0 0 16px rgba(239, 68, 68, 0.5)' }
           : isDisplacementTarget
             ? { boxShadow: '0 0 0 1px #f59e0b, 0 0 16px rgba(245, 158, 11, 0.5)' }
-            : isHoverEdgeEndpoint
-              ? { boxShadow: '0 0 0 1px #6366f1, 0 0 16px rgba(99, 102, 241, 0.5)' }
-              : isChainHighlighted
-                ? { borderColor: swatch, boxShadow: `0 0 0 1px ${swatch}, 0 0 16px ${withAlpha(swatch, 0.5)}` }
-                : {}),
+            : isChainHighlighted || isHoverEdgeEndpoint
+              ? { borderColor: swatch, boxShadow: `0 0 0 1px ${swatch}, 0 0 16px ${withAlpha(swatch, 0.5)}` }
+              : {}),
       }}
     >
       {/* One Handle per incoming relationship, spread evenly along the top

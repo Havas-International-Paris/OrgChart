@@ -70,6 +70,7 @@ export async function layoutWithElk<T extends Node>(
   );
 
   if (siblingOrderOf) applySiblingOrder(centerById, nodes, edges, siblingOrderOf);
+  centerParentsOverChildren(centerById, nodes, edges);
   resolveOverlaps(centerById, nodes, edges);
 
   return nodes.map((n) => {
@@ -196,6 +197,80 @@ function applySiblingOrder(
         for (const sid of subtreeIdsOf.get(id)!) positions.get(sid)!.x += delta;
       }
       cursor += width + SIBLING_GAP;
+    }
+  }
+}
+
+// dagre always centred a parent over its own direct children — never
+// documented as a guarantee anywhere in this codebase because it never had
+// to be, until the elk migration exposed that elk's node-placement strategies
+// don't do this (confirmed live: a manager's card can land above one edge of
+// its team's span rather than the middle — reported by the user with a
+// 4-child manager sitting directly above its leftmost child instead of
+// centred). Runs unconditionally, not just when applySiblingOrder touched
+// anything, since the misplacement happens on elk's own untouched output too.
+//
+// Processed rank-by-rank, DEEPEST first (largest y down to smallest), and —
+// this is the part that took a real test failure to get right — centring
+// AND local overlap-resolution are interleaved WITHIN each rank's own turn,
+// not run as two separate global passes. A first version centred every rank
+// top-to-bottom (correct dependency order on its own) and then called the
+// whole-graph resolveOverlaps once at the end: that pushed a card that had
+// just been centred over (e.g.) 'wide' further away to avoid a genuine
+// collision with 'solo', but nothing then re-centred 'wide' and 'solo''s own
+// PARENT over their new, post-push positions — the parent stayed centred
+// over where its children used to be. Recentring and resolving a rank's own
+// internal overlaps immediately, before moving up to that rank's parent's
+// turn, guarantees every rank a shallower one reads from is already truly
+// final. `resolveOverlaps` (below) still runs once more after this, as a
+// safety net for the one thing rank-local resolution can't see: a shifted
+// subtree's descendants (moved by the same delta as their parent, so never
+// misaligned from IT) landing on top of an unrelated cousin subtree several
+// ranks down, which only a whole-graph pass can catch.
+//
+// Deliberately centres on the midpoint of children's own card positions
+// (min+max)/2, not a width-weighted average — matches how a person visually
+// judges "is this card centred over its team," and how dagre itself centred
+// a parent, regardless of how much horizontal room any one child's own
+// subtree occupies underneath it.
+function centerParentsOverChildren(positions: Map<string, Position>, nodes: Node[], edges: Edge[]): void {
+  const childrenOf = new Map<string, string[]>();
+  for (const e of edges) {
+    const kids = childrenOf.get(e.source) ?? [];
+    kids.push(e.target);
+    childrenOf.set(e.source, kids);
+  }
+
+  function shiftSubtree(id: string, delta: number) {
+    positions.get(id)!.x += delta;
+    for (const childId of childrenOf.get(id) ?? []) shiftSubtree(childId, delta);
+  }
+
+  const idsByRank = new Map<number, string[]>();
+  for (const n of nodes) {
+    const y = Math.round(positions.get(n.id)!.y);
+    const members = idsByRank.get(y) ?? [];
+    members.push(n.id);
+    idsByRank.set(y, members);
+  }
+
+  const ranksDeepestFirst = [...idsByRank.keys()].sort((a, b) => b - a);
+  for (const y of ranksDeepestFirst) {
+    const ids = idsByRank.get(y)!;
+
+    for (const id of ids) {
+      const kids = childrenOf.get(id);
+      if (!kids || kids.length === 0) continue;
+      const xs = kids.map((kid) => positions.get(kid)!.x);
+      positions.get(id)!.x = (Math.min(...xs) + Math.max(...xs)) / 2;
+    }
+
+    const sorted = [...ids].sort((a, b) => positions.get(a)!.x - positions.get(b)!.x);
+    for (let i = 1; i < sorted.length; i += 1) {
+      const prevRight = positions.get(sorted[i - 1])!.x + NODE_WIDTH / 2;
+      const currLeft = positions.get(sorted[i])!.x - NODE_WIDTH / 2;
+      const shortfall = SIBLING_GAP - (currLeft - prevRight);
+      if (shortfall > 0) shiftSubtree(sorted[i], shortfall);
     }
   }
 }
