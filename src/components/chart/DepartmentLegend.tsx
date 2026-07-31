@@ -16,7 +16,10 @@ export function DepartmentLegend({ departments, colorByName, counts, selectedNam
   if (departments.length === 0) return null;
 
   return (
-    <div className="absolute bottom-2 left-2 z-10 flex max-w-[calc(100%-1rem)] flex-wrap gap-1.5 rounded-md border border-slate-200 bg-white/90 p-2 shadow-sm backdrop-blur-sm">
+    // left-14 (56px) clears React Flow's own bottom-left <Controls> panel
+    // (15px margin + 26px button width = 41px), which otherwise sits right
+    // underneath this at the same corner.
+    <div className="absolute bottom-2 left-14 z-10 flex max-w-[calc(100%-4rem)] flex-wrap gap-1.5 rounded-md border border-slate-200 bg-white/90 p-2 shadow-sm backdrop-blur-sm">
       {departments.map((d) => {
         const color = colorByName.get(d.name) ?? '#94a3b8';
         const isSelected = selectedNames.has(d.name);

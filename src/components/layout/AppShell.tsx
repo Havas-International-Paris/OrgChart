@@ -109,6 +109,10 @@ function AuthenticatedApp({ signOut }: { signOut: () => void }) {
   const splitContainerRef = useRef<HTMLDivElement>(null);
 
   function handleDividerPointerDown(e: ReactPointerEvent<HTMLDivElement>) {
+    // Without this, the mousedown-then-drag that starts a resize is
+    // indistinguishable from a text-selection drag to the browser — the
+    // grid's own text ends up selected as the cursor sweeps across it.
+    e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
   }
 
