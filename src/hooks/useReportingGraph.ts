@@ -1,4 +1,5 @@
 import { useCallback, useRef, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { supabase } from '../lib/supabaseClient';
 import * as reportingService from '../services/reportingService';
 import type { ReportingRelationship } from '../types/domain';
@@ -35,6 +36,7 @@ export interface DesiredManager {
 }
 
 export function useReportingGraph(orgChartId: string | null) {
+  const { t } = useTranslation();
   const [relationships, setRelationships] = useState<ReportingRelationship[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -148,7 +150,7 @@ export function useReportingGraph(orgChartId: string | null) {
       // RESTORE rows rather than create replacements.
       if (orgChartId) {
         useHistoryStore.getState().push({
-          label: 'Modifier les managers',
+          label: t('history.updateManagers'),
           orgChartId,
           undo: async () => {
             await Promise.all(toDelete.map((r) => reportingService.restoreRelationship(r)));
@@ -174,7 +176,7 @@ export function useReportingGraph(orgChartId: string | null) {
         });
       }
     },
-    [relationships, refresh, orgChartId],
+    [relationships, refresh, orgChartId, t],
   );
 
   // Thin wrapper over the existing service call, used only by removeRelationship's
@@ -204,7 +206,7 @@ export function useReportingGraph(orgChartId: string | null) {
       const created = await reportingService.createRelationship(orgChartId, employeeId, managerId, isPrimary);
       await refresh();
       useHistoryStore.getState().push({
-        label: 'Ajouter un lien hiérarchique',
+        label: t('history.addReportingLink'),
         orgChartId,
         undo: async () => {
           await reportingService.deleteRelationship(created.id);
@@ -217,7 +219,7 @@ export function useReportingGraph(orgChartId: string | null) {
       });
       return created;
     },
-    [refresh, orgChartId],
+    [refresh, orgChartId, t],
   );
 
   const removeRelationship = useCallback(
@@ -239,7 +241,7 @@ export function useReportingGraph(orgChartId: string | null) {
       await refresh();
       if (orgChartId) {
         useHistoryStore.getState().push({
-          label: 'Supprimer un lien hiérarchique',
+          label: t('history.deleteReportingLink'),
           orgChartId,
           undo: async () => {
             if (promoted) await setRelationshipPrimary(promoted.id, false);
@@ -254,7 +256,7 @@ export function useReportingGraph(orgChartId: string | null) {
         });
       }
     },
-    [relationships, refresh, orgChartId, setRelationshipPrimary],
+    [relationships, refresh, orgChartId, setRelationshipPrimary, t],
   );
 
   const reassignManager = useCallback(
@@ -264,14 +266,14 @@ export function useReportingGraph(orgChartId: string | null) {
       await refresh();
       if (orgChartId) {
         useHistoryStore.getState().push({
-          label: 'Réaffecter un manager',
+          label: t('history.reassignManager'),
           orgChartId,
           undo: async () => { await reassignManager(relationship, oldManagerId); },
           redo: async () => { await reassignManager(relationship, newManagerId); },
         });
       }
     },
-    [refresh, orgChartId],
+    [refresh, orgChartId, t],
   );
 
   // Memoized like every other value this hook returns — an unmemoized

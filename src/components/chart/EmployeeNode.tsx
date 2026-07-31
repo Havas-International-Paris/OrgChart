@@ -1,4 +1,5 @@
 import { memo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Handle, Position, useConnection, type Node, type NodeProps } from '@xyflow/react';
 import { NEUTRAL_DEPARTMENT_COLOR, withAlpha } from '../../lib/departmentColor';
 import { PhotoAvatar } from '../shared/PhotoAvatar';
@@ -151,6 +152,7 @@ function AdvertisersRow({ names }: { names: string[] }) {
 type EditableField = 'first_name' | 'last_name' | 'job_title' | 'department';
 
 function EmployeeNodeImpl({ data }: NodeProps<Node<EmployeeNodeData>>) {
+  const { t } = useTranslation();
   const {
     employee,
     hasChildren,
@@ -267,8 +269,8 @@ function EmployeeNodeImpl({ data }: NodeProps<Node<EmployeeNodeData>>) {
   const showBadge = directReportsCount > 0 || functionalManagerCount > 0;
   const badgeText =
     directReportsCount > 0
-      ? `${totalDescendantCount} au total · ${directReportsCount} direct${directReportsCount > 1 ? 's' : ''}`
-      : `+${functionalManagerCount} fonc.`;
+      ? t('chart.node.totalAndDirect', { total: totalDescendantCount, count: directReportsCount })
+      : t('chart.node.functionalCount', { count: functionalManagerCount });
 
   return (
     <div
@@ -325,7 +327,7 @@ function EmployeeNodeImpl({ data }: NodeProps<Node<EmployeeNodeData>>) {
           swatch={swatch}
           trackColor={trackColor}
           onToggle={() => onToggleFocus(employee.id)}
-          title={isFocused ? 'Afficher tout le monde' : 'Isoler cette personne et son équipe'}
+          title={isFocused ? t('chart.node.showEveryone') : t('chart.node.isolateTeam')}
         />
       )}
       {hasChildren && (
@@ -335,7 +337,7 @@ function EmployeeNodeImpl({ data }: NodeProps<Node<EmployeeNodeData>>) {
           swatch={swatch}
           trackColor={trackColor}
           onToggle={() => onToggleExpand(employee.id)}
-          title={isExpanded ? 'Réduire l’équipe' : 'Déplier l’équipe'}
+          title={isExpanded ? t('chart.node.collapseTeam') : t('chart.node.expandTeam')}
         />
       )}
 
@@ -421,7 +423,7 @@ function EmployeeNodeImpl({ data }: NodeProps<Node<EmployeeNodeData>>) {
               className="nodrag mt-0.5 w-full rounded border border-slate-300 px-1 py-0.5 text-xs text-slate-700"
             >
               <option value="" disabled>
-                Choisir un poste…
+                {t('chart.node.chooseJobTitle')}
               </option>
               {jobTitles.map((title) => (
                 <option key={title} value={title}>
@@ -447,7 +449,7 @@ function EmployeeNodeImpl({ data }: NodeProps<Node<EmployeeNodeData>>) {
                 startEdit('job_title', '');
               }}
             >
-              + poste
+              {t('chart.node.addJobTitle')}
             </div>
           )}
         </div>
@@ -466,7 +468,7 @@ function EmployeeNodeImpl({ data }: NodeProps<Node<EmployeeNodeData>>) {
           className="nodrag mt-2 w-full rounded border border-slate-300 px-1 py-0.5 text-xs text-slate-700"
         >
           <option value="" disabled>
-            Choisir une business unit…
+            {t('chart.node.chooseBusinessUnit')}
           </option>
           {departmentNames.map((name) => (
             <option key={name} value={name}>
@@ -493,7 +495,7 @@ function EmployeeNodeImpl({ data }: NodeProps<Node<EmployeeNodeData>>) {
             startEdit('department', '');
           }}
         >
-          + business unit
+          {t('chart.node.addBusinessUnit')}
         </div>
       )}
 
@@ -511,16 +513,16 @@ function EmployeeNodeImpl({ data }: NodeProps<Node<EmployeeNodeData>>) {
           e.stopPropagation();
           actions.openAssignments(employee.id);
         }}
-        title="Modifier les missions"
+        title={t('chart.node.editAssignments')}
         className="nodrag mt-2 block w-full text-left"
       >
         <MetricRow
-          label="Vendu"
+          label={t('chart.node.sold')}
           pct={assignmentsTotalEtpVendu}
           trackColor={trackColor}
           fillColor={withAlpha(swatch, 0.55)}
         />
-        <MetricRow label="Réel" pct={assignmentsTotalEtpReel} trackColor={trackColor} fillColor={swatch} />
+        <MetricRow label={t('chart.node.actual')} pct={assignmentsTotalEtpReel} trackColor={trackColor} fillColor={swatch} />
       </button>
 
       {advertiserNames.length > 0 && <AdvertisersRow names={advertiserNames} />}

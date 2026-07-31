@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useEmployees } from '../../hooks/useEmployees';
 import { useReportingGraph } from '../../hooks/useReportingGraph';
 import { useAssignments } from '../../hooks/useAssignments';
@@ -7,7 +8,6 @@ import { useJobTitles } from '../../hooks/useJobTitles';
 import { useDepartments } from '../../hooks/useDepartments';
 import { usePhotoActions } from '../../hooks/usePhotoActions';
 import { useEmployeeDeletion } from '../../hooks/useEmployeeDeletion';
-import { UndoRedoButtons } from '../shared/UndoRedoButtons';
 import { useSelectionStore } from '../../stores/selectionStore';
 import { useUiPreferencesStore } from '../../stores/uiPreferencesStore';
 import { ManagerEditorModal } from '../shared/ManagerEditorModal';
@@ -30,14 +30,6 @@ const FIELD_KIND: Record<EditableField, FieldKind> = {
   job_title: 'select',
   role_desc: 'text',
   department: 'select',
-};
-
-const FIELD_LABEL: Record<EditableField, string> = {
-  first_name: 'Prénom',
-  last_name: 'Nom',
-  job_title: 'Poste',
-  role_desc: 'Rôle',
-  department: 'Business Unit',
 };
 
 // A name is what makes a draft worth persisting — a poste or Business Unit
@@ -82,6 +74,7 @@ function emptyDraft(orgChartId: string): Employee {
 // loop removes the whole class: there is no separate row-recycling system to
 // keep in sync, no comparator to freeze, no popup-parent scoping to remember.
 export function EmployeeGrid() {
+  const { t } = useTranslation();
   const currentOrgChartId = useSelectionStore((s) => s.currentOrgChartId);
   const gridDensity = useUiPreferencesStore((s) => s.gridDensity);
   const {
@@ -99,7 +92,7 @@ export function EmployeeGrid() {
   const [photoEditEmployeeId, setPhotoEditEmployeeId] = useState<string | null>(null);
   const { relationships, managersOf, restoreRelationship, wouldCreateCycle, replaceManagersForEmployee } =
     useReportingGraph(currentOrgChartId);
-  const { assignments, assignmentsOf, totalEtpOf, restoreAssignment } = useAssignments(currentOrgChartId);
+  const { assignments, assignmentsOf, totalEtpOf, totalEtpReelOf, restoreAssignment } = useAssignments(currentOrgChartId);
   const deleteEmployeeWithHistory = useEmployeeDeletion(
     currentOrgChartId,
     { employees, restoreEmployee, deleteEmployee },
@@ -116,6 +109,10 @@ export function EmployeeGrid() {
   const setAssignmentsEmployeeId = useSelectionStore((s) => s.setAssignmentsEmployeeId);
   const searchQuery = useSelectionStore((s) => s.searchQuery);
   const clientMissionFilterIds = useSelectionStore((s) => s.clientMissionFilterIds);
+  const deptFilterNames = useSelectionStore((s) => s.deptFilterNames);
+  const jobTitleFilterNames = useSelectionStore((s) => s.jobTitleFilterNames);
+  const etpVenduRange = useSelectionStore((s) => s.etpVenduRange);
+  const etpReelRange = useSelectionStore((s) => s.etpReelRange);
 
   const employeeById = useMemo(() => new Map(employees.map((e) => [e.id, e])), [employees]);
   const clientMissionById = useMemo(
@@ -174,7 +171,34 @@ export function EmployeeGrid() {
   );
 
   const sortedEmployees = useMemo(() => {
-    const base = matchingEmployeeIds ? employees.filter((e) => matchingEmployeeIds.has(e.id)) : employees;
+    const byClientMission = matchingEmployeeIds
+      ? employees.filter((e) => matchingEmployeeIds.has(e.id))
+      : employees;
+    const byDept =
+      deptFilterNames.size > 0
+        ? byClientMission.filter((e) => e.department !== null && deptFilterNames.has(e.department))
+        : byClientMission;
+    const byJobTitle =
+      jobTitleFilterNames.size > 0
+        ? byDept.filter((e) => e.job_title !== null && jobTitleFilterNames.has(e.job_title))
+        : byDept;
+    // Default bounds (0-150) mean "inactive" — same convention as the empty
+    // Sets above, kept in sync with selectionStore.ts's own defaults and
+    // FiltersPanel.tsx's slider bounds.
+    const isVenduRangeActive = etpVenduRange.min > 0 || etpVenduRange.max < 150;
+    const byEtpVendu = isVenduRangeActive
+      ? byJobTitle.filter((e) => {
+          const total = totalEtpOf(e.id);
+          return total >= etpVenduRange.min && total <= etpVenduRange.max;
+        })
+      : byJobTitle;
+    const isReelRangeActive = etpReelRange.min > 0 || etpReelRange.max < 150;
+    const base = isReelRangeActive
+      ? byEtpVendu.filter((e) => {
+          const total = totalEtpReelOf(e.id);
+          return total >= etpReelRange.min && total <= etpReelRange.max;
+        })
+      : byEtpVendu;
     const query = searchQuery.trim().toLowerCase();
     const filtered = query
       ? base.filter((e) => `${e.first_name} ${e.last_name}`.toLowerCase().includes(query))
@@ -186,7 +210,20 @@ export function EmployeeGrid() {
       return sortDir === 'asc' ? cmp : -cmp;
     });
     return sorted;
-  }, [employees, matchingEmployeeIds, searchQuery, sortField, sortDir, editing.frozenRow]);
+  }, [
+    employees,
+    matchingEmployeeIds,
+    deptFilterNames,
+    jobTitleFilterNames,
+    etpVenduRange,
+    etpReelRange,
+    totalEtpOf,
+    totalEtpReelOf,
+    searchQuery,
+    sortField,
+    sortDir,
+    editing.frozenRow,
+  ]);
 
   const handleAddEmployee = useCallback(() => {
     if (!currentOrgChartId || editing.draft) return;
@@ -232,7 +269,7 @@ export function EmployeeGrid() {
         field={field}
         options={options}
         display={display}
-        title={`Modifier ${FIELD_LABEL[field].toLowerCase()}`}
+        title={t('grid.employees.editField', { field: t(`grid.employees.fields.${field}`).toLowerCase() })}
       />
     );
   }
@@ -240,21 +277,20 @@ export function EmployeeGrid() {
   return (
     <div className="flex h-full flex-col gap-2">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-slate-700">Employés</h2>
+        <h2 className="text-sm font-semibold text-slate-700">{t('grid.employees.title')}</h2>
         <div className="flex items-center gap-2">
           <button
             onClick={handleExport}
             className="rounded border border-slate-300 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
           >
-            Exporter CSV
+            {t('grid.employees.exportCsv')}
           </button>
-          <UndoRedoButtons />
           <button
             onClick={handleAddEmployee}
             disabled={Boolean(editing.draft)}
             className="rounded bg-slate-900 px-3 py-1 text-xs font-medium text-white disabled:opacity-50"
           >
-            + Ajouter
+            {t('grid.employees.add')}
           </button>
         </div>
       </div>
@@ -271,13 +307,13 @@ export function EmployeeGrid() {
                     onClick={() => toggleSort(field)}
                     className="flex items-center gap-1 hover:text-slate-800"
                   >
-                    {FIELD_LABEL[field]}
+                    {t(`grid.employees.fields.${field}`)}
                     {sortField === field && <span className="text-[10px]">{sortDir === 'asc' ? '▲' : '▼'}</span>}
                   </button>
                 </th>
               ))}
-              <th className={`${rowPad} px-2 font-medium`}>Managers</th>
-              <th className={`${rowPad} px-2 font-medium`}>Clients / Missions</th>
+              <th className={`${rowPad} px-2 font-medium`}>{t('grid.employees.managersHeader')}</th>
+              <th className={`${rowPad} px-2 font-medium`}>{t('grid.employees.clientsMissionsHeader')}</th>
               <th className="w-10" />
             </tr>
           </thead>
@@ -285,14 +321,14 @@ export function EmployeeGrid() {
             {loading && (
               <tr role="row">
                 <td colSpan={9} className="p-4 text-center text-slate-400">
-                  Chargement…
+                  {t('grid.employees.loading')}
                 </td>
               </tr>
             )}
             {!loading && rows.length === 0 && (
               <tr role="row">
                 <td colSpan={9} className="p-4 text-center text-slate-400">
-                  Aucun employé.
+                  {t('grid.employees.empty')}
                 </td>
               </tr>
             )}
@@ -304,7 +340,7 @@ export function EmployeeGrid() {
                 .map((m) => {
                   const mgr = employeeById.get(m.manager_id);
                   const label = mgr ? `${mgr.first_name} ${mgr.last_name}` : '?';
-                  return m.is_primary ? label : `${label} (secondaire)`;
+                  return m.is_primary ? label : `${label} ${t('grid.employees.secondary')}`;
                 })
                 .join(', ');
               const count = assignmentsOf(row.id).length;
@@ -344,9 +380,9 @@ export function EmployeeGrid() {
                       <button
                         onClick={() => setEditingManagersFor(row)}
                         className="w-full truncate text-left text-slate-600 hover:underline"
-                        title="Modifier les managers"
+                        title={t('grid.employees.editManagers')}
                       >
-                        {managerNames || <span className="text-slate-300">+ Ajouter un manager</span>}
+                        {managerNames || <span className="text-slate-300">{t('grid.employees.addManager')}</span>}
                       </button>
                     )}
                   </td>
@@ -363,9 +399,9 @@ export function EmployeeGrid() {
                                 ? 'text-amber-700'
                                 : 'text-red-700'
                         }`}
-                        title="Modifier les affectations"
+                        title={t('grid.employees.editAssignments')}
                       >
-                        {count === 0 ? '+ Ajouter' : `${count} · ${total}% ETP`}
+                        {count === 0 ? t('grid.employees.add2') : `${count} · ${total}% ETP`}
                       </button>
                     )}
                   </td>
@@ -373,7 +409,7 @@ export function EmployeeGrid() {
                     {isDraftRow ? null : (
                       <button
                         onClick={() => deleteEmployeeWithHistory(row.id)}
-                        title="Supprimer"
+                        title={t('grid.employees.delete')}
                         className="text-slate-400 hover:text-red-600"
                       >
                         ✕

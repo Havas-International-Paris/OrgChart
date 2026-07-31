@@ -1,8 +1,8 @@
-import { useCallback, useState } from 'react';
+import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ReactFlow, Background, Controls, MiniMap, Panel } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useSelectionStore } from '../../stores/selectionStore';
-import { UndoRedoButtons } from '../shared/UndoRedoButtons';
 import { LinkExistingEmployeeModal } from '../shared/LinkExistingEmployeeModal';
 import { PhotoEditorModal } from '../shared/PhotoEditorModal';
 import { EmployeeNode } from './EmployeeNode';
@@ -29,23 +29,34 @@ const edgeTypes = { reporting: ReportingEdge };
 //   useChartNodes      — layout, node/edge arrays, live drag, hover
 //   useChartViewport   — default expansion, auto-fit, panning to a selection
 export function OrgChartView() {
+  const { t } = useTranslation();
   const currentOrgChartId = useSelectionStore((s) => s.currentOrgChartId);
   const selectedEmployeeId = useSelectionStore((s) => s.selectedEmployeeId);
   const setSelectedEmployee = useSelectionStore((s) => s.setSelectedEmployee);
   const setExpandedNodeIds = useSelectionStore((s) => s.setExpandedNodeIds);
 
-  // Department-legend filter — the only piece of chart state that is neither
-  // shared with the grid (selectionStore) nor owned by one of the hooks below.
-  const [deptFilter, setDeptFilter] = useState<string | null>(null);
-  const toggleDeptFilter = useCallback(
-    (name: string) => setDeptFilter((current) => (current === name ? null : name)),
-    [],
-  );
+  // Business Unit / Poste / ETP range filters — shared with the grid via
+  // selectionStore; the chart-local DepartmentLegend below is a read-only
+  // color key, not where these filters are set (that's the header's
+  // FiltersPanel). Threaded into useChartNodes the same way each was added.
+  const deptFilterNames = useSelectionStore((s) => s.deptFilterNames);
+  const toggleDeptFilter = useSelectionStore((s) => s.toggleDeptFilter);
+  const jobTitleFilterNames = useSelectionStore((s) => s.jobTitleFilterNames);
+  const etpVenduRange = useSelectionStore((s) => s.etpVenduRange);
+  const etpReelRange = useSelectionStore((s) => s.etpReelRange);
 
   const data = useChartData(currentOrgChartId);
   const visibility = useChartVisibility(data.employees, data.primaryEdges);
   const actions = useChartActions(currentOrgChartId, data);
-  const nodes = useChartNodes({ data, visibility, actions, deptFilter });
+  const nodes = useChartNodes({
+    data,
+    visibility,
+    actions,
+    deptFilterNames,
+    jobTitleFilterNames,
+    etpVenduRange,
+    etpReelRange,
+  });
   const { reactFlowInstanceRef } = useChartViewport({
     currentOrgChartId,
     employees: data.employees,
@@ -101,7 +112,7 @@ export function OrgChartView() {
   if (!data.employeesLoading && !data.relationshipsLoading && data.employees.length === 0) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-slate-400">
-        Aucun employé pour le moment — ajoutez-en un dans le tableur.
+        {t('chart.emptyState')}
       </div>
     );
   }
@@ -122,7 +133,7 @@ export function OrgChartView() {
           departments={data.departments}
           colorByName={data.departmentColorByName}
           counts={data.departmentCounts}
-          activeFilter={deptFilter}
+          selectedNames={deptFilterNames}
           onToggle={toggleDeptFilter}
         />
       )}
@@ -196,14 +207,14 @@ export function OrgChartView() {
               onClick={handleExpandAll}
               className="rounded border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50"
             >
-              Tout développer
+              {t('chart.expandAll')}
             </button>
             <button
               onClick={handleExport}
               disabled={exporting}
               className="rounded border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
             >
-              {exporting ? 'Export…' : 'Exporter en image'}
+              {exporting ? t('chart.exporting') : t('chart.export')}
             </button>
             {exportError && (
               <p className="max-w-[220px] rounded bg-red-50 px-2 py-1 text-right text-xs text-red-600">
@@ -216,13 +227,6 @@ export function OrgChartView() {
         {showOverlays && <Controls />}
         {showOverlays && <MiniMap />}
       </ReactFlow>
-      {/* Positioned to clear React Flow's own bottom-left zoom/fit-view
-          controls (a plain absolutely-positioned div, not a react-flow
-          Panel, since Controls isn't itself a Panel and won't stack with
-          one automatically). */}
-      <div className="absolute bottom-2.5 left-14 z-10">
-        <UndoRedoButtons />
-      </div>
       {actions.detailPanelProps && (
         <EmployeeDetailPanel
           employee={actions.detailPanelProps.employee}
@@ -289,7 +293,7 @@ export function OrgChartView() {
               y={y}
               entries={[
                 {
-                  label: 'Supprimer ce rattachement',
+                  label: t('chart.deleteRelationship'),
                   danger: true,
                   onSelect: () => actions.handleDeleteRelationshipById(edgeId),
                 },

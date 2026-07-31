@@ -1,0 +1,340 @@
+{
+  "common": {
+    "close": "Fermer",
+    "cancel": "Annuler",
+    "save": "Enregistrer",
+    "delete": "Supprimer",
+    "edit": "Modifier",
+    "add": "Ajouter",
+    "confirm": "Confirmer",
+    "loading": "Chargement…"
+  },
+  "appShell": {
+    "title": "Organigramme Havas International",
+    "verifyingSession": "Vérification de la session…",
+    "loadingOrgCharts": "Chargement des organigrammes…",
+    "noOrgChartsTitle": "Aucun organigramme n’existe encore.",
+    "noOrgChartsSubtitle": "Créez-en un pour commencer.",
+    "openingOrgChart": "Ouverture de l’organigramme…",
+    "manage": "Gérer",
+    "signOut": "Déconnexion",
+    "resize": "Redimensionner"
+  },
+  "leftPanel": {
+    "tabs": {
+      "employees": "Employés",
+      "clientsMissions": "Clients / Missions",
+      "allocations": "Allocations",
+      "jobTitles": "Postes",
+      "departments": "Business Units"
+    },
+    "density": {
+      "comfortable": "Confortable",
+      "compact": "Compact"
+    }
+  },
+  "searchBar": {
+    "placeholder": "Rechercher un employé…"
+  },
+  "filters": {
+    "button": "Filtres",
+    "businessUnit": "Business Unit",
+    "jobTitle": "Poste",
+    "clientMission": "Client / Mission",
+    "timeSold": "Temps vendu",
+    "timeActual": "Temps réel",
+    "reset": "Réinitialiser",
+    "client": "Client",
+    "mission": "Mission"
+  },
+  "undoRedo": {
+    "undo": "Annuler",
+    "redo": "Rétablir",
+    "redoneToast": "Rétabli : {{label}}",
+    "undoneToast": "Annulé : {{label}}"
+  },
+  "orgChartManager": {
+    "title": "Organigrammes",
+    "newChart": "Nouvel organigramme (vide)",
+    "name": "Nom",
+    "shortLabel": "Libellé court",
+    "namePlaceholder": "Nouvel organigramme",
+    "create": "Créer",
+    "creating": "Création…",
+    "duplicateExisting": "Dupliquer un organigramme existant",
+    "chartToDuplicate": "Organigramme à dupliquer",
+    "copyName": "Nom de la copie",
+    "duplicate": "Dupliquer",
+    "duplicating": "Duplication…",
+    "existingCharts": "Organigrammes existants",
+    "copyOf": "Copie de {{name}}",
+    "deleteConfirm": "Supprimer définitivement « {{name}} » et toutes ses données (employés, rattachements, missions) ? Cette action est irréversible.",
+    "cannotDeleteLast": "Impossible de supprimer le dernier organigramme",
+    "saving": "…"
+  },
+  "grid": {
+    "employees": {
+      "title": "Employés",
+      "exportCsv": "Exporter CSV",
+      "add": "+ Ajouter",
+      "loading": "Chargement…",
+      "empty": "Aucun employé.",
+      "fields": {
+        "first_name": "Prénom",
+        "last_name": "Nom",
+        "job_title": "Poste",
+        "role_desc": "Rôle",
+        "department": "Business Unit"
+      },
+      "managersHeader": "Managers",
+      "clientsMissionsHeader": "Clients / Missions",
+      "editField": "Modifier {{field}}",
+      "editManagers": "Modifier les managers",
+      "addManager": "+ Ajouter un manager",
+      "editAssignments": "Modifier les affectations",
+      "add2": "+ Ajouter",
+      "secondary": "(secondaire)",
+      "delete": "Supprimer"
+    },
+    "clientsMissions": {
+      "title": "Clients / Missions",
+      "add": "+ Ajouter",
+      "loading": "Chargement…",
+      "empty": "Aucun client / mission.",
+      "fields": { "name": "Nom", "type": "Type" },
+      "type": { "client": "Client", "mission": "Mission" },
+      "employeesHeader": "Employés",
+      "totalActualHeader": "Total réel",
+      "editName": "Modifier le nom",
+      "editType": "Modifier le type",
+      "viewDetail": "Voir le détail par employé",
+      "add2": "+ Ajouter",
+      "sold": "vendu",
+      "delete": "Supprimer",
+      "deleteInUseError": "Impossible de supprimer : ce client/mission est utilisé par au moins une affectation existante."
+    },
+    "departments": {
+      "title": "Business Units",
+      "add": "+ Ajouter",
+      "loading": "Chargement…",
+      "empty": "Aucune Business Unit.",
+      "colorHeader": "Couleur",
+      "nameHeader": "Business Unit",
+      "editName": "Modifier la Business Unit",
+      "changeColor": "Changer la couleur de {{name}}",
+      "delete": "Supprimer"
+    },
+    "jobTitles": {
+      "title": "Postes",
+      "add": "+ Ajouter",
+      "loading": "Chargement…",
+      "empty": "Aucun poste.",
+      "nameHeader": "Poste",
+      "editName": "Modifier le poste",
+      "delete": "Supprimer"
+    },
+    "allocations": {
+      "title": "Allocations",
+      "byClient": "Par client",
+      "byEmployee": "Par employé",
+      "employeeHeader": "Employé",
+      "clientMissionHeader": "Client / Mission",
+      "model": "Modèle",
+      "percentSold": "% vendu",
+      "percentActual": "% réel",
+      "loading": "Chargement…",
+      "empty": "Aucune affectation pour le moment.",
+      "sold": "Vendu",
+      "actual": "Réel",
+      "commission": "Commission",
+      "retainer": "Retainer"
+    }
+  },
+  "chart": {
+    "emptyState": "Aucun employé pour le moment — ajoutez-en un dans le tableur.",
+    "expandAll": "Tout développer",
+    "export": "Exporter en image",
+    "exporting": "Export…",
+    "deleteRelationship": "Supprimer ce rattachement",
+    "node": {
+      "showEveryone": "Afficher tout le monde",
+      "isolateTeam": "Isoler cette personne et son équipe",
+      "collapseTeam": "Réduire l’équipe",
+      "expandTeam": "Déplier l’équipe",
+      "chooseJobTitle": "Choisir un poste…",
+      "addJobTitle": "+ poste",
+      "chooseBusinessUnit": "Choisir une business unit…",
+      "addBusinessUnit": "+ business unit",
+      "editAssignments": "Modifier les missions",
+      "sold": "Vendu",
+      "actual": "Réel",
+      "totalAndDirect_one": "{{total}} au total · {{count}} direct",
+      "totalAndDirect_other": "{{total}} au total · {{count}} directs",
+      "functionalCount": "+{{count}} fonc."
+    },
+    "detailPanel": {
+      "directManager": "Manager direct",
+      "functionalManagers": "Manager(s) fonctionnel(s)",
+      "directReports_one": "Subordonné direct ({{count}})",
+      "directReports_other": "Subordonnés directs ({{count}})",
+      "functionalReports_one": "Subordonné fonctionnel entrant ({{count}})",
+      "functionalReports_other": "Subordonnés fonctionnels entrants ({{count}})"
+    },
+    "contextMenu": {
+      "newManager": "Nouveau manager",
+      "linkManager": "Rattacher un manager existant…",
+      "newSubordinate": "Nouveau subordonné",
+      "linkSubordinate": "Rattacher un subordonné existant…",
+      "deleteEmployee": "Supprimer cet employé"
+    },
+    "quickAdd": {
+      "newManagerFirstName": "Nouveau",
+      "newManagerLastName": "Manager",
+      "newSubordinateFirstName": "Nouveau",
+      "newSubordinateLastName": "Collaborateur"
+    },
+    "linkModal": {
+      "addManagerTo": "Ajouter un manager à {{name}}",
+      "addSubordinateTo": "Ajouter un subordonné à {{name}}"
+    }
+  },
+  "modals": {
+    "assignmentEditor": {
+      "title": "Clients / missions de {{name}}",
+      "totalSold": "Total vendu : {{value}} ETP",
+      "totalActual": "Total réel : {{value}} ETP",
+      "empty": "Aucune affectation pour le moment.",
+      "model": "modèle",
+      "sold": "vendu",
+      "actual": "réel",
+      "delete": "Supprimer",
+      "clientOrMission": "Client ou mission",
+      "namePlaceholder": "Nom…",
+      "type": "Type",
+      "modelLabel": "Modèle",
+      "percentSold": "% vendu",
+      "percentActual": "% réel",
+      "add": "Ajouter",
+      "close": "Fermer",
+      "invalidSold": "% vendu invalide",
+      "invalidActual": "% réel invalide",
+      "historyAddLabel": "Ajouter une affectation ({{name}})"
+    },
+    "clientAssignments": {
+      "title": "Employés sur {{name}}",
+      "totalSold": "Total vendu : {{value}} ETP",
+      "totalActual": "Total réel : {{value}} ETP",
+      "empty": "Aucun employé assigné pour le moment.",
+      "employee": "Employé",
+      "namePlaceholder": "Nom…",
+      "remove": "Retirer",
+      "notFound": "Employé introuvable (ou déjà assigné à ce client/mission)",
+      "invalidSold": "% vendu invalide",
+      "invalidActual": "% réel invalide",
+      "add": "Ajouter",
+      "close": "Fermer"
+    },
+    "linkExisting": {
+      "searchPlaceholder": "Rechercher…",
+      "empty": "Aucun employé disponible.",
+      "wouldCreateCycle": "Créerait une boucle de reporting",
+      "close": "Fermer"
+    },
+    "managerEditor": {
+      "title": "Managers de {{name}}",
+      "description": "Cochez un ou plusieurs managers (multi-reporting). Le bouton radio indique le manager principal (trait plein dans l'organigramme).",
+      "wouldCreateCycle": "Créerait une boucle de reporting",
+      "cancel": "Annuler",
+      "save": "Enregistrer",
+      "saving": "Enregistrement…"
+    },
+    "photoEditor": {
+      "title": "Photo de {{name}}",
+      "mustBeImage": "Le fichier doit être une image.",
+      "dropHint1": "Glissez une image ici, cliquez pour parcourir,",
+      "dropHint2": "ou collez avec Ctrl+V",
+      "dragToReposition": "Glissez pour repositionner, molette pour zoomer",
+      "changePhoto": "Changer de photo…",
+      "deletePhoto": "Supprimer la photo",
+      "deleting": "Suppression…",
+      "cancel": "Annuler",
+      "save": "Enregistrer",
+      "saving": "Enregistrement…",
+      "saveError": "Échec de l’enregistrement",
+      "deleteError": "Échec de la suppression",
+      "imageTooLarge": "Image trop lourde (5 Mo maximum)."
+    },
+    "toast": {
+      "close": "Fermer"
+    },
+    "errorBoundary": {
+      "message": "Une erreur a interrompu l'affichage.",
+      "retry": "Réessayer"
+    }
+  },
+  "auth": {
+    "login": {
+      "email": "Email",
+      "password": "Mot de passe",
+      "connecting": "Connexion…",
+      "signIn": "Se connecter"
+    },
+    "setupNotice": {
+      "title": "Configuration Supabase requise",
+      "intro": "Aucun projet Supabase n'est encore relié à cette application. Pour continuer :",
+      "step1": "Créez un projet gratuit sur supabase.com",
+      "step2": "Appliquez les migrations SQL du dossier",
+      "step2suffix": "",
+      "step3prefix": "Copiez",
+      "step3middle": "vers",
+      "step3suffix": "et renseignez l'URL et la clé anonyme du projet",
+      "step4": "Relancez le serveur de développement"
+    }
+  },
+  "history": {
+    "deleteEmployee": "Supprimer {{name}}",
+    "addAssignment": "Ajouter une affectation",
+    "updateEtpSold": "Modifier le % vendu",
+    "updateEtpActual": "Modifier le % réel",
+    "updateRemunerationModel": "Modifier le modèle de rémunération",
+    "deleteAssignment": "Supprimer une affectation",
+    "createDepartment": "Créer la business unit {{name}}",
+    "renameDepartment": "Renommer la business unit {{name}}",
+    "changeDepartmentColor": "Changer la couleur de {{name}}",
+    "deleteDepartment": "Supprimer la business unit {{name}}",
+    "updateManagers": "Modifier les managers",
+    "addReportingLink": "Ajouter un lien hiérarchique",
+    "deleteReportingLink": "Supprimer un lien hiérarchique",
+    "reassignManager": "Réaffecter un manager",
+    "updateClientMission": "Modifier {{name}}",
+    "deleteClientMission": "Supprimer {{name}}",
+    "createClientMission": "Créer {{name}}",
+    "createEmployee": "Créer {{name}}",
+    "updateEmployee": "Modifier {{name}}",
+    "reframePhoto": "Recadrer la photo de {{name}}",
+    "createJobTitle": "Créer le poste {{name}}",
+    "renameJobTitle": "Renommer le poste {{name}}",
+    "deleteJobTitle": "Supprimer le poste {{name}}",
+    "addManager": "Ajouter un manager",
+    "addSubordinate": "Ajouter un subordonné",
+    "reorder": "Réordonner {{name}}",
+    "reorderFallback": "Réordonner"
+  },
+  "csv": {
+    "headers": {
+      "firstName": "Prénom",
+      "lastName": "Nom",
+      "jobTitle": "Poste",
+      "role": "Rôle",
+      "primaryManager": "Manager principal",
+      "secondaryManagers": "Managers secondaires",
+      "clientMission": "Client / Mission",
+      "type": "Type",
+      "model": "Modèle",
+      "percentSold": "% ETP vendu",
+      "percentActual": "% ETP réel",
+      "totalPercentSold": "Total % ETP vendu (employé)",
+      "totalPercentActual": "Total % ETP réel (employé)"
+    }
+  }
+}

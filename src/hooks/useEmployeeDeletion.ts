@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useHistoryStore, withSuppressedRecording } from '../stores/historyStore';
 import type { Assignment, Employee, ReportingRelationship } from '../types/domain';
 
@@ -35,6 +36,7 @@ export function useEmployeeDeletion(
   reportingApi: ReportingApi,
   assignmentsApi: AssignmentsApi,
 ) {
+  const { t } = useTranslation();
   const { employees, restoreEmployee, deleteEmployee } = employeesApi;
   const { relationships, restoreRelationship } = reportingApi;
   const { assignments, restoreAssignment } = assignmentsApi;
@@ -53,7 +55,7 @@ export function useEmployeeDeletion(
       if (!orgChartId) return;
 
       useHistoryStore.getState().push({
-        label: `Supprimer ${employee.first_name} ${employee.last_name}`,
+        label: t('history.deleteEmployee', { name: `${employee.first_name} ${employee.last_name}` }),
         orgChartId,
         undo: () =>
           withSuppressedRecording(async () => {
@@ -75,6 +77,7 @@ export function useEmployeeDeletion(
       restoreRelationship,
       restoreAssignment,
       orgChartId,
+      t,
     ],
   );
 }

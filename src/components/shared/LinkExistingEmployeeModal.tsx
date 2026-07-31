@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { Employee } from '../../types/domain';
 
 interface LinkExistingEmployeeModalProps {
@@ -16,6 +17,7 @@ export function LinkExistingEmployeeModal({
   onLink,
   onClose,
 }: LinkExistingEmployeeModalProps) {
+  const { t } = useTranslation();
   const [query, setQuery] = useState('');
   const [linkingId, setLinkingId] = useState<string | null>(null);
 
@@ -41,13 +43,13 @@ export function LinkExistingEmployeeModal({
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Rechercher…"
+          placeholder={t('modals.linkExisting.searchPlaceholder')}
           autoFocus
           className="mb-3 w-full rounded border border-slate-300 px-3 py-1.5 text-sm"
         />
         <div className="max-h-72 space-y-1 overflow-auto">
           {filtered.length === 0 && (
-            <p className="px-2 py-1 text-sm text-slate-400">Aucun employé disponible.</p>
+            <p className="px-2 py-1 text-sm text-slate-400">{t('modals.linkExisting.empty')}</p>
           )}
           {filtered.map((candidate) => {
             const disabled = isDisabled(candidate.id);
@@ -56,7 +58,7 @@ export function LinkExistingEmployeeModal({
                 key={candidate.id}
                 disabled={disabled || linkingId !== null}
                 onClick={() => handleLink(candidate.id)}
-                title={disabled ? 'Créerait une boucle de reporting' : undefined}
+                title={disabled ? t('modals.linkExisting.wouldCreateCycle') : undefined}
                 className={`flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-sm ${
                   disabled ? 'cursor-not-allowed text-slate-300' : 'text-slate-700 hover:bg-slate-50'
                 }`}
@@ -75,7 +77,7 @@ export function LinkExistingEmployeeModal({
             onClick={onClose}
             className="rounded px-3 py-1.5 text-sm text-slate-500 hover:bg-slate-100"
           >
-            Fermer
+            {t('modals.linkExisting.close')}
           </button>
         </div>
       </div>

@@ -19,6 +19,28 @@ const elk = new ELK();
 
 type Position = { x: number; y: number };
 
+// Tried elk's 'mrtree' algorithm (2026-07-30) to address a reported dead
+// horizontal gap between sibling subtrees of very different sizes
+// (Camille/Thierry/Nicolas de Vulpian screenshot) — 'layered' allocates each
+// sibling's column by its own subtree's full width, so a childless sibling
+// next to a large-subtree one leaves empty space between them. Measured live
+// on the real ~42-person chart, fully expanded (.react-flow__node transform
+// bounding box, not judged by eye): mrtree came out WIDER (4578px vs 4523px)
+// and flatter (1332px vs 1524px tall) than 'layered' — the wrong direction
+// entirely. mrtree has no crossing-minimization/compaction pass the way
+// 'layered' does, so it fans children out rather than stacking them. Reverted
+// to 'layered' below; if tried again, remeasure the same way rather than
+// judging by eye — the visual "looks more compact" impression while zoomed
+// out didn't match the actual measured footprint.
+//
+// Also tried 'elk.layered.compaction.postCompaction.strategy: EDGE_LENGTH'
+// (same day, same measurement method) hoping it would shrink exactly that
+// kind of unused lane width — zero effect, width identical to the pixel.
+// That option compacts separate DISCONNECTED components after layout; this
+// org chart is one single connected tree, so it never applies. Don't
+// re-try it without a genuinely disconnected graph (e.g. two separate root
+// employees with no path between them).
+
 // elk runs the actual layout algorithm asynchronously (elk.layout returns a
 // Promise, even for the in-thread "bundled" build used here — there is no
 // synchronous escape hatch), so every caller of this function now has to

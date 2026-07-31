@@ -1,9 +1,11 @@
 import { useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useToastStore } from '../../stores/toastStore';
 
 const AUTO_DISMISS_MS = 5000;
 
 export function Toast() {
+  const { t } = useTranslation();
   const toast = useToastStore((s) => s.toast);
   const dismiss = useToastStore((s) => s.dismiss);
 
@@ -32,7 +34,7 @@ export function Toast() {
       <button
         onClick={() => dismiss(toast.id)}
         className="text-slate-400 hover:text-slate-600"
-        title="Fermer"
+        title={t('modals.toast.close')}
       >
         ✕
       </button>

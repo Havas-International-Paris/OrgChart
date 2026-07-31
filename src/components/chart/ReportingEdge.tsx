@@ -1,4 +1,5 @@
 import { BaseEdge, getBezierPath, getSmoothStepPath, type Edge, type EdgeProps } from '@xyflow/react';
+import { ROUTE_CORNER_RADIUS, roundedPolylinePath, type Point } from './edgeRouting';
 
 // Corner rounding on primary (orthogonal) edges. 0 gives the sharp right angles
 // this started as; React Flow's own smoothstep default is 5. 8 reads as
@@ -20,6 +21,15 @@ export interface ReportingEdgeData extends Record<string, unknown> {
   // links (a manager with many reports) can see at a glance which specific
   // manager/employee pair a given line connects, without clicking anything.
   onHoverChange: (hovering: boolean) => void;
+  // Item 36: intermediate bend points computed by edgeRouting.ts's
+  // routeAroundObstacles, precomputed in useChartNodes.ts's edges memo
+  // against the full (non-transient) layout — see that file for why. Never
+  // set on primary edges (geometrically safe by construction, see
+  // edgeRouting.ts's header note) and only set on a secondary edge when its
+  // direct bezier line would actually cross another card. Absent (not just
+  // empty) is the common case for a secondary edge — treated the same as
+  // `undefined` here, falls through to the plain bezier below.
+  bendPoints?: Point[];
 }
 
 // Deleting a relationship is now a right-click menu (OrgChartView.tsx's
@@ -42,20 +52,29 @@ export function ReportingEdge({
   data,
 }: EdgeProps<Edge<ReportingEdgeData>>) {
   const isPrimary = data!.isPrimary;
+  const bendPoints = data!.bendPoints;
   // Primary edges route orthogonally with softened corners; secondary/dotted
-  // ones keep the bezier curve, deliberately, so the two kinds of reporting
-  // line stay distinguishable at a glance rather than converging on one look.
-  const [path] = isPrimary
-    ? getSmoothStepPath({
-        sourceX,
-        sourceY,
-        sourcePosition,
-        targetX,
-        targetY,
-        targetPosition,
-        borderRadius: PRIMARY_CORNER_RADIUS,
-      })
-    : getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
+  // ones keep the bezier curve EXCEPT when useChartNodes.ts found the direct
+  // curve would cross an unrelated card — in that case bendPoints carries a
+  // precomputed detour, rendered here as a rounded polyline through the
+  // live (possibly dragging) source/target points plus those fixed bends.
+  const path =
+    bendPoints && bendPoints.length > 0
+      ? roundedPolylinePath(
+          [{ x: sourceX, y: sourceY }, ...bendPoints, { x: targetX, y: targetY }],
+          ROUTE_CORNER_RADIUS,
+        )
+      : isPrimary
+        ? getSmoothStepPath({
+            sourceX,
+            sourceY,
+            sourcePosition,
+            targetX,
+            targetY,
+            targetPosition,
+            borderRadius: PRIMARY_CORNER_RADIUS,
+          })[0]
+        : getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition })[0];
 
   return (
     <>

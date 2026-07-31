@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { Command } from '../lib/history/types';
 import { useToastStore } from './toastStore';
+import i18n from '../i18n/config';
 
 const MAX_HISTORY = 100;
 
@@ -68,7 +69,7 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
     });
     useToastStore.getState().show({
       message: command.label,
-      actionLabel: 'Annuler',
+      actionLabel: i18n.t('undoRedo.undo'),
       onAction: () => {
         useHistoryStore.getState().undo();
       },

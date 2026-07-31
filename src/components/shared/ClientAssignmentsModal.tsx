@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { Assignment, ClientMission, Employee, RemunerationModel } from '../../types/domain';
 
 interface ClientAssignmentsModalProps {
@@ -38,6 +39,7 @@ export function ClientAssignmentsModal({
   deleteAssignment,
   onClose,
 }: ClientAssignmentsModalProps) {
+  const { t } = useTranslation();
   const [newEmployeeName, setNewEmployeeName] = useState('');
   const [newEtp, setNewEtp] = useState('');
   const [newReel, setNewReel] = useState('');
@@ -74,19 +76,19 @@ export function ClientAssignmentsModal({
     if (!name) return;
     const match = availableEmployees.find((e) => employeeName(e).toLowerCase() === name);
     if (!match) {
-      setError('Employé introuvable (ou déjà assigné à ce client/mission)');
+      setError(t('modals.clientAssignments.notFound'));
       return;
     }
     const rawVendu = newEtp.trim();
     const etpVendu = rawVendu === '' ? null : Number(rawVendu);
     if (etpVendu !== null && (!Number.isFinite(etpVendu) || etpVendu < 0 || etpVendu > 100)) {
-      setError('% vendu invalide');
+      setError(t('modals.clientAssignments.invalidSold'));
       return;
     }
     const rawReel = newReel.trim();
     const etpReel = rawReel === '' ? null : Number(rawReel);
     if (etpReel !== null && (!Number.isFinite(etpReel) || etpReel < 0 || etpReel > 100)) {
-      setError('% réel invalide');
+      setError(t('modals.clientAssignments.invalidActual'));
       return;
     }
     const model = newRemuneration === '' ? null : newRemuneration;
@@ -106,23 +108,23 @@ export function ClientAssignmentsModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
       <div className="w-full max-w-2xl rounded-lg bg-white p-5 shadow-lg">
         <h2 className="mb-1 text-sm font-semibold text-slate-900">
-          Employés sur {clientMission.name}{' '}
+          {t('modals.clientAssignments.title', { name: clientMission.name })}{' '}
           <span className="text-xs font-normal text-slate-400">
             ({clientMission.type === 'mission' ? 'mission' : 'client'})
           </span>
         </h2>
         <p className="text-xs text-slate-500">
-          Total vendu : {venduKnown.length > 0 ? `${totalVendu}%` : '—'} ETP
+          {t('modals.clientAssignments.totalSold', { value: venduKnown.length > 0 ? `${totalVendu}%` : '—' })}
         </p>
         <p className="mb-3 text-xs text-slate-400">
-          Total réel : {reelKnown.length > 0 ? `${totalReel}%` : '—'} ETP
+          {t('modals.clientAssignments.totalActual', { value: reelKnown.length > 0 ? `${totalReel}%` : '—' })}
         </p>
 
         {error && <p className="mb-3 rounded bg-red-50 px-2 py-1 text-xs text-red-600">{error}</p>}
 
         <div className="mb-4 max-h-64 space-y-1 overflow-auto">
           {assignments.length === 0 && (
-            <p className="text-sm text-slate-400">Aucun employé assigné pour le moment.</p>
+            <p className="text-sm text-slate-400">{t('modals.clientAssignments.empty')}</p>
           )}
           {assignments.map((a) => {
             const employee = employeeById.get(a.employee_id);
@@ -131,7 +133,7 @@ export function ClientAssignmentsModal({
               <div key={a.id} className="flex items-center gap-2 rounded px-2 py-1 hover:bg-slate-50">
                 <span className="flex-1 truncate text-sm text-slate-700">{employeeName(employee)}</span>
                 <div className="flex flex-col items-center">
-                  <span className="text-[10px] text-slate-400">modèle</span>
+                  <span className="text-[10px] text-slate-400">{t('modals.assignmentEditor.model')}</span>
                   <select
                     value={a.remuneration_model ?? ''}
                     onChange={(e) => {
@@ -149,7 +151,7 @@ export function ClientAssignmentsModal({
                   </select>
                 </div>
                 <div className="flex flex-col items-center">
-                  <span className="text-[10px] text-slate-400">vendu</span>
+                  <span className="text-[10px] text-slate-400">{t('modals.assignmentEditor.sold')}</span>
                   <div className="flex items-center gap-0.5">
                     <input
                       key={`${a.id}-${a.etp_vendu}-${a.remuneration_model}`}
@@ -176,7 +178,7 @@ export function ClientAssignmentsModal({
                   </div>
                 </div>
                 <div className="flex flex-col items-center">
-                  <span className="text-[10px] text-slate-400">réel</span>
+                  <span className="text-[10px] text-slate-400">{t('modals.assignmentEditor.actual')}</span>
                   <div className="flex items-center gap-0.5">
                     <input
                       type="number"
@@ -203,7 +205,7 @@ export function ClientAssignmentsModal({
                 <button
                   onClick={() => runMutation(() => deleteAssignment(a.id))}
                   className="text-slate-400 hover:text-red-600"
-                  title="Retirer"
+                  title={t('modals.clientAssignments.remove')}
                 >
                   ✕
                 </button>
@@ -214,13 +216,13 @@ export function ClientAssignmentsModal({
 
         <div className="flex items-end gap-2 border-t border-slate-100 pt-3">
           <div className="flex-1">
-            <label className="mb-1 block text-xs text-slate-500">Employé</label>
+            <label className="mb-1 block text-xs text-slate-500">{t('modals.clientAssignments.employee')}</label>
             <input
               type="text"
               list="available-employees-suggestions"
               value={newEmployeeName}
               onChange={(e) => setNewEmployeeName(e.target.value)}
-              placeholder="Nom…"
+              placeholder={t('modals.clientAssignments.namePlaceholder')}
               className="h-8 w-full rounded border border-slate-300 px-2 text-sm"
             />
             <datalist id="available-employees-suggestions">
@@ -230,7 +232,7 @@ export function ClientAssignmentsModal({
             </datalist>
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-500">Modèle</label>
+            <label className="mb-1 block text-xs text-slate-500">{t('modals.assignmentEditor.modelLabel')}</label>
             <select
               value={newRemuneration}
               onChange={(e) => {
@@ -246,7 +248,7 @@ export function ClientAssignmentsModal({
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-500">% vendu</label>
+            <label className="mb-1 block text-xs text-slate-500">{t('modals.assignmentEditor.percentSold')}</label>
             <input
               type="number"
               min={0}
@@ -259,7 +261,7 @@ export function ClientAssignmentsModal({
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-500">% réel</label>
+            <label className="mb-1 block text-xs text-slate-500">{t('modals.assignmentEditor.percentActual')}</label>
             <input
               type="number"
               min={0}
@@ -275,7 +277,7 @@ export function ClientAssignmentsModal({
             disabled={submitting || !newEmployeeName.trim()}
             className="h-8 rounded bg-slate-900 px-3 text-sm font-medium text-white disabled:opacity-50"
           >
-            Ajouter
+            {t('modals.clientAssignments.add')}
           </button>
         </div>
 
@@ -284,7 +286,7 @@ export function ClientAssignmentsModal({
             onClick={onClose}
             className="rounded px-3 py-1.5 text-sm text-slate-500 hover:bg-slate-100"
           >
-            Fermer
+            {t('modals.clientAssignments.close')}
           </button>
         </div>
       </div>

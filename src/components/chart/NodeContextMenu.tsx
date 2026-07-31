@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { ContextMenu, type ContextMenuEntry } from './ContextMenu';
 
 interface NodeContextMenuProps {
@@ -28,14 +29,15 @@ export function NodeContextMenu({
   onDelete,
   onClose,
 }: NodeContextMenuProps) {
+  const { t } = useTranslation();
   const entries: ContextMenuEntry[] = [
-    { label: 'Nouveau manager', onSelect: onAddManager },
-    { label: 'Rattacher un manager existant…', onSelect: onLinkManager },
+    { label: t('chart.contextMenu.newManager'), onSelect: onAddManager },
+    { label: t('chart.contextMenu.linkManager'), onSelect: onLinkManager },
     { separator: true },
-    { label: 'Nouveau subordonné', onSelect: onAddSubordinate },
-    { label: 'Rattacher un subordonné existant…', onSelect: onLinkSubordinate },
+    { label: t('chart.contextMenu.newSubordinate'), onSelect: onAddSubordinate },
+    { label: t('chart.contextMenu.linkSubordinate'), onSelect: onLinkSubordinate },
     { separator: true },
-    { label: 'Supprimer cet employé', danger: true, onSelect: onDelete },
+    { label: t('chart.contextMenu.deleteEmployee'), danger: true, onSelect: onDelete },
   ];
 
   return <ContextMenu x={x} y={y} header={employeeName} entries={entries} onClose={onClose} />;

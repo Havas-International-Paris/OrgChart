@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { supabase } from '../lib/supabaseClient';
 import * as jobTitleService from '../services/jobTitleService';
 import type { JobTitle } from '../types/domain';
@@ -6,6 +7,7 @@ import { useHistoryStore } from '../stores/historyStore';
 import { useSelectionStore } from '../stores/selectionStore';
 
 export function useJobTitles() {
+  const { t } = useTranslation();
   const [jobTitles, setJobTitles] = useState<JobTitle[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -40,7 +42,7 @@ export function useJobTitles() {
     const orgChartId = useSelectionStore.getState().currentOrgChartId;
     if (orgChartId) {
       useHistoryStore.getState().push({
-        label: `Créer le poste ${created.name}`,
+        label: t('history.createJobTitle', { name: created.name }),
         orgChartId,
         undo: async () => {
           await jobTitleService.deleteJobTitle(created.id);
@@ -67,7 +69,7 @@ export function useJobTitles() {
     if (before && orgChartId) {
       const oldName = oldNameHint ?? before.name;
       useHistoryStore.getState().push({
-        label: `Renommer le poste ${oldName}`,
+        label: t('history.renameJobTitle', { name: oldName }),
         orgChartId,
         undo: async () => { await updateJobTitle(id, oldName); },
         redo: async () => { await updateJobTitle(id, name); },
@@ -82,7 +84,7 @@ export function useJobTitles() {
     const orgChartId = useSelectionStore.getState().currentOrgChartId;
     if (before && orgChartId) {
       useHistoryStore.getState().push({
-        label: `Supprimer le poste ${before.name}`,
+        label: t('history.deleteJobTitle', { name: before.name }),
         orgChartId,
         undo: async () => {
           await jobTitleService.restoreJobTitle(before);

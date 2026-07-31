@@ -5,6 +5,7 @@ import {
   type DragEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
+import { useTranslation } from 'react-i18next';
 import { PhotoFrame } from './PhotoFrame';
 import { baseSizePct } from '../../lib/photoFrameMath';
 import { employeePhotoUrl } from '../../services/employeePhotoService';
@@ -54,6 +55,7 @@ interface PhotoEditorModalProps {
 // element to hold focus — non-editable focused elements don't reliably
 // receive native paste events in every browser.
 export function PhotoEditorModal({ employeeName, photoPath, currentFrame, onSave, onDelete, onClose }: PhotoEditorModalProps) {
+  const { t } = useTranslation();
   const [pickedFile, setPickedFile] = useState<File | null>(null);
   const [pickedUrl, setPickedUrl] = useState<string | null>(null);
   const [frame, setFrame] = useState<PhotoFrameValues>(currentFrame);
@@ -81,7 +83,7 @@ export function PhotoEditorModal({ employeeName, photoPath, currentFrame, onSave
 
   function pickFile(file: File) {
     if (!file.type.startsWith('image/')) {
-      setError('Le fichier doit être une image.');
+      setError(t('modals.photoEditor.mustBeImage'));
       return;
     }
     setError(null);
@@ -164,7 +166,7 @@ export function PhotoEditorModal({ employeeName, photoPath, currentFrame, onSave
       await onSave(pickedFile, frame);
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Échec de l’enregistrement');
+      setError(err instanceof Error ? err.message : t('modals.photoEditor.saveError'));
     } finally {
       setSaving(false);
     }
@@ -177,7 +179,7 @@ export function PhotoEditorModal({ employeeName, photoPath, currentFrame, onSave
       await onDelete();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Échec de la suppression');
+      setError(err instanceof Error ? err.message : t('modals.photoEditor.deleteError'));
     } finally {
       setDeleting(false);
     }
@@ -186,7 +188,7 @@ export function PhotoEditorModal({ employeeName, photoPath, currentFrame, onSave
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
       <div className="w-full max-w-xs rounded-lg bg-white p-5 shadow-lg">
-        <h2 className="mb-3 text-sm font-semibold text-slate-900">Photo de {employeeName}</h2>
+        <h2 className="mb-3 text-sm font-semibold text-slate-900">{t('modals.photoEditor.title', { name: employeeName })}</h2>
 
         <div
           ref={previewRef}
@@ -219,8 +221,8 @@ export function PhotoEditorModal({ employeeName, photoPath, currentFrame, onSave
             />
           ) : (
             <div className="flex flex-col items-center gap-1 px-6 text-center text-xs text-slate-400">
-              <span>Glissez une image ici, cliquez pour parcourir,</span>
-              <span>ou collez avec Ctrl+V</span>
+              <span>{t('modals.photoEditor.dropHint1')}</span>
+              <span>{t('modals.photoEditor.dropHint2')}</span>
             </div>
           )}
         </div>
@@ -240,7 +242,7 @@ export function PhotoEditorModal({ employeeName, photoPath, currentFrame, onSave
         {src && (
           <>
             <p className="mt-2 text-center text-[11px] text-slate-400">
-              Glissez pour repositionner, molette pour zoomer
+              {t('modals.photoEditor.dragToReposition')}
             </p>
             <div className="mt-2 flex items-center gap-2">
               <button
@@ -272,7 +274,7 @@ export function PhotoEditorModal({ employeeName, photoPath, currentFrame, onSave
               onClick={() => inputRef.current?.click()}
               className="mt-2 text-xs text-slate-500 hover:underline"
             >
-              Changer de photo…
+              {t('modals.photoEditor.changePhoto')}
             </button>
           </>
         )}
@@ -287,21 +289,21 @@ export function PhotoEditorModal({ employeeName, photoPath, currentFrame, onSave
               disabled={deleting}
               className="text-sm text-red-600 hover:underline disabled:opacity-50"
             >
-              {deleting ? 'Suppression…' : 'Supprimer la photo'}
+              {deleting ? t('modals.photoEditor.deleting') : t('modals.photoEditor.deletePhoto')}
             </button>
           ) : (
             <span />
           )}
           <div className="flex gap-2">
             <button onClick={onClose} className="rounded px-3 py-1.5 text-sm text-slate-500 hover:bg-slate-100">
-              Annuler
+              {t('modals.photoEditor.cancel')}
             </button>
             <button
               onClick={handleSave}
               disabled={saving || !src}
               className="rounded bg-slate-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
             >
-              {saving ? 'Enregistrement…' : 'Enregistrer'}
+              {saving ? t('modals.photoEditor.saving') : t('modals.photoEditor.save')}
             </button>
           </div>
         </div>

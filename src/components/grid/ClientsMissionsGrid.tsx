@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useClientsMissions } from '../../hooks/useClientsMissions';
 import { useAssignments } from '../../hooks/useAssignments';
 import { useEmployees } from '../../hooks/useEmployees';
@@ -14,11 +15,6 @@ import type { ClientMission, ClientMissionType } from '../../types/domain';
 const FIELDS = ['name', 'type'] as const;
 type Field = (typeof FIELDS)[number];
 const FIELD_KIND: Record<Field, FieldKind> = { name: 'text', type: 'select' };
-const FIELD_LABEL: Record<Field, string> = { name: 'Nom', type: 'Type' };
-const TYPE_OPTIONS: { value: ClientMissionType; label: string }[] = [
-  { value: 'client', label: 'Client' },
-  { value: 'mission', label: 'Mission' },
-];
 
 function emptyDraft(): ClientMission {
   return {
@@ -30,6 +26,14 @@ function emptyDraft(): ClientMission {
 }
 
 export function ClientsMissionsGrid() {
+  const { t } = useTranslation();
+  const TYPE_OPTIONS: { value: ClientMissionType; label: string }[] = useMemo(
+    () => [
+      { value: 'client', label: t('grid.clientsMissions.type.client') },
+      { value: 'mission', label: t('grid.clientsMissions.type.mission') },
+    ],
+    [t],
+  );
   const currentOrgChartId = useSelectionStore((s) => s.currentOrgChartId);
   const gridDensity = useUiPreferencesStore((s) => s.gridDensity);
   const { clientsMissions, loading, error, createClientMission, updateClientMission, deleteClientMission } =
@@ -74,11 +78,7 @@ export function ClientsMissionsGrid() {
   const handleDelete = useCallback(
     (id: string) => {
       setActionError(null);
-      deleteClientMission(id).catch(() =>
-        setActionError(
-          "Impossible de supprimer : ce client/mission est utilisé par au moins une affectation existante.",
-        ),
-      );
+      deleteClientMission(id).catch(() => setActionError(t('grid.clientsMissions.deleteInUseError')));
     },
     [deleteClientMission],
   );
@@ -108,13 +108,13 @@ export function ClientsMissionsGrid() {
   return (
     <div className="flex h-full flex-col gap-2">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-slate-700">Clients / Missions</h2>
+        <h2 className="text-sm font-semibold text-slate-700">{t('grid.clientsMissions.title')}</h2>
         <button
           onClick={() => editing.startDraft(emptyDraft())}
           disabled={Boolean(editing.draft)}
           className="rounded bg-slate-900 px-3 py-1 text-xs font-medium text-white disabled:opacity-50"
         >
-          + Ajouter
+          {t('grid.clientsMissions.add')}
         </button>
       </div>
       {(error || actionError) && <p className="text-sm text-red-600">{error ?? actionError}</p>}
@@ -129,13 +129,13 @@ export function ClientsMissionsGrid() {
                     onClick={() => toggleSort(field)}
                     className="flex items-center gap-1 hover:text-slate-800"
                   >
-                    {FIELD_LABEL[field]}
+                    {t(`grid.clientsMissions.fields.${field}`)}
                     {sortField === field && <span className="text-[10px]">{sortDir === 'asc' ? '▲' : '▼'}</span>}
                   </button>
                 </th>
               ))}
-              <th className={`${rowPad} px-2 font-medium`}>Employés</th>
-              <th className={`${rowPad} px-2 font-medium`}>Total réel</th>
+              <th className={`${rowPad} px-2 font-medium`}>{t('grid.clientsMissions.employeesHeader')}</th>
+              <th className={`${rowPad} px-2 font-medium`}>{t('grid.clientsMissions.totalActualHeader')}</th>
               <th className="w-10" />
             </tr>
           </thead>
@@ -143,14 +143,14 @@ export function ClientsMissionsGrid() {
             {loading && (
               <tr role="row">
                 <td colSpan={5} className="p-4 text-center text-slate-400">
-                  Chargement…
+                  {t('grid.clientsMissions.loading')}
                 </td>
               </tr>
             )}
             {!loading && rows.length === 0 && (
               <tr role="row">
                 <td colSpan={5} className="p-4 text-center text-slate-400">
-                  Aucun client / mission.
+                  {t('grid.clientsMissions.empty')}
                 </td>
               </tr>
             )}
@@ -165,7 +165,7 @@ export function ClientsMissionsGrid() {
               return (
                 <tr key={row.id} role="row" className="border-b border-slate-100 hover:bg-slate-50">
                   <td role="gridcell" className={`${rowPad} px-2`}>
-                    <EditableCell editing={editing} row={row} field="name" title="Modifier le nom" />
+                    <EditableCell editing={editing} row={row} field="name" title={t('grid.clientsMissions.editName')} />
                   </td>
                   <td role="gridcell" className={`${rowPad} px-2`}>
                     <EditableCell
@@ -174,8 +174,12 @@ export function ClientsMissionsGrid() {
                       field="type"
                       options={TYPE_OPTIONS}
                       allowEmpty={false}
-                      display={<span className="truncate">{row.type === 'mission' ? 'Mission' : 'Client'}</span>}
-                      title="Modifier le type"
+                      display={
+                        <span className="truncate">
+                          {row.type === 'mission' ? t('grid.clientsMissions.type.mission') : t('grid.clientsMissions.type.client')}
+                        </span>
+                      }
+                      title={t('grid.clientsMissions.editType')}
                     />
                   </td>
                   <td role="gridcell" className={`${rowPad} px-2`}>
@@ -191,9 +195,9 @@ export function ClientsMissionsGrid() {
                                 ? 'text-amber-700'
                                 : 'text-red-700'
                         }`}
-                        title="Voir le détail par employé"
+                        title={t('grid.clientsMissions.viewDetail')}
                       >
-                        {count === 0 ? '+ Ajouter' : `${count} · ${totalVendu}% vendu`}
+                        {count === 0 ? t('grid.clientsMissions.add2') : `${count} · ${totalVendu}% ${t('grid.clientsMissions.sold')}`}
                       </button>
                     )}
                   </td>
@@ -204,7 +208,7 @@ export function ClientsMissionsGrid() {
                     {!isDraftRow && (
                       <button
                         onClick={() => handleDelete(row.id)}
-                        title="Supprimer"
+                        title={t('grid.clientsMissions.delete')}
                         className="text-slate-400 hover:text-red-600"
                       >
                         ✕

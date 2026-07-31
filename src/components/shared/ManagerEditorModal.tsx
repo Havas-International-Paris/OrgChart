@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { Employee, ReportingRelationship } from '../../types/domain';
 import type { DesiredManager } from '../../hooks/useReportingGraph';
 
@@ -19,6 +20,7 @@ export function ManagerEditorModal({
   onSave,
   onClose,
 }: ManagerEditorModalProps) {
+  const { t } = useTranslation();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(
     () => new Set(currentManagers.map((r) => r.manager_id)),
   );
@@ -64,11 +66,10 @@ export function ManagerEditorModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
       <div className="w-full max-w-md rounded-lg bg-white p-5 shadow-lg">
         <h2 className="mb-1 text-sm font-semibold text-slate-900">
-          Managers de {employee.first_name} {employee.last_name}
+          {t('modals.managerEditor.title', { name: `${employee.first_name} ${employee.last_name}` })}
         </h2>
         <p className="mb-3 text-xs text-slate-500">
-          Cochez un ou plusieurs managers (multi-reporting). Le bouton radio indique le manager
-          principal (trait plein dans l'organigramme).
+          {t('modals.managerEditor.description')}
         </p>
         <div className="max-h-72 space-y-1 overflow-auto">
           {candidates.map((candidate) => {
@@ -77,7 +78,7 @@ export function ManagerEditorModal({
             return (
               <label
                 key={candidate.id}
-                title={cyclic ? 'Créerait une boucle de reporting' : undefined}
+                title={cyclic ? t('modals.managerEditor.wouldCreateCycle') : undefined}
                 className={`flex items-center gap-2 rounded px-2 py-1 text-sm ${
                   cyclic ? 'cursor-not-allowed text-slate-300' : 'text-slate-700 hover:bg-slate-50'
                 }`}
@@ -108,14 +109,14 @@ export function ManagerEditorModal({
             onClick={onClose}
             className="rounded px-3 py-1.5 text-sm text-slate-500 hover:bg-slate-100"
           >
-            Annuler
+            {t('modals.managerEditor.cancel')}
           </button>
           <button
             onClick={handleSave}
             disabled={saving}
             className="rounded bg-slate-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
           >
-            {saving ? 'Enregistrement…' : 'Enregistrer'}
+            {saving ? t('modals.managerEditor.saving') : t('modals.managerEditor.save')}
           </button>
         </div>
       </div>

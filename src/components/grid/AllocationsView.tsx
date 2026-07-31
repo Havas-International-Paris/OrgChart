@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useAssignments } from '../../hooks/useAssignments';
 import { useEmployees } from '../../hooks/useEmployees';
 import { useClientsMissions } from '../../hooks/useClientsMissions';
@@ -31,13 +32,18 @@ function employeeName(employee: Employee | undefined): string {
   return employee ? `${employee.first_name} ${employee.last_name}` : '?';
 }
 
-function remunerationLabel(model: Assignment['remuneration_model']): string {
-  return model === 'commission' ? 'Commission' : model === 'retainer' ? 'Retainer' : '—';
+function remunerationLabel(model: Assignment['remuneration_model'], t: (key: string) => string): string {
+  return model === 'commission'
+    ? t('grid.allocations.commission')
+    : model === 'retainer'
+      ? t('grid.allocations.retainer')
+      : '—';
 }
 
 const ROW_GRID = 'grid grid-cols-[1fr_100px_70px_70px] gap-2 items-center';
 
 export function AllocationsView() {
+  const { t } = useTranslation();
   const currentOrgChartId = useSelectionStore((s) => s.currentOrgChartId);
   const { assignments, loading: assignmentsLoading } = useAssignments(currentOrgChartId);
   const { employees, loading: employeesLoading } = useEmployees(currentOrgChartId);
@@ -124,7 +130,7 @@ export function AllocationsView() {
   return (
     <div className="flex h-full flex-col gap-2">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-slate-700">Allocations</h2>
+        <h2 className="text-sm font-semibold text-slate-700">{t('grid.allocations.title')}</h2>
         <div className="flex overflow-hidden rounded border border-slate-300 text-xs">
           <button
             onClick={() => setGroupBy('client')}
@@ -132,7 +138,7 @@ export function AllocationsView() {
               groupBy === 'client' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-50'
             }`}
           >
-            Par client
+            {t('grid.allocations.byClient')}
           </button>
           <button
             onClick={() => setGroupBy('employee')}
@@ -140,7 +146,7 @@ export function AllocationsView() {
               groupBy === 'employee' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-50'
             }`}
           >
-            Par employé
+            {t('grid.allocations.byEmployee')}
           </button>
         </div>
       </div>
@@ -149,15 +155,15 @@ export function AllocationsView() {
         <div
           className={`sticky top-0 z-10 border-b border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-500 ${ROW_GRID}`}
         >
-          <span>{groupBy === 'client' ? 'Employé' : 'Client / Mission'}</span>
-          <span>Modèle</span>
-          <span className="text-right">% vendu</span>
-          <span className="text-right">% réel</span>
+          <span>{groupBy === 'client' ? t('grid.allocations.employeeHeader') : t('grid.allocations.clientMissionHeader')}</span>
+          <span>{t('grid.allocations.model')}</span>
+          <span className="text-right">{t('grid.allocations.percentSold')}</span>
+          <span className="text-right">{t('grid.allocations.percentActual')}</span>
         </div>
 
-        {loading && <p className="p-3 text-sm text-slate-400">Chargement…</p>}
+        {loading && <p className="p-3 text-sm text-slate-400">{t('grid.allocations.loading')}</p>}
         {!loading && groups.length === 0 && (
-          <p className="p-3 text-sm text-slate-400">Aucune affectation pour le moment.</p>
+          <p className="p-3 text-sm text-slate-400">{t('grid.allocations.empty')}</p>
         )}
         {!loading &&
           groups.map((group) => {
@@ -174,10 +180,10 @@ export function AllocationsView() {
                   <span className="text-xs text-slate-400">· {group.rows.length}</span>
                   <span className="ml-auto flex gap-4 text-xs">
                     <span className="text-slate-500">
-                      Vendu : {group.hasVendu ? `${group.totalVendu}%` : '—'}
+                      {t('grid.allocations.sold')} : {group.hasVendu ? `${group.totalVendu}%` : '—'}
                     </span>
                     <span className="text-slate-400">
-                      Réel : {group.hasReel ? `${group.totalReel}%` : '—'}
+                      {t('grid.allocations.actual')} : {group.hasReel ? `${group.totalReel}%` : '—'}
                     </span>
                   </span>
                 </button>
@@ -190,7 +196,7 @@ export function AllocationsView() {
                           <span className="ml-1 text-xs text-slate-400">({row.counterpartSublabel})</span>
                         )}
                       </span>
-                      <span className="text-xs text-slate-400">{remunerationLabel(row.remunerationModel)}</span>
+                      <span className="text-xs text-slate-400">{remunerationLabel(row.remunerationModel, t)}</span>
                       <span className="text-right text-xs text-slate-600">
                         {row.etpVendu === null ? '—' : `${row.etpVendu}%`}
                       </span>

@@ -4,3 +4,39 @@ html, body, #root {
   height: 100%;
   margin: 0;
 }
+
+/* RangeSlider.tsx's dual-handle slider: two overlapping <input type="range">
+   share one track, with pointer-events disabled on the input itself (so
+   clicking empty track never grabs the wrong handle) and re-enabled only on
+   the thumb pseudo-element, which is the only part each input should ever
+   react to. Tailwind has no utility for ::-webkit-slider-thumb/::-moz-range-
+   thumb, hence the plain CSS here rather than inline classes. */
+.range-slider-thumb::-webkit-slider-thumb {
+  pointer-events: auto;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  background: #0f172a;
+  cursor: pointer;
+  margin-top: 0;
+}
+
+.range-slider-thumb::-moz-range-thumb {
+  pointer-events: auto;
+  width: 14px;
+  height: 14px;
+  border: none;
+  border-radius: 9999px;
+  background: #0f172a;
+  cursor: pointer;
+}
+
+.range-slider-thumb::-webkit-slider-runnable-track {
+  -webkit-appearance: none;
+  background: transparent;
+}
+
+.range-slider-thumb::-moz-range-track {
+  background: transparent;
+}

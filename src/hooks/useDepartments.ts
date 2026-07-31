@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { supabase } from '../lib/supabaseClient';
 import * as departmentService from '../services/departmentService';
 import type { Department } from '../types/domain';
@@ -6,6 +7,7 @@ import { useHistoryStore } from '../stores/historyStore';
 import { useSelectionStore } from '../stores/selectionStore';
 
 export function useDepartments() {
+  const { t } = useTranslation();
   const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -40,7 +42,7 @@ export function useDepartments() {
     const orgChartId = useSelectionStore.getState().currentOrgChartId;
     if (orgChartId) {
       useHistoryStore.getState().push({
-        label: `Créer la business unit ${created.name}`,
+        label: t('history.createDepartment', { name: created.name }),
         orgChartId,
         undo: async () => {
           await departmentService.deleteDepartment(created.id);
@@ -66,7 +68,7 @@ export function useDepartments() {
     if (before && orgChartId) {
       const oldName = oldNameHint ?? before.name;
       useHistoryStore.getState().push({
-        label: `Renommer la business unit ${oldName}`,
+        label: t('history.renameDepartment', { name: oldName }),
         orgChartId,
         undo: async () => { await updateDepartment(id, oldName); },
         redo: async () => { await updateDepartment(id, name); },
@@ -82,7 +84,7 @@ export function useDepartments() {
     if (before && orgChartId) {
       const oldColor = before.color;
       useHistoryStore.getState().push({
-        label: `Changer la couleur de ${before.name}`,
+        label: t('history.changeDepartmentColor', { name: before.name }),
         orgChartId,
         undo: async () => { await updateDepartmentColor(id, oldColor); },
         redo: async () => { await updateDepartmentColor(id, color); },
@@ -97,7 +99,7 @@ export function useDepartments() {
     const orgChartId = useSelectionStore.getState().currentOrgChartId;
     if (before && orgChartId) {
       useHistoryStore.getState().push({
-        label: `Supprimer la business unit ${before.name}`,
+        label: t('history.deleteDepartment', { name: before.name }),
         orgChartId,
         undo: async () => {
           await departmentService.restoreDepartment(before);

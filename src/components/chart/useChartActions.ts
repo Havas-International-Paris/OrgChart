@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useSelectionStore } from '../../stores/selectionStore';
 import { useHistoryStore, withSuppressedRecording } from '../../stores/historyStore';
 import { usePhotoActions } from '../../hooks/usePhotoActions';
@@ -17,6 +18,7 @@ interface LinkModalState {
 // its controls showing). Pulled out of OrgChartView so that file is left with
 // composition and markup.
 export function useChartActions(currentOrgChartId: string | null, data: ChartData) {
+  const { t } = useTranslation();
   const {
     employees,
     employeeById,
@@ -67,14 +69,17 @@ export function useChartActions(currentOrgChartId: string | null, data: ChartDat
       let created!: Employee;
       let createdEdge!: ReportingRelationship;
       await withSuppressedRecording(async () => {
-        created = await createEmployee({ first_name: 'Nouveau', last_name: 'Manager' });
+        created = await createEmployee({
+          first_name: t('chart.quickAdd.newManagerFirstName'),
+          last_name: t('chart.quickAdd.newManagerLastName'),
+        });
         createdEdge = await addRelationship(employeeId, created.id, isPrimary);
       });
       setSelectedEmployee(created.id);
 
       if (currentOrgChartId) {
         useHistoryStore.getState().push({
-          label: 'Ajouter un manager',
+          label: t('history.addManager'),
           orgChartId: currentOrgChartId,
           // Deleting the employee cascades (FK) the relationship row too.
           undo: async () => { await deleteEmployee(created.id); },
@@ -88,7 +93,7 @@ export function useChartActions(currentOrgChartId: string | null, data: ChartDat
         });
       }
     },
-    [managersOf, createEmployee, restoreEmployee, addRelationship, restoreRelationship, deleteEmployee, setSelectedEmployee, currentOrgChartId],
+    [managersOf, createEmployee, restoreEmployee, addRelationship, restoreRelationship, deleteEmployee, setSelectedEmployee, currentOrgChartId, t],
   );
 
   const quickAddSubordinate = useCallback(
@@ -96,14 +101,17 @@ export function useChartActions(currentOrgChartId: string | null, data: ChartDat
       let created!: Employee;
       let createdEdge!: ReportingRelationship;
       await withSuppressedRecording(async () => {
-        created = await createEmployee({ first_name: 'Nouveau', last_name: 'Collaborateur' });
+        created = await createEmployee({
+          first_name: t('chart.quickAdd.newSubordinateFirstName'),
+          last_name: t('chart.quickAdd.newSubordinateLastName'),
+        });
         createdEdge = await addRelationship(created.id, employeeId, true);
       });
       setSelectedEmployee(created.id);
 
       if (currentOrgChartId) {
         useHistoryStore.getState().push({
-          label: 'Ajouter un subordonné',
+          label: t('history.addSubordinate'),
           orgChartId: currentOrgChartId,
           undo: async () => { await deleteEmployee(created.id); },
           redo: () =>
@@ -114,7 +122,7 @@ export function useChartActions(currentOrgChartId: string | null, data: ChartDat
         });
       }
     },
-    [createEmployee, restoreEmployee, addRelationship, restoreRelationship, deleteEmployee, setSelectedEmployee, currentOrgChartId],
+    [createEmployee, restoreEmployee, addRelationship, restoreRelationship, deleteEmployee, setSelectedEmployee, currentOrgChartId, t],
   );
 
   const openLinkManager = useCallback(
@@ -269,7 +277,7 @@ export function useChartActions(currentOrgChartId: string | null, data: ChartDat
     if (direction === 'manager') {
       const existingManagerIds = new Set(managersOf(employeeId).map((r) => r.manager_id));
       return {
-        title: `Ajouter un manager à ${currentLabel}`,
+        title: t('chart.linkModal.addManagerTo', { name: currentLabel }),
         candidates: employees.filter((e) => e.id !== employeeId && !existingManagerIds.has(e.id)),
         isDisabled: (candidateId: string) => wouldCreateCycle(employeeId, candidateId),
         onLink: async (candidateId: string) => {
@@ -281,7 +289,7 @@ export function useChartActions(currentOrgChartId: string | null, data: ChartDat
 
     const existingReportIds = new Set(directReportsOf(employeeId).map((r) => r.employee_id));
     return {
-      title: `Ajouter un subordonné à ${currentLabel}`,
+      title: t('chart.linkModal.addSubordinateTo', { name: currentLabel }),
       candidates: employees.filter((e) => e.id !== employeeId && !existingReportIds.has(e.id)),
       isDisabled: (candidateId: string) => wouldCreateCycle(candidateId, employeeId),
       onLink: async (candidateId: string) => {
@@ -289,7 +297,7 @@ export function useChartActions(currentOrgChartId: string | null, data: ChartDat
         await addRelationship(candidateId, employeeId, !hasPrimary);
       },
     };
-  }, [linkModal, employeeById, employees, managersOf, directReportsOf, wouldCreateCycle, addRelationship]);
+  }, [linkModal, employeeById, employees, managersOf, directReportsOf, wouldCreateCycle, addRelationship, t]);
 
   const detailPanelProps = useMemo(() => {
     if (!selectedEmployeeId) return null;

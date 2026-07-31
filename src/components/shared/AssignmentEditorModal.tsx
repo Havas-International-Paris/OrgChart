@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type {
   Assignment,
   ClientMission,
@@ -51,6 +52,7 @@ export function AssignmentEditorModal({
   deleteAssignment,
   onClose,
 }: AssignmentEditorModalProps) {
+  const { t } = useTranslation();
   const [newName, setNewName] = useState('');
   const [newType, setNewType] = useState<ClientMissionType>('client');
   const [newEtp, setNewEtp] = useState('');
@@ -92,13 +94,13 @@ export function AssignmentEditorModal({
     const rawVendu = newEtp.trim();
     const etpVendu = rawVendu === '' ? null : Number(rawVendu);
     if (etpVendu !== null && (!Number.isFinite(etpVendu) || etpVendu < 0 || etpVendu > 100)) {
-      setError('% vendu invalide');
+      setError(t('modals.assignmentEditor.invalidSold'));
       return;
     }
     const rawReel = newReel.trim();
     const etpReel = rawReel === '' ? null : Number(rawReel);
     if (etpReel !== null && (!Number.isFinite(etpReel) || etpReel < 0 || etpReel > 100)) {
-      setError('% réel invalide');
+      setError(t('modals.assignmentEditor.invalidActual'));
       return;
     }
     const model = newRemuneration === '' ? null : newRemuneration;
@@ -123,7 +125,7 @@ export function AssignmentEditorModal({
       // assignment's client_mission_id still points at the right row after a
       // redo — which is exactly what needed an id indirection before.
       useHistoryStore.getState().push({
-        label: `Ajouter une affectation (${cm.name})`,
+        label: t('modals.assignmentEditor.historyAddLabel', { name: cm.name }),
         orgChartId,
         undo: () =>
           withSuppressedRecording(async () => {
@@ -150,13 +152,13 @@ export function AssignmentEditorModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
       <div className="w-full max-w-2xl rounded-lg bg-white p-5 shadow-lg">
         <h2 className="mb-1 text-sm font-semibold text-slate-900">
-          Clients / missions de {employee.first_name} {employee.last_name}
+          {t('modals.assignmentEditor.title', { name: `${employee.first_name} ${employee.last_name}` })}
         </h2>
         <p className="text-xs text-slate-500">
-          Total vendu : {venduKnown.length > 0 ? `${totalVendu}%` : '—'} ETP
+          {t('modals.assignmentEditor.totalSold', { value: venduKnown.length > 0 ? `${totalVendu}%` : '—' })}
         </p>
         <p className="mb-3 text-xs text-slate-400">
-          Total réel : {reelKnown.length > 0 ? `${totalReel}%` : '—'} ETP
+          {t('modals.assignmentEditor.totalActual', { value: reelKnown.length > 0 ? `${totalReel}%` : '—' })}
         </p>
 
         {error && (
@@ -165,7 +167,7 @@ export function AssignmentEditorModal({
 
         <div className="mb-4 max-h-64 space-y-1 overflow-auto">
           {assignments.length === 0 && (
-            <p className="text-sm text-slate-400">Aucune affectation pour le moment.</p>
+            <p className="text-sm text-slate-400">{t('modals.assignmentEditor.empty')}</p>
           )}
           {assignments.map((a) => {
             const cm = clientMissionById.get(a.client_mission_id);
@@ -179,7 +181,7 @@ export function AssignmentEditorModal({
                   </span>
                 </span>
                 <div className="flex flex-col items-center">
-                  <span className="text-[10px] text-slate-400">modèle</span>
+                  <span className="text-[10px] text-slate-400">{t('modals.assignmentEditor.model')}</span>
                   <select
                     value={a.remuneration_model ?? ''}
                     onChange={(e) => {
@@ -197,7 +199,7 @@ export function AssignmentEditorModal({
                   </select>
                 </div>
                 <div className="flex flex-col items-center">
-                  <span className="text-[10px] text-slate-400">vendu</span>
+                  <span className="text-[10px] text-slate-400">{t('modals.assignmentEditor.sold')}</span>
                   <div className="flex items-center gap-0.5">
                     <input
                       key={`${a.id}-${a.etp_vendu}-${a.remuneration_model}`}
@@ -224,7 +226,7 @@ export function AssignmentEditorModal({
                   </div>
                 </div>
                 <div className="flex flex-col items-center">
-                  <span className="text-[10px] text-slate-400">réel</span>
+                  <span className="text-[10px] text-slate-400">{t('modals.assignmentEditor.actual')}</span>
                   <div className="flex items-center gap-0.5">
                     <input
                       type="number"
@@ -251,7 +253,7 @@ export function AssignmentEditorModal({
                 <button
                   onClick={() => runMutation(() => deleteAssignment(a.id))}
                   className="text-slate-400 hover:text-red-600"
-                  title="Supprimer"
+                  title={t('modals.assignmentEditor.delete')}
                 >
                   ✕
                 </button>
@@ -262,13 +264,13 @@ export function AssignmentEditorModal({
 
         <div className="flex items-end gap-2 border-t border-slate-100 pt-3">
           <div className="flex-1">
-            <label className="mb-1 block text-xs text-slate-500">Client ou mission</label>
+            <label className="mb-1 block text-xs text-slate-500">{t('modals.assignmentEditor.clientOrMission')}</label>
             <input
               type="text"
               list="clients-missions-suggestions"
               value={newName}
               onChange={(e) => handleNameChange(e.target.value)}
-              placeholder="Nom…"
+              placeholder={t('modals.assignmentEditor.namePlaceholder')}
               className="h-8 w-full rounded border border-slate-300 px-2 text-sm"
             />
             <datalist id="clients-missions-suggestions">
@@ -278,18 +280,18 @@ export function AssignmentEditorModal({
             </datalist>
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-500">Type</label>
+            <label className="mb-1 block text-xs text-slate-500">{t('modals.assignmentEditor.type')}</label>
             <select
               value={newType}
               onChange={(e) => setNewType(e.target.value as ClientMissionType)}
               className="h-8 rounded border border-slate-300 px-2 text-sm"
             >
-              <option value="client">Client</option>
-              <option value="mission">Mission</option>
+              <option value="client">{t('filters.client')}</option>
+              <option value="mission">{t('filters.mission')}</option>
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-500">Modèle</label>
+            <label className="mb-1 block text-xs text-slate-500">{t('modals.assignmentEditor.modelLabel')}</label>
             <select
               value={newRemuneration}
               onChange={(e) => {
@@ -305,7 +307,7 @@ export function AssignmentEditorModal({
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-500">% vendu</label>
+            <label className="mb-1 block text-xs text-slate-500">{t('modals.assignmentEditor.percentSold')}</label>
             <input
               type="number"
               min={0}
@@ -318,7 +320,7 @@ export function AssignmentEditorModal({
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-500">% réel</label>
+            <label className="mb-1 block text-xs text-slate-500">{t('modals.assignmentEditor.percentActual')}</label>
             <input
               type="number"
               min={0}
@@ -334,7 +336,7 @@ export function AssignmentEditorModal({
             disabled={submitting || !newName.trim()}
             className="h-8 rounded bg-slate-900 px-3 text-sm font-medium text-white disabled:opacity-50"
           >
-            Ajouter
+            {t('modals.assignmentEditor.add')}
           </button>
         </div>
 
@@ -343,7 +345,7 @@ export function AssignmentEditorModal({
             onClick={onClose}
             className="rounded px-3 py-1.5 text-sm text-slate-500 hover:bg-slate-100"
           >
-            Fermer
+            {t('modals.assignmentEditor.close')}
           </button>
         </div>
       </div>

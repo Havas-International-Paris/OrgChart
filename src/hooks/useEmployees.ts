@@ -1,10 +1,12 @@
 import { useCallback, useRef, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { supabase } from '../lib/supabaseClient';
 import * as employeeService from '../services/employeeService';
 import type { Employee, EmployeeInput, PhotoFrameValues } from '../types/domain';
 import { useHistoryStore, withSuppressedRecording } from '../stores/historyStore';
 
 export function useEmployees(orgChartId: string | null) {
+  const { t } = useTranslation();
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -108,7 +110,7 @@ export function useEmployees(orgChartId: string | null) {
       // the original row rather than creating a new one — so a plain string id is
       // safe to close over here, and in every other command below.
       useHistoryStore.getState().push({
-        label: `Créer ${created.first_name} ${created.last_name}`,
+        label: t('history.createEmployee', { name: `${created.first_name} ${created.last_name}` }),
         orgChartId,
         undo: () => deleteEmployee(created.id),
         redo: async () => {
@@ -118,7 +120,7 @@ export function useEmployees(orgChartId: string | null) {
       });
       return created;
     },
-    [orgChartId, refresh, deleteEmployee],
+    [orgChartId, refresh, deleteEmployee, t],
   );
 
   // Undo-only helper: re-inserts a deleted row under its ORIGINAL id, whole row
@@ -157,7 +159,7 @@ export function useEmployees(orgChartId: string | null) {
             oldValuesHint && key in oldValuesHint ? oldValuesHint[key] : before[key];
         }
         useHistoryStore.getState().push({
-          label: `Modifier ${before.first_name} ${before.last_name}`,
+          label: t('history.updateEmployee', { name: `${before.first_name} ${before.last_name}` }),
           orgChartId,
           undo: async () => { await updateEmployee(id, oldChanges); },
           redo: async () => { await updateEmployee(id, changes); },
@@ -165,7 +167,7 @@ export function useEmployees(orgChartId: string | null) {
       }
       return updated;
     },
-    [employees, orgChartId, refresh],
+    [employees, orgChartId, refresh, t],
   );
 
   // Deliberately NOT auto-recorded: usePhotoActions.ts's replacePhoto/
@@ -195,7 +197,7 @@ export function useEmployees(orgChartId: string | null) {
           panY: before.photo_pan_y,
         };
         useHistoryStore.getState().push({
-          label: `Recadrer la photo de ${before.first_name} ${before.last_name}`,
+          label: t('history.reframePhoto', { name: `${before.first_name} ${before.last_name}` }),
           orgChartId,
           undo: async () => { await updateEmployeePhotoFrame(id, oldFrame); },
           redo: async () => { await updateEmployeePhotoFrame(id, frame); },
@@ -203,7 +205,7 @@ export function useEmployees(orgChartId: string | null) {
       }
       return updated;
     },
-    [employees, orgChartId, refresh],
+    [employees, orgChartId, refresh, t],
   );
 
   // Drag-to-reorder support (siblingOrder.ts). `updates` may cover more than

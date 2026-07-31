@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { applyNodeChanges, type Edge, type Node, type NodeChange } from '@xyflow/react';
 import type { ReportingRelationship } from '../../types/domain';
 import { useSelectionStore } from '../../stores/selectionStore';
 import { NEUTRAL_DEPARTMENT_COLOR } from '../../lib/departmentColor';
-import { layoutWithElk } from './layoutEngine';
+import { layoutWithElk, NODE_HEIGHT, NODE_WIDTH } from './layoutEngine';
+import { routeAroundObstacles, type Rect } from './edgeRouting';
 import { ROOT_GROUP_KEY } from './siblingOrder';
 import { computeReorder, findDisplacementTargets, type ChartGeometry } from './siblingReorderGeometry';
 import { useReportingChain } from './useReportingChain';
@@ -17,7 +19,10 @@ interface ChartNodesInput {
   data: ChartData;
   visibility: ReturnType<typeof useChartVisibility>;
   actions: ChartActions;
-  deptFilter: string | null;
+  deptFilterNames: Set<string>;
+  jobTitleFilterNames: Set<string>;
+  etpVenduRange: { min: number; max: number };
+  etpReelRange: { min: number; max: number };
 }
 
 // The React Flow node and edge arrays, and everything that has to stay welded to
@@ -30,7 +35,16 @@ interface ChartNodesInput {
 // hooks, which is exactly what reintroduces the infinite render loop and the
 // drag flicker documented below. The reorder *geometry* is the part that could
 // be separated cleanly, and it lives in siblingReorderGeometry.ts (unit-tested).
-export function useChartNodes({ data, visibility, actions, deptFilter }: ChartNodesInput) {
+export function useChartNodes({
+  data,
+  visibility,
+  actions,
+  deptFilterNames,
+  jobTitleFilterNames,
+  etpVenduRange,
+  etpReelRange,
+}: ChartNodesInput) {
+  const { t } = useTranslation();
   const {
     employees,
     employeeById,
@@ -217,10 +231,12 @@ export function useChartNodes({ data, visibility, actions, deptFilter }: ChartNo
       }
 
       const employee = employeeById.get(node.id);
-      const label = employee ? `Réordonner ${employee.first_name} ${employee.last_name}` : 'Réordonner';
+      const label = employee
+        ? t('history.reorder', { name: `${employee.first_name} ${employee.last_name}` })
+        : t('history.reorderFallback');
       updateSiblingOrders(outcome.updates, label);
     },
-    [reorderGeometry, layoutedNodeById, employeeById, updateSiblingOrders],
+    [reorderGeometry, layoutedNodeById, employeeById, updateSiblingOrders, t],
   );
 
   const handleNodesChange = useCallback(
@@ -250,6 +266,12 @@ export function useChartNodes({ data, visibility, actions, deptFilter }: ChartNo
 
   const { nodes: computedNodes, edges } = useMemo(() => {
     const visibleIds = new Set(finalVisibleEmployees.map((e) => e.id));
+
+    // Default bounds (0-150) mean "inactive" — same convention as the empty
+    // Sets below, kept in sync with selectionStore.ts's defaults and
+    // FiltersPanel.tsx's slider bounds.
+    const isVenduRangeActive = etpVenduRange.min > 0 || etpVenduRange.max < 150;
+    const isReelRangeActive = etpReelRange.min > 0 || etpReelRange.max < 150;
 
     const primaryEdgeBase = primaryEdges
       .filter((r) => visibleIds.has(r.employee_id) && visibleIds.has(r.manager_id))
@@ -301,7 +323,14 @@ export function useChartNodes({ data, visibility, actions, deptFilter }: ChartNo
         .map((a) => clientMissionNameById.get(a.client_mission_id))
         .filter((name): name is string => Boolean(name));
       const isDimmed =
-        (deptFilter !== null && employee.department !== deptFilter) ||
+        (deptFilterNames.size > 0 &&
+          (employee.department === null || !deptFilterNames.has(employee.department))) ||
+        (jobTitleFilterNames.size > 0 &&
+          (employee.job_title === null || !jobTitleFilterNames.has(employee.job_title))) ||
+        (isVenduRangeActive &&
+          (totalEtpOf(employee.id) < etpVenduRange.min || totalEtpOf(employee.id) > etpVenduRange.max)) ||
+        (isReelRangeActive &&
+          (totalEtpReelOf(employee.id) < etpReelRange.min || totalEtpReelOf(employee.id) > etpReelRange.max)) ||
         (matchingEmployeeIds !== null && !matchingEmployeeIds.has(employee.id)) ||
         (activeEmployeeId !== null && !relatedIds.has(employee.id));
       const isHoverEdgeEndpoint =
@@ -414,15 +443,52 @@ export function useChartNodes({ data, visibility, actions, deptFilter }: ChartNo
       };
     });
 
+    // Obstacle rectangles for edgeRouting.ts's routeAroundObstacles — every
+    // currently-visible card's own box, in the same top-left coordinate
+    // space layoutedNodeById already uses. Computed once per render of this
+    // memo (i.e. only when the layout/visible-set actually changes, same as
+    // everything else here), not per edge.
+    const obstacleRectById = new Map<string, Rect>();
+    for (const employee of finalVisibleEmployees) {
+      const base = layoutedNodeById.get(employee.id);
+      if (!base) continue;
+      obstacleRectById.set(employee.id, {
+        x: base.position.x,
+        y: base.position.y,
+        width: NODE_WIDTH,
+        height: NODE_HEIGHT,
+      });
+    }
+
     const styledSecondaryEdges: Edge<ReportingEdgeData>[] = secondaryEdgeBase.map(({ relationship, ...e }) => {
       const state = edgeHighlight(e.source, e.target, relationship.id);
+      // A dotted line only ever needs a detour when its direct curve would
+      // cross an unrelated card — routeAroundObstacles returns null in the
+      // overwhelming common case, and that null just falls through to the
+      // plain bezier ReportingEdge.tsx already draws. Only OTHER cards count
+      // as obstacles: the edge's own two endpoints are excluded, using each
+      // node's bottom/top-center as its approximate connection point (exact
+      // handle offsets don't matter for deciding whether a distant,
+      // unrelated card sits in the way).
+      const sourceRect = obstacleRectById.get(e.source);
+      const targetRect = obstacleRectById.get(e.target);
+      const bendPoints =
+        sourceRect && targetRect
+          ? routeAroundObstacles(
+              { x: sourceRect.x + NODE_WIDTH / 2, y: sourceRect.y + NODE_HEIGHT },
+              { x: targetRect.x + NODE_WIDTH / 2, y: targetRect.y },
+              [...obstacleRectById.entries()]
+                .filter(([id]) => id !== e.source && id !== e.target)
+                .map(([, rect]) => rect),
+            )
+          : null;
       return {
         ...e,
         type: 'reporting',
         sourceHandle: relationship.id,
         targetHandle: relationship.id,
         reconnectable: 'source' as const,
-        data: edgeData(relationship),
+        data: { ...edgeData(relationship), bendPoints: bendPoints ?? undefined },
         style:
           state === 'highlighted'
             ? { stroke: subordinateColor(e.target), strokeWidth: 2.5, strokeDasharray: '2 4' }
@@ -459,7 +525,10 @@ export function useChartNodes({ data, visibility, actions, deptFilter }: ChartNo
     managersOf,
     directReportsOf,
     clientMissionNameById,
-    deptFilter,
+    deptFilterNames,
+    jobTitleFilterNames,
+    etpVenduRange,
+    etpReelRange,
     matchingEmployeeIds,
     jobTitleNames,
     departmentNames,

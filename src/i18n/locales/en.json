@@ -1,0 +1,340 @@
+{
+  "common": {
+    "close": "Close",
+    "cancel": "Cancel",
+    "save": "Save",
+    "delete": "Delete",
+    "edit": "Edit",
+    "add": "Add",
+    "confirm": "Confirm",
+    "loading": "Loading…"
+  },
+  "appShell": {
+    "title": "Havas International Org Chart",
+    "verifyingSession": "Verifying session…",
+    "loadingOrgCharts": "Loading org charts…",
+    "noOrgChartsTitle": "No org chart exists yet.",
+    "noOrgChartsSubtitle": "Create one to get started.",
+    "openingOrgChart": "Opening org chart…",
+    "manage": "Manage",
+    "signOut": "Sign out",
+    "resize": "Resize"
+  },
+  "leftPanel": {
+    "tabs": {
+      "employees": "Employees",
+      "clientsMissions": "Clients / Missions",
+      "allocations": "Allocations",
+      "jobTitles": "Job Titles",
+      "departments": "Business Units"
+    },
+    "density": {
+      "comfortable": "Comfortable",
+      "compact": "Compact"
+    }
+  },
+  "searchBar": {
+    "placeholder": "Search an employee…"
+  },
+  "filters": {
+    "button": "Filters",
+    "businessUnit": "Business Unit",
+    "jobTitle": "Job Title",
+    "clientMission": "Client / Mission",
+    "timeSold": "Time sold",
+    "timeActual": "Time actual",
+    "reset": "Reset",
+    "client": "Client",
+    "mission": "Mission"
+  },
+  "undoRedo": {
+    "undo": "Undo",
+    "redo": "Redo",
+    "redoneToast": "Redone: {{label}}",
+    "undoneToast": "Undone: {{label}}"
+  },
+  "orgChartManager": {
+    "title": "Org Charts",
+    "newChart": "New org chart (empty)",
+    "name": "Name",
+    "shortLabel": "Short label",
+    "namePlaceholder": "New org chart",
+    "create": "Create",
+    "creating": "Creating…",
+    "duplicateExisting": "Duplicate an existing org chart",
+    "chartToDuplicate": "Org chart to duplicate",
+    "copyName": "Copy name",
+    "duplicate": "Duplicate",
+    "duplicating": "Duplicating…",
+    "existingCharts": "Existing org charts",
+    "copyOf": "Copy of {{name}}",
+    "deleteConfirm": "Permanently delete “{{name}}” and all its data (employees, reporting relationships, missions)? This action is irreversible.",
+    "cannotDeleteLast": "Cannot delete the last org chart",
+    "saving": "…"
+  },
+  "grid": {
+    "employees": {
+      "title": "Employees",
+      "exportCsv": "Export CSV",
+      "add": "+ Add",
+      "loading": "Loading…",
+      "empty": "No employees.",
+      "fields": {
+        "first_name": "First name",
+        "last_name": "Last name",
+        "job_title": "Job Title",
+        "role_desc": "Role",
+        "department": "Business Unit"
+      },
+      "managersHeader": "Managers",
+      "clientsMissionsHeader": "Clients / Missions",
+      "editField": "Edit {{field}}",
+      "editManagers": "Edit managers",
+      "addManager": "+ Add a manager",
+      "editAssignments": "Edit assignments",
+      "add2": "+ Add",
+      "secondary": "(secondary)",
+      "delete": "Delete"
+    },
+    "clientsMissions": {
+      "title": "Clients / Missions",
+      "add": "+ Add",
+      "loading": "Loading…",
+      "empty": "No client / mission.",
+      "fields": { "name": "Name", "type": "Type" },
+      "type": { "client": "Client", "mission": "Mission" },
+      "employeesHeader": "Employees",
+      "totalActualHeader": "Total actual",
+      "editName": "Edit name",
+      "editType": "Edit type",
+      "viewDetail": "View detail by employee",
+      "add2": "+ Add",
+      "sold": "sold",
+      "delete": "Delete",
+      "deleteInUseError": "Cannot delete: this client/mission is used by at least one existing assignment."
+    },
+    "departments": {
+      "title": "Business Units",
+      "add": "+ Add",
+      "loading": "Loading…",
+      "empty": "No Business Unit.",
+      "colorHeader": "Color",
+      "nameHeader": "Business Unit",
+      "editName": "Edit Business Unit",
+      "changeColor": "Change {{name}}'s color",
+      "delete": "Delete"
+    },
+    "jobTitles": {
+      "title": "Job Titles",
+      "add": "+ Add",
+      "loading": "Loading…",
+      "empty": "No job title.",
+      "nameHeader": "Job Title",
+      "editName": "Edit job title",
+      "delete": "Delete"
+    },
+    "allocations": {
+      "title": "Allocations",
+      "byClient": "By client",
+      "byEmployee": "By employee",
+      "employeeHeader": "Employee",
+      "clientMissionHeader": "Client / Mission",
+      "model": "Model",
+      "percentSold": "% sold",
+      "percentActual": "% actual",
+      "loading": "Loading…",
+      "empty": "No assignment yet.",
+      "sold": "Sold",
+      "actual": "Actual",
+      "commission": "Commission",
+      "retainer": "Retainer"
+    }
+  },
+  "chart": {
+    "emptyState": "No employees yet — add one in the spreadsheet.",
+    "expandAll": "Expand all",
+    "export": "Export as image",
+    "exporting": "Exporting…",
+    "deleteRelationship": "Delete this relationship",
+    "node": {
+      "showEveryone": "Show everyone",
+      "isolateTeam": "Isolate this person and their team",
+      "collapseTeam": "Collapse team",
+      "expandTeam": "Expand team",
+      "chooseJobTitle": "Choose a job title…",
+      "addJobTitle": "+ job title",
+      "chooseBusinessUnit": "Choose a business unit…",
+      "addBusinessUnit": "+ business unit",
+      "editAssignments": "Edit assignments",
+      "sold": "Sold",
+      "actual": "Actual",
+      "totalAndDirect_one": "{{total}} total · {{count}} direct report",
+      "totalAndDirect_other": "{{total}} total · {{count}} direct reports",
+      "functionalCount": "+{{count}} func."
+    },
+    "detailPanel": {
+      "directManager": "Direct manager",
+      "functionalManagers": "Functional manager(s)",
+      "directReports_one": "Direct report ({{count}})",
+      "directReports_other": "Direct reports ({{count}})",
+      "functionalReports_one": "Incoming functional report ({{count}})",
+      "functionalReports_other": "Incoming functional reports ({{count}})"
+    },
+    "contextMenu": {
+      "newManager": "New manager",
+      "linkManager": "Link an existing manager…",
+      "newSubordinate": "New subordinate",
+      "linkSubordinate": "Link an existing subordinate…",
+      "deleteEmployee": "Delete this employee"
+    },
+    "quickAdd": {
+      "newManagerFirstName": "New",
+      "newManagerLastName": "Manager",
+      "newSubordinateFirstName": "New",
+      "newSubordinateLastName": "Team member"
+    },
+    "linkModal": {
+      "addManagerTo": "Add a manager to {{name}}",
+      "addSubordinateTo": "Add a subordinate to {{name}}"
+    }
+  },
+  "modals": {
+    "assignmentEditor": {
+      "title": "Clients / missions for {{name}}",
+      "totalSold": "Total sold: {{value}} ETP",
+      "totalActual": "Total actual: {{value}} ETP",
+      "empty": "No assignment yet.",
+      "model": "model",
+      "sold": "sold",
+      "actual": "actual",
+      "delete": "Delete",
+      "clientOrMission": "Client or mission",
+      "namePlaceholder": "Name…",
+      "type": "Type",
+      "modelLabel": "Model",
+      "percentSold": "% sold",
+      "percentActual": "% actual",
+      "add": "Add",
+      "close": "Close",
+      "invalidSold": "Invalid % sold",
+      "invalidActual": "Invalid % actual",
+      "historyAddLabel": "Add an assignment ({{name}})"
+    },
+    "clientAssignments": {
+      "title": "Employees on {{name}}",
+      "totalSold": "Total sold: {{value}} ETP",
+      "totalActual": "Total actual: {{value}} ETP",
+      "empty": "No employee assigned yet.",
+      "employee": "Employee",
+      "namePlaceholder": "Name…",
+      "remove": "Remove",
+      "notFound": "Employee not found (or already assigned to this client/mission)",
+      "invalidSold": "Invalid % sold",
+      "invalidActual": "Invalid % actual",
+      "add": "Add",
+      "close": "Close"
+    },
+    "linkExisting": {
+      "searchPlaceholder": "Search…",
+      "empty": "No employee available.",
+      "wouldCreateCycle": "Would create a reporting cycle",
+      "close": "Close"
+    },
+    "managerEditor": {
+      "title": "Managers for {{name}}",
+      "description": "Check one or more managers (multi-reporting). The radio button marks the primary manager (solid line in the org chart).",
+      "wouldCreateCycle": "Would create a reporting cycle",
+      "cancel": "Cancel",
+      "save": "Save",
+      "saving": "Saving…"
+    },
+    "photoEditor": {
+      "title": "Photo for {{name}}",
+      "mustBeImage": "The file must be an image.",
+      "dropHint1": "Drag an image here, click to browse,",
+      "dropHint2": "or paste with Ctrl+V",
+      "dragToReposition": "Drag to reposition, scroll to zoom",
+      "changePhoto": "Change photo…",
+      "deletePhoto": "Delete photo",
+      "deleting": "Deleting…",
+      "cancel": "Cancel",
+      "save": "Save",
+      "saving": "Saving…",
+      "saveError": "Save failed",
+      "deleteError": "Delete failed",
+      "imageTooLarge": "Image too large (5 MB maximum)."
+    },
+    "toast": {
+      "close": "Close"
+    },
+    "errorBoundary": {
+      "message": "An error interrupted the display.",
+      "retry": "Retry"
+    }
+  },
+  "auth": {
+    "login": {
+      "email": "Email",
+      "password": "Password",
+      "connecting": "Signing in…",
+      "signIn": "Sign in"
+    },
+    "setupNotice": {
+      "title": "Supabase configuration required",
+      "intro": "No Supabase project is linked to this application yet. To continue:",
+      "step1": "Create a free project on supabase.com",
+      "step2": "Apply the SQL migrations from the",
+      "step2suffix": "folder",
+      "step3prefix": "Copy",
+      "step3middle": "to",
+      "step3suffix": "and fill in the project's URL and anon key",
+      "step4": "Restart the dev server"
+    }
+  },
+  "history": {
+    "deleteEmployee": "Delete {{name}}",
+    "addAssignment": "Add an assignment",
+    "updateEtpSold": "Edit % sold",
+    "updateEtpActual": "Edit % actual",
+    "updateRemunerationModel": "Edit remuneration model",
+    "deleteAssignment": "Delete an assignment",
+    "createDepartment": "Create business unit {{name}}",
+    "renameDepartment": "Rename business unit {{name}}",
+    "changeDepartmentColor": "Change {{name}}'s color",
+    "deleteDepartment": "Delete business unit {{name}}",
+    "updateManagers": "Edit managers",
+    "addReportingLink": "Add a reporting link",
+    "deleteReportingLink": "Delete a reporting link",
+    "reassignManager": "Reassign a manager",
+    "updateClientMission": "Edit {{name}}",
+    "deleteClientMission": "Delete {{name}}",
+    "createClientMission": "Create {{name}}",
+    "createEmployee": "Create {{name}}",
+    "updateEmployee": "Edit {{name}}",
+    "reframePhoto": "Reframe {{name}}'s photo",
+    "createJobTitle": "Create job title {{name}}",
+    "renameJobTitle": "Rename job title {{name}}",
+    "deleteJobTitle": "Delete job title {{name}}",
+    "addManager": "Add a manager",
+    "addSubordinate": "Add a subordinate",
+    "reorder": "Reorder {{name}}",
+    "reorderFallback": "Reorder"
+  },
+  "csv": {
+    "headers": {
+      "firstName": "First name",
+      "lastName": "Last name",
+      "jobTitle": "Job Title",
+      "role": "Role",
+      "primaryManager": "Primary manager",
+      "secondaryManagers": "Secondary managers",
+      "clientMission": "Client / Mission",
+      "type": "Type",
+      "model": "Model",
+      "percentSold": "% ETP sold",
+      "percentActual": "% ETP actual",
+      "totalPercentSold": "Total % ETP sold (employee)",
+      "totalPercentActual": "Total % ETP actual (employee)"
+    }
+  }
+}

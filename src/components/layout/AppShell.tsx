@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useTranslation } from 'react-i18next';
 import { isSupabaseConfigured } from '../../lib/supabaseClient';
 import { useAuth } from '../../hooks/useAuth';
 import { useEmployees } from '../../hooks/useEmployees';
@@ -15,10 +16,13 @@ import { LeftPanel } from './LeftPanel';
 import { OrgChartManagerModal } from './OrgChartManagerModal';
 import { OrgChartView } from '../chart/OrgChartView';
 import { SearchBar } from '../shared/SearchBar';
-import { ClientMissionFilter } from '../shared/ClientMissionFilter';
+import { FiltersToggle } from '../shared/FiltersToggle';
+import { FiltersBar } from '../shared/FiltersBar';
+import { UndoRedoButtons } from '../shared/UndoRedoButtons';
 import { AssignmentEditorModal } from '../shared/AssignmentEditorModal';
 import { ErrorBoundary } from '../shared/ErrorBoundary';
 import { Toast } from '../shared/Toast';
+import { LanguageSwitcher } from '../shared/LanguageSwitcher';
 
 function LoadingScreen({ label }: { label: string }) {
   return <div className="flex h-full items-center justify-center text-slate-500">{label}</div>;
@@ -41,6 +45,7 @@ function LoadingScreen({ label }: { label: string }) {
 // `key` on the user id so signing in as somebody else remounts the whole subtree
 // rather than reusing another account's fetched data.
 export function AppShell() {
+  const { t } = useTranslation();
   const { session, loading, signOut } = useAuth();
 
   if (!isSupabaseConfigured) {
@@ -48,7 +53,7 @@ export function AppShell() {
   }
 
   if (loading) {
-    return <LoadingScreen label="Vérification de la session…" />;
+    return <LoadingScreen label={t('appShell.verifyingSession')} />;
   }
 
   if (!session) {
@@ -59,6 +64,7 @@ export function AppShell() {
 }
 
 function AuthenticatedApp({ signOut }: { signOut: () => void }) {
+  const { t } = useTranslation();
   const {
     orgCharts,
     loading: orgChartsLoading,
@@ -92,6 +98,12 @@ function AuthenticatedApp({ signOut }: { signOut: () => void }) {
   const assignmentsEmployeeId = useSelectionStore((s) => s.assignmentsEmployeeId);
   const setAssignmentsEmployeeId = useSelectionStore((s) => s.setAssignmentsEmployeeId);
   const [managingCharts, setManagingCharts] = useState(false);
+  // Purely ephemeral UI state (not persisted, not chart-relative) — whether
+  // FiltersBar.tsx's expandable row is showing. The underlying filter VALUES
+  // live in selectionStore (reset on chart switch); whether the bar is open
+  // doesn't need to survive a chart switch or a reload, so a plain useState
+  // here is enough, unlike every other field selectionStore already owns.
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const splitFraction = useUiPreferencesStore((s) => s.splitFraction);
   const setSplitFraction = useUiPreferencesStore((s) => s.setSplitFraction);
   const splitContainerRef = useRef<HTMLDivElement>(null);
@@ -118,7 +130,7 @@ function AuthenticatedApp({ signOut }: { signOut: () => void }) {
   // which made the hang above genuinely hard to place: the page gave no way to
   // tell "still checking the session" from "session fine, no chart to open".
   if (orgChartsLoading) {
-    return <LoadingScreen label="Chargement des organigrammes…" />;
+    return <LoadingScreen label={t('appShell.loadingOrgCharts')} />;
   }
 
   // A signed-in user with no chart at all would otherwise sit on a spinner
@@ -127,14 +139,14 @@ function AuthenticatedApp({ signOut }: { signOut: () => void }) {
   if (orgCharts.length === 0) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 text-sm text-slate-500">
-        <p>Aucun organigramme n’existe encore.</p>
-        <p className="text-slate-400">Créez-en un pour commencer.</p>
+        <p>{t('appShell.noOrgChartsTitle')}</p>
+        <p className="text-slate-400">{t('appShell.noOrgChartsSubtitle')}</p>
       </div>
     );
   }
 
   if (!currentOrgChartId) {
-    return <LoadingScreen label="Ouverture de l’organigramme…" />;
+    return <LoadingScreen label={t('appShell.openingOrgChart')} />;
   }
 
   const assignmentsEmployee = employees.find((e) => e.id === assignmentsEmployeeId) ?? null;
@@ -160,7 +172,7 @@ function AuthenticatedApp({ signOut }: { signOut: () => void }) {
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-2">
-        <h1 className="text-sm font-semibold text-slate-900">Organigramme Havas International</h1>
+        <h1 className="text-sm font-semibold text-slate-900">{t('appShell.title')}</h1>
         <div className="flex items-center gap-3">
           <select
             value={currentOrgChartId}
@@ -178,18 +190,29 @@ function AuthenticatedApp({ signOut }: { signOut: () => void }) {
             onClick={() => setManagingCharts(true)}
             className="rounded px-2 py-1 text-sm text-slate-500 hover:bg-slate-100"
           >
-            Gérer
+            {t('appShell.manage')}
           </button>
           <SearchBar />
-          <ClientMissionFilter orgChartId={currentOrgChartId} />
+          <FiltersToggle open={filtersOpen} onToggle={() => setFiltersOpen((o) => !o)} />
+          {/* Undo/redo applies globally (one shared historyStore) to both
+              the grid and the chart — a single instance here, not one
+              duplicated in each panel, matches that: there is exactly one
+              history to show, regardless of which panel the user is
+              looking at. */}
+          <UndoRedoButtons />
+          <LanguageSwitcher />
           <button
             onClick={() => signOut()}
             className="rounded px-2 py-1 text-sm text-slate-500 hover:bg-slate-100"
           >
-            Déconnexion
+            {t('appShell.signOut')}
           </button>
         </div>
       </header>
+      {/* Renders as a full-width row directly below <header>, not a
+          floating popover — this is what makes the header's own bottom
+          edge move down when "Filtres" is toggled, per the user's request. */}
+      {filtersOpen && <FiltersBar orgChartId={currentOrgChartId} />}
       <div ref={splitContainerRef} className="flex flex-1 overflow-hidden">
         <section
           className="overflow-auto border-r border-slate-200 p-4"
@@ -201,7 +224,7 @@ function AuthenticatedApp({ signOut }: { signOut: () => void }) {
           onPointerDown={handleDividerPointerDown}
           onPointerMove={handleDividerPointerMove}
           className="w-1.5 shrink-0 cursor-col-resize bg-slate-200 hover:bg-slate-300 active:bg-slate-400"
-          title="Redimensionner"
+          title={t('appShell.resize')}
         />
         <section className="min-w-0 flex-1 overflow-hidden">
           <ErrorBoundary>

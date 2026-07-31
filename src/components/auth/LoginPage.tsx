@@ -1,7 +1,9 @@
 import { useState, type FormEvent } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../hooks/useAuth';
 
 export function LoginPage() {
+  const { t } = useTranslation();
   const { signInWithPassword } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -24,10 +26,10 @@ export function LoginPage() {
         className="w-full max-w-sm rounded-lg border border-slate-200 bg-white p-8 shadow-sm"
       >
         <h1 className="mb-6 text-xl font-semibold text-slate-900">
-          Organigramme Havas International
+          {t('appShell.title')}
         </h1>
         <label className="mb-3 block text-sm text-slate-600">
-          Email
+          {t('auth.login.email')}
           <input
             type="email"
             required
@@ -37,7 +39,7 @@ export function LoginPage() {
           />
         </label>
         <label className="mb-4 block text-sm text-slate-600">
-          Mot de passe
+          {t('auth.login.password')}
           <input
             type="password"
             required
@@ -52,7 +54,7 @@ export function LoginPage() {
           disabled={submitting}
           className="w-full rounded bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
         >
-          {submitting ? 'Connexion…' : 'Se connecter'}
+          {submitting ? t('auth.login.connecting') : t('auth.login.signIn')}
         </button>
       </form>
     </div>

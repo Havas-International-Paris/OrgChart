@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { useHistoryStore } from '../../stores/historyStore';
 
 function UndoIcon() {
@@ -22,6 +23,7 @@ function RedoIcon() {
 // redo and to trigger it, rendered once each beside the grid's "+ Ajouter"
 // and beside the chart's zoom controls.
 export function UndoRedoButtons({ className }: { className?: string }) {
+  const { t } = useTranslation();
   const canUndo = useHistoryStore((s) => s.undoStack.length > 0);
   const canRedo = useHistoryStore((s) => s.redoStack.length > 0);
   const undo = useHistoryStore((s) => s.undo);
@@ -34,7 +36,7 @@ export function UndoRedoButtons({ className }: { className?: string }) {
       <button
         onClick={() => undo()}
         disabled={!canUndo}
-        title="Annuler"
+        title={t('undoRedo.undo')}
         className="flex items-center justify-center px-2 py-1 text-slate-700 enabled:hover:bg-slate-100 disabled:text-slate-300"
       >
         <UndoIcon />
@@ -43,7 +45,7 @@ export function UndoRedoButtons({ className }: { className?: string }) {
       <button
         onClick={() => redo()}
         disabled={!canRedo}
-        title="Rétablir"
+        title={t('undoRedo.redo')}
         className="flex items-center justify-center px-2 py-1 text-slate-700 enabled:hover:bg-slate-100 disabled:text-slate-300"
       >
         <RedoIcon />

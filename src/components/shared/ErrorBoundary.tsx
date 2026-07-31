@@ -1,4 +1,5 @@
 import { Component, type ReactNode } from 'react';
+import i18n from '../../i18n/config';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -27,13 +28,13 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     if (this.state.error) {
       return (
         <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
-          <p className="text-sm font-medium text-slate-700">Une erreur a interrompu l'affichage.</p>
+          <p className="text-sm font-medium text-slate-700">{i18n.t('modals.errorBoundary.message')}</p>
           <p className="max-w-md text-xs text-slate-500">{this.state.error.message}</p>
           <button
             onClick={() => this.setState({ error: null })}
             className="rounded bg-slate-900 px-3 py-1.5 text-sm font-medium text-white"
           >
-            Réessayer
+            {i18n.t('modals.errorBoundary.retry')}
           </button>
         </div>
       );

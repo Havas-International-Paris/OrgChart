@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { supabase } from '../lib/supabaseClient';
 import * as clientMissionService from '../services/clientMissionService';
 import type { ClientMission, ClientMissionType } from '../types/domain';
@@ -6,6 +7,7 @@ import { useHistoryStore } from '../stores/historyStore';
 import { useSelectionStore } from '../stores/selectionStore';
 
 export function useClientsMissions() {
+  const { t } = useTranslation();
   const [clientsMissions, setClientsMissions] = useState<ClientMission[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -76,14 +78,14 @@ export function useClientsMissions() {
             oldValuesHint && key in oldValuesHint ? oldValuesHint[key] : before[key];
         }
         useHistoryStore.getState().push({
-          label: `Modifier ${before.name}`,
+          label: t('history.updateClientMission', { name: before.name }),
           orgChartId,
           undo: async () => { await updateClientMission(id, oldChanges); },
           redo: async () => { await updateClientMission(id, changes); },
         });
       }
     },
-    [clientsMissions, refresh],
+    [clientsMissions, refresh, t],
   );
 
   const deleteClientMission = useCallback(
@@ -94,7 +96,7 @@ export function useClientsMissions() {
       const orgChartId = useSelectionStore.getState().currentOrgChartId;
       if (before && orgChartId) {
         useHistoryStore.getState().push({
-          label: `Supprimer ${before.name}`,
+          label: t('history.deleteClientMission', { name: before.name }),
           orgChartId,
           undo: async () => {
             await clientMissionService.restoreClientMission(before);
@@ -107,7 +109,7 @@ export function useClientsMissions() {
         });
       }
     },
-    [clientsMissions, refresh],
+    [clientsMissions, refresh, t],
   );
 
   // Undo-only helper — see useEmployees.ts's restoreEmployee. Not recorded.
@@ -124,7 +126,7 @@ export function useClientsMissions() {
       const orgChartId = useSelectionStore.getState().currentOrgChartId;
       if (orgChartId) {
         useHistoryStore.getState().push({
-          label: `Créer ${created.name}`,
+          label: t('history.createClientMission', { name: created.name }),
           orgChartId,
           undo: async () => {
             await clientMissionService.deleteClientMission(created.id);
@@ -138,7 +140,7 @@ export function useClientsMissions() {
       }
       return created;
     },
-    [refresh],
+    [refresh, t],
   );
 
   return {

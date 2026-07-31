@@ -1,20 +1,24 @@
 import type { Assignment, ClientMission, Employee, ReportingRelationship } from '../types/domain';
+import i18n from '../i18n/config';
 
-const HEADERS = [
-  'Prénom',
-  'Nom',
-  'Poste',
-  'Rôle',
-  'Manager principal',
-  'Managers secondaires',
-  'Client / Mission',
-  'Type',
-  'Modèle',
-  '% ETP vendu',
-  '% ETP réel',
-  'Total % ETP vendu (employé)',
-  'Total % ETP réel (employé)',
-];
+function headers(): string[] {
+  const t = i18n.t;
+  return [
+    t('csv.headers.firstName'),
+    t('csv.headers.lastName'),
+    t('csv.headers.jobTitle'),
+    t('csv.headers.role'),
+    t('csv.headers.primaryManager'),
+    t('csv.headers.secondaryManagers'),
+    t('csv.headers.clientMission'),
+    t('csv.headers.type'),
+    t('csv.headers.model'),
+    t('csv.headers.percentSold'),
+    t('csv.headers.percentActual'),
+    t('csv.headers.totalPercentSold'),
+    t('csv.headers.totalPercentActual'),
+  ];
+}
 
 function csvEscape(value: string): string {
   return /[",\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
@@ -73,7 +77,7 @@ export function buildEmployeesCsv(
       rows.push([
         ...baseRow,
         cm?.name ?? '',
-        cm ? (cm.type === 'mission' ? 'Mission' : 'Client') : '',
+        cm ? (cm.type === 'mission' ? i18n.t('filters.mission') : i18n.t('filters.client')) : '',
         a.remuneration_model === 'commission'
           ? 'Commission'
           : a.remuneration_model === 'retainer'
@@ -87,7 +91,7 @@ export function buildEmployeesCsv(
     }
   }
 
-  const lines = [HEADERS, ...rows].map((row) => row.map(csvEscape).join(','));
+  const lines = [headers(), ...rows].map((row) => row.map(csvEscape).join(','));
   // Leading BOM so Excel on Windows detects UTF-8 and renders accents correctly.
   return '﻿' + lines.join('\r\n');
 }

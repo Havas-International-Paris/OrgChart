@@ -1,10 +1,12 @@
 import { useCallback, useRef, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { supabase } from '../lib/supabaseClient';
 import * as assignmentService from '../services/assignmentService';
 import type { Assignment, RemunerationModel } from '../types/domain';
 import { useHistoryStore } from '../stores/historyStore';
 
 export function useAssignments(orgChartId: string | null) {
+  const { t } = useTranslation();
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -117,7 +119,7 @@ export function useAssignments(orgChartId: string | null) {
       );
       await refresh();
       useHistoryStore.getState().push({
-        label: 'Ajouter une affectation',
+        label: t('history.addAssignment'),
         orgChartId,
         undo: async () => {
           await assignmentService.deleteAssignment(created.id);
@@ -130,7 +132,7 @@ export function useAssignments(orgChartId: string | null) {
       });
       return created;
     },
-    [refresh, orgChartId],
+    [refresh, orgChartId, t],
   );
 
   const updateAssignmentEtpVendu = useCallback(
@@ -141,14 +143,14 @@ export function useAssignments(orgChartId: string | null) {
       if (before && orgChartId) {
         const oldEtpVendu = before.etp_vendu;
         useHistoryStore.getState().push({
-          label: 'Modifier le % vendu',
+          label: t('history.updateEtpSold'),
           orgChartId,
           undo: async () => { await updateAssignmentEtpVendu(id, oldEtpVendu); },
           redo: async () => { await updateAssignmentEtpVendu(id, etpVendu); },
         });
       }
     },
-    [assignments, refresh, orgChartId],
+    [assignments, refresh, orgChartId, t],
   );
 
   const updateAssignmentEtpReel = useCallback(
@@ -159,14 +161,14 @@ export function useAssignments(orgChartId: string | null) {
       if (before && orgChartId) {
         const oldEtpReel = before.etp_reel;
         useHistoryStore.getState().push({
-          label: 'Modifier le % réel',
+          label: t('history.updateEtpActual'),
           orgChartId,
           undo: async () => { await updateAssignmentEtpReel(id, oldEtpReel); },
           redo: async () => { await updateAssignmentEtpReel(id, etpReel); },
         });
       }
     },
-    [assignments, refresh, orgChartId],
+    [assignments, refresh, orgChartId, t],
   );
 
   const updateAssignmentRemuneration = useCallback(
@@ -178,7 +180,7 @@ export function useAssignments(orgChartId: string | null) {
         const oldModel = before.remuneration_model;
         const oldEtpVendu = before.etp_vendu;
         useHistoryStore.getState().push({
-          label: 'Modifier le modèle de rémunération',
+          label: t('history.updateRemunerationModel'),
           orgChartId,
           undo: async () => {
             await assignmentService.updateAssignmentRemuneration(id, oldModel, false);
@@ -192,7 +194,7 @@ export function useAssignments(orgChartId: string | null) {
         });
       }
     },
-    [assignments, refresh, orgChartId],
+    [assignments, refresh, orgChartId, t],
   );
 
   const deleteAssignment = useCallback(
@@ -202,7 +204,7 @@ export function useAssignments(orgChartId: string | null) {
       await refresh();
       if (before && orgChartId) {
         useHistoryStore.getState().push({
-          label: 'Supprimer une affectation',
+          label: t('history.deleteAssignment'),
           orgChartId,
           undo: async () => {
             await assignmentService.restoreAssignment(before);
@@ -215,7 +217,7 @@ export function useAssignments(orgChartId: string | null) {
         });
       }
     },
-    [assignments, refresh, orgChartId],
+    [assignments, refresh, orgChartId, t],
   );
 
   return {

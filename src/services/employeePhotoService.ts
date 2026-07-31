@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabaseClient';
+import i18n from '../i18n/config';
 
 const BUCKET = 'employee-photos';
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
@@ -8,8 +9,8 @@ export function employeePhotoUrl(path: string): string {
 }
 
 export async function uploadEmployeePhoto(employeeId: string, file: File): Promise<string> {
-  if (!file.type.startsWith('image/')) throw new Error('Le fichier doit être une image.');
-  if (file.size > MAX_FILE_BYTES) throw new Error('Image trop lourde (5 Mo maximum).');
+  if (!file.type.startsWith('image/')) throw new Error(i18n.t('modals.photoEditor.mustBeImage'));
+  if (file.size > MAX_FILE_BYTES) throw new Error(i18n.t('modals.photoEditor.imageTooLarge'));
 
   const ext = file.name.split('.').pop() || 'jpg';
   // Random suffix (not just employeeId) so replacing a photo always writes

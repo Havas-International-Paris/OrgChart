@@ -19,8 +19,10 @@
     "@xyflow/react": "^12.11.2",
     "elkjs": "^0.12.0",
     "html-to-image": "^1.11.13",
+    "i18next": "^26.3.6",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
+    "react-i18next": "^17.0.11",
     "zustand": "^5.0.14"
   },
   "devDependencies": {

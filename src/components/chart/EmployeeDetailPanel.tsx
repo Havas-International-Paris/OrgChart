@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import { NEUTRAL_DEPARTMENT_COLOR, withAlpha } from '../../lib/departmentColor';
 import type { Employee } from '../../types/domain';
 
@@ -60,6 +61,7 @@ export function EmployeeDetailPanel({
   onClose,
   onSelectEmployee,
 }: EmployeeDetailPanelProps) {
+  const { t } = useTranslation();
   const swatch = departmentColor ?? NEUTRAL_DEPARTMENT_COLOR;
 
   return (
@@ -86,13 +88,13 @@ export function EmployeeDetailPanel({
       )}
 
       {manager && (
-        <Section label="Manager direct">
+        <Section label={t('chart.detailPanel.directManager')}>
           <PersonRow employee={manager} dashed={false} onSelect={onSelectEmployee} />
         </Section>
       )}
 
       {functionalManagers.length > 0 && (
-        <Section label="Manager(s) fonctionnel(s)">
+        <Section label={t('chart.detailPanel.functionalManagers')}>
           {functionalManagers.map((m) => (
             <PersonRow key={m.id} employee={m} dashed onSelect={onSelectEmployee} />
           ))}
@@ -100,7 +102,7 @@ export function EmployeeDetailPanel({
       )}
 
       {directReports.length > 0 && (
-        <Section label={`Subordonnés directs (${directReports.length})`}>
+        <Section label={t('chart.detailPanel.directReports', { count: directReports.length })}>
           {directReports.map((r) => (
             <PersonRow key={r.id} employee={r} dashed={false} onSelect={onSelectEmployee} />
           ))}
@@ -108,7 +110,7 @@ export function EmployeeDetailPanel({
       )}
 
       {functionalReports.length > 0 && (
-        <Section label={`Subordonnés fonctionnels entrants (${functionalReports.length})`}>
+        <Section label={t('chart.detailPanel.functionalReports', { count: functionalReports.length })}>
           {functionalReports.map((r) => (
             <PersonRow key={r.id} employee={r} dashed onSelect={onSelectEmployee} />
           ))}
