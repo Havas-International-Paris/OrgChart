@@ -53,6 +53,23 @@
     "redoneToast": "Redone: {{label}}",
     "undoneToast": "Undone: {{label}}"
   },
+  "chat": {
+    "toggle": "Ask AI",
+    "title": "AI assistant",
+    "close": "Close",
+    "emptyState": "Ask a question about the org chart you currently have open — who reports to whom, who's on which client, headcount per department…",
+    "placeholder": "Ask a question…",
+    "send": "Send",
+    "thinking": "Thinking…",
+    "searching": "Looking up the org chart…",
+    "error": "Something went wrong: {{message}}",
+    "overloaded": "The AI model is temporarily overloaded (this happens sometimes on the free tier). Please try again in a moment.",
+    "dictate": "Dictate (text reply)",
+    "voiceMode": "Voice mode (spoken reply)",
+    "listening": "Listening…",
+    "modelLabel": "Model:",
+    "providerUnavailable": "key not configured"
+  },
   "orgChartManager": {
     "title": "Org Charts",
     "newChart": "New org chart (empty)",

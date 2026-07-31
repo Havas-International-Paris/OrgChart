@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Edge, Node } from '@xyflow/react';
-import { NODE_HEIGHT, NODE_WIDTH, layoutWithElk, resolveOverlaps } from './layoutEngine';
+import { NODE_HEIGHT, NODE_WIDTH, layoutWithElk, packDisconnectedTrees, resolveOverlaps } from './layoutEngine';
 
 // elk's layered.spacing.nodeNodeBetweenLayers, kept in sync with the graph
 // options in layoutEngine.ts.
@@ -258,6 +258,88 @@ describe('resolveOverlaps', () => {
     ]);
     resolveOverlaps(positions, nodes, []);
     expect(positions.get('b')!.x).toBeCloseTo(20);
+  });
+});
+
+// Real user report (2026-08-01): deleting the org's single root employee
+// turns every one of their direct reports into their own root, with no path
+// between them — elk's own disconnected-component placement scattered the
+// resulting trees both horizontally AND vertically (each tree's own rank-0
+// landing at a different Y). packDisconnectedTrees replaces elk's placement
+// outright; these tests drive it directly against a crafted multi-root
+// position map, since a small fixture can't reliably force elk's own
+// component-packing to reproduce the scatter on demand the way the real
+// (much bigger) graph did.
+describe('packDisconnectedTrees', () => {
+  it('does nothing for a single-root graph — the overwhelming common case', () => {
+    const nodes: Node[] = [node('m'), node('c')];
+    const edges: Edge[] = [edge('m', 'c')];
+    const positions = new Map([
+      ['m', { x: 500, y: 300 }],
+      ['c', { x: 500, y: 500 }],
+    ]);
+    packDisconnectedTrees(positions, nodes, edges);
+    expect(positions.get('m')).toEqual({ x: 500, y: 300 });
+    expect(positions.get('c')).toEqual({ x: 500, y: 500 });
+  });
+
+  it('realigns every tree’s own root rank to the same Y', () => {
+    const nodes: Node[] = [node('r1'), node('r2')];
+    const positions = new Map([
+      ['r1', { x: 0, y: 0 }],
+      // Scattered onto a totally different rank, as elk's own component
+      // packing was found to do live.
+      ['r2', { x: 900, y: 900 }],
+    ]);
+    packDisconnectedTrees(positions, nodes, []);
+    expect(positions.get('r1')!.y).toBeCloseTo(positions.get('r2')!.y);
+  });
+
+  it('packs trees side by side with the standard sibling gap, no dead space', () => {
+    const nodes: Node[] = [node('r1'), node('r2')];
+    const positions = new Map([
+      ['r1', { x: 0, y: 0 }],
+      // Scattered far to the right, as elk's own component packing was
+      // found to do live — nothing here should end up depending on that
+      // raw distance.
+      ['r2', { x: 3000, y: 900 }],
+    ]);
+    packDisconnectedTrees(positions, nodes, []);
+    expect(positions.get('r2')!.x - positions.get('r1')!.x).toBeCloseTo(NODE_WIDTH + 32);
+  });
+
+  it('moves each tree as one rigid block — a subtree never gets left behind', () => {
+    const nodes: Node[] = [node('r1'), node('r2'), node('c2')];
+    const edges: Edge[] = [edge('r2', 'c2')];
+    const positions = new Map([
+      ['r1', { x: 0, y: 0 }],
+      ['r2', { x: 3000, y: 900 }],
+      ['c2', { x: 3000, y: 900 + NODE_HEIGHT + 64 }],
+    ]);
+    packDisconnectedTrees(positions, nodes, edges);
+    const r2Delta = positions.get('r2')!.x - 3000;
+    expect(r2Delta).not.toBeCloseTo(0);
+    expect(positions.get('c2')!.x - 3000).toBeCloseTo(r2Delta);
+    // c2's rank stays one below r2's, unaffected by the realignment.
+    expect(positions.get('c2')!.y - positions.get('r2')!.y).toBeCloseTo(NODE_HEIGHT + 64);
+  });
+
+  it('never shrinks a wide tree’s own footprint into its neighbour', () => {
+    // r1 is a lone card; r2 has four children spread wide beneath it — the
+    // gap after r2 must respect r2's own measured span, not just its card.
+    const nodes: Node[] = [node('r1'), node('r2'), node('c1'), node('c2'), node('c3'), node('c4')];
+    const edges: Edge[] = [edge('r2', 'c1'), edge('r2', 'c2'), edge('r2', 'c3'), edge('r2', 'c4')];
+    const positions = new Map([
+      ['r1', { x: 0, y: 0 }],
+      ['r2', { x: 1000, y: 0 }],
+      ['c1', { x: 700, y: NODE_HEIGHT + 64 }],
+      ['c2', { x: 900, y: NODE_HEIGHT + 64 }],
+      ['c3', { x: 1100, y: NODE_HEIGHT + 64 }],
+      ['c4', { x: 1300, y: NODE_HEIGHT + 64 }],
+    ]);
+    packDisconnectedTrees(positions, nodes, edges);
+    const r2SubtreeLeft = Math.min(...['c1', 'c2', 'c3', 'c4'].map((id) => positions.get(id)!.x));
+    expect(r2SubtreeLeft - (positions.get('r1')!.x + NODE_WIDTH)).toBeCloseTo(32);
   });
 });
 

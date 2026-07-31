@@ -36,10 +36,18 @@ type Position = { x: number; y: number };
 // Also tried 'elk.layered.compaction.postCompaction.strategy: EDGE_LENGTH'
 // (same day, same measurement method) hoping it would shrink exactly that
 // kind of unused lane width — zero effect, width identical to the pixel.
-// That option compacts separate DISCONNECTED components after layout; this
-// org chart is one single connected tree, so it never applies. Don't
-// re-try it without a genuinely disconnected graph (e.g. two separate root
-// employees with no path between them).
+// Re-tried again (2026-08-01) against a genuinely disconnected chart
+// (deleting the single root employee turns every one of their direct
+// reports into their own separate root, with no path between them) on the
+// theory that THAT was the disconnected case the option needed — still no
+// effect, confirmed live: the several now-separate trees ended up not just
+// far apart horizontally but at entirely different Y ranks too. That
+// option only compacts nodes WITHIN one component's own layered graph; it
+// has no bearing on how elk places separate components relative to each
+// other (each component's own rank-0 lands at whatever Y elk's internal
+// component-packing chose, not necessarily 0). Not re-enabled — see
+// `packDisconnectedTrees` below instead, which replaces elk's own
+// component placement outright rather than trying to steer it.
 
 // elk runs the actual layout algorithm asynchronously (elk.layout returns a
 // Promise, even for the in-thread "bundled" build used here — there is no
@@ -91,9 +99,23 @@ export async function layoutWithElk<T extends Node>(
     (result.children ?? []).map((c) => [c.id, { x: (c.x ?? 0) + NODE_WIDTH / 2, y: (c.y ?? 0) + NODE_HEIGHT / 2 }]),
   );
 
+  // applySiblingOrder/centerParentsOverChildren/resolveOverlaps are all
+  // rank-keyed (grouped by y) and naturally stay confined to one component
+  // at a time on elk's own raw, unaligned output — different disconnected
+  // trees essentially never share elk's own scattered y values, so nothing
+  // here needs the trees pre-aligned to run correctly.
   if (siblingOrderOf) applySiblingOrder(centerById, nodes, edges, siblingOrderOf);
   centerParentsOverChildren(centerById, nodes, edges);
   resolveOverlaps(centerById, nodes, edges);
+  // Runs LAST, deliberately, not first: it measures each tree's bounding
+  // box to decide how tightly to pack it against its neighbour, and the two
+  // passes above can widen a tree's own true footprint after the fact (e.g.
+  // resolving an internal overlap among wide-spread grandchildren pushes
+  // that whole branch — and everything it's centred under — further out).
+  // Measuring before they'd run once left the packed gap too small for the
+  // tree's real, settled width, which read as leftover dead space once
+  // everything else had finished moving (reported live, 2026-08-01).
+  packDisconnectedTrees(centerById, nodes, edges);
 
   return nodes.map((n) => {
     const pos = centerById.get(n.id)!;
@@ -102,6 +124,84 @@ export async function layoutWithElk<T extends Node>(
       position: { x: pos.x - NODE_WIDTH / 2, y: pos.y - NODE_HEIGHT / 2 },
     };
   });
+}
+
+// elk treats every primary-edge tree with no path to any other (e.g. every
+// former direct report of a just-deleted root employee, each now a root in
+// their own right) as a separate connected component, and its own
+// component-packing step places them with no relation to this app's idea of
+// a sensible layout — confirmed live (2026-08-01, deleting the org's single
+// root): the resulting trees ended up not just far apart horizontally but
+// at entirely different Y ranks too, since each component's own rank-0 gets
+// whatever Y elk's internal packing assigned it, not necessarily 0.
+// `elk.layered.compaction.postCompaction.strategy` (see the comment near
+// the top of this file) only compacts nodes WITHIN one component's own
+// layered graph — it has no effect on this at all, which is why it
+// measured as a no-op even against a genuinely disconnected chart.
+//
+// This pass replaces elk's own component placement outright: every
+// primary-edge tree (found independently of elk, by walking from every
+// root — a node with no primary manager — down through childrenOf) is
+// treated as one rigid block and repositioned as a whole, so nothing about
+// its own internal layout changes. Trees are realigned to a shared root-
+// level Y (every tree's own rank-0 lines up) and packed left-to-right with
+// the same gap used between ordinary siblings, preserving whatever
+// left-to-right order the trees were already in (their own average X) —
+// called LAST in layoutWithElk, after every other pass has already
+// settled each tree's true final footprint, so the gap it packs is
+// measured against real, final widths rather than elk's raw ones.
+// A no-op whenever there's only one root — the overwhelming common case —
+// so it changes nothing for a normal, fully-connected chart. Exported only
+// so layoutEngine.test.ts can drive it directly against a crafted
+// multi-root position map, same reasoning as resolveOverlaps below.
+export function packDisconnectedTrees(positions: Map<string, Position>, nodes: Node[], edges: Edge[]): void {
+  const childrenOf = new Map<string, string[]>();
+  const hasPrimaryManager = new Set<string>();
+  for (const e of edges) {
+    const kids = childrenOf.get(e.source) ?? [];
+    kids.push(e.target);
+    childrenOf.set(e.source, kids);
+    hasPrimaryManager.add(e.target);
+  }
+
+  const roots = nodes.map((n) => n.id).filter((id) => !hasPrimaryManager.has(id));
+  if (roots.length < 2) return;
+
+  function collectSubtree(id: string, acc: string[]) {
+    acc.push(id);
+    for (const childId of childrenOf.get(id) ?? []) collectSubtree(childId, acc);
+  }
+
+  const trees = roots.map((rootId) => {
+    const memberIds: string[] = [];
+    collectSubtree(rootId, memberIds);
+    const xs = memberIds.map((id) => positions.get(id)!.x);
+    const ys = memberIds.map((id) => positions.get(id)!.y);
+    return {
+      memberIds,
+      minX: Math.min(...xs),
+      maxX: Math.max(...xs),
+      minY: Math.min(...ys),
+      avgX: xs.reduce((sum, x) => sum + x, 0) / xs.length,
+    };
+  });
+
+  const sharedRootY = Math.min(...trees.map((t) => t.minY));
+  const sorted = [...trees].sort((a, b) => a.avgX - b.avgX);
+
+  let cursor = sorted[0].minX;
+  for (const tree of sorted) {
+    const dx = cursor - tree.minX;
+    const dy = sharedRootY - tree.minY;
+    if (dx !== 0 || dy !== 0) {
+      for (const id of tree.memberIds) {
+        const pos = positions.get(id)!;
+        pos.x += dx;
+        pos.y += dy;
+      }
+    }
+    cursor += tree.maxX - tree.minX + NODE_WIDTH + SIBLING_GAP;
+  }
 }
 
 // elk itself has no per-node ordering/rank input — it computes horizontal

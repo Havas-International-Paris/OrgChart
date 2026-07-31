@@ -23,6 +23,8 @@ import { AssignmentEditorModal } from '../shared/AssignmentEditorModal';
 import { ErrorBoundary } from '../shared/ErrorBoundary';
 import { Toast } from '../shared/Toast';
 import { LanguageSwitcher } from '../shared/LanguageSwitcher';
+import { ChatToggleButton } from '../chat/ChatToggleButton';
+import { ChatPanel } from '../chat/ChatPanel';
 
 function LoadingScreen({ label }: { label: string }) {
   return <div className="flex h-full items-center justify-center text-slate-500">{label}</div>;
@@ -60,10 +62,10 @@ export function AppShell() {
     return <LoginPage />;
   }
 
-  return <AuthenticatedApp key={session.user.id} signOut={signOut} />;
+  return <AuthenticatedApp key={session.user.id} signOut={signOut} accessToken={session.access_token} />;
 }
 
-function AuthenticatedApp({ signOut }: { signOut: () => void }) {
+function AuthenticatedApp({ signOut, accessToken }: { signOut: () => void; accessToken: string }) {
   const { t } = useTranslation();
   const {
     orgCharts,
@@ -107,6 +109,11 @@ function AuthenticatedApp({ signOut }: { signOut: () => void }) {
   const splitFraction = useUiPreferencesStore((s) => s.splitFraction);
   const setSplitFraction = useUiPreferencesStore((s) => s.setSplitFraction);
   const splitContainerRef = useRef<HTMLDivElement>(null);
+  // Whether the panel shows is ephemeral (like filtersOpen above); only its
+  // width (chatWidthFraction) is a persisted preference.
+  const [chatOpen, setChatOpen] = useState(false);
+  const chatWidthFraction = useUiPreferencesStore((s) => s.chatWidthFraction);
+  const setChatWidthFraction = useUiPreferencesStore((s) => s.setChatWidthFraction);
 
   function handleDividerPointerDown(e: ReactPointerEvent<HTMLDivElement>) {
     // Without this, the mousedown-then-drag that starts a resize is
@@ -121,6 +128,15 @@ function AuthenticatedApp({ signOut }: { signOut: () => void }) {
     const rect = splitContainerRef.current.getBoundingClientRect();
     const fraction = (e.clientX - rect.left) / rect.width;
     setSplitFraction(Math.min(0.75, Math.max(0.2, fraction)));
+  }
+
+  function handleChatDividerPointerMove(e: ReactPointerEvent<HTMLDivElement>) {
+    if (e.buttons !== 1 || !splitContainerRef.current) return;
+    const rect = splitContainerRef.current.getBoundingClientRect();
+    // Dragged from the panel's own left edge, so its width is measured from
+    // the container's right side inward, not from the left like splitFraction.
+    const fraction = (rect.right - e.clientX) / rect.width;
+    setChatWidthFraction(Math.min(0.5, Math.max(0.2, fraction)));
   }
 
   useEffect(() => {
@@ -204,6 +220,7 @@ function AuthenticatedApp({ signOut }: { signOut: () => void }) {
               history to show, regardless of which panel the user is
               looking at. */}
           <UndoRedoButtons />
+          <ChatToggleButton open={chatOpen} onToggle={() => setChatOpen((o) => !o)} />
           <LanguageSwitcher />
           <button
             onClick={() => signOut()}
@@ -235,6 +252,23 @@ function AuthenticatedApp({ signOut }: { signOut: () => void }) {
             <OrgChartView />
           </ErrorBoundary>
         </section>
+        {chatOpen && (
+          <>
+            <div
+              onPointerDown={handleDividerPointerDown}
+              onPointerMove={handleChatDividerPointerMove}
+              className="w-1.5 shrink-0 cursor-col-resize bg-slate-200 hover:bg-slate-300 active:bg-slate-400"
+              title={t('appShell.resize')}
+            />
+            <section className="shrink-0 overflow-hidden" style={{ width: `${chatWidthFraction * 100}%` }}>
+              <ChatPanel
+                orgChartId={currentOrgChartId}
+                accessToken={accessToken}
+                onClose={() => setChatOpen(false)}
+              />
+            </section>
+          </>
+        )}
       </div>
       {assignmentsEmployee && (
         <AssignmentEditorModal

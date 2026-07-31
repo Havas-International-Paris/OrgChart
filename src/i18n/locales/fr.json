@@ -53,6 +53,23 @@
     "redoneToast": "Rétabli : {{label}}",
     "undoneToast": "Annulé : {{label}}"
   },
+  "chat": {
+    "toggle": "Demander à l'IA",
+    "title": "Assistant IA",
+    "close": "Fermer",
+    "emptyState": "Posez une question sur l'organigramme actuellement affiché — qui rapporte à qui, qui travaille sur quel client, effectif par département…",
+    "placeholder": "Posez une question…",
+    "send": "Envoyer",
+    "thinking": "Réflexion…",
+    "searching": "Consultation de l'organigramme…",
+    "error": "Une erreur est survenue : {{message}}",
+    "overloaded": "Le modèle IA est temporairement surchargé (ça arrive parfois sur l'offre gratuite). Réessaie dans quelques instants.",
+    "dictate": "Dicter (réponse écrite)",
+    "voiceMode": "Mode vocal (réponse orale)",
+    "listening": "Écoute en cours…",
+    "modelLabel": "Modèle :",
+    "providerUnavailable": "clé non configurée"
+  },
   "orgChartManager": {
     "title": "Organigrammes",
     "newChart": "Nouvel organigramme (vide)",
