@@ -49,6 +49,40 @@ function groupMemberIds(geometry: ChartGeometry, employeeId: string): string[] {
   return geometry.allIds.filter((id) => (geometry.groupKeyOf(id) ?? ROOT_GROUP_KEY) === key);
 }
 
+// Shared by computeReorder and findDisplacementTargets so they can never
+// disagree about WHETHER the dragged card's rank has actually changed — the
+// live yellow highlight and the drop's real effect must describe the exact
+// same outcome, or the highlight is a lie the user can't trust. Sorts the
+// dragged card's visible siblings by their real (committed) x, once with the
+// dragged card at its own pre-drag x (`originalIndex`) and once with it at
+// an EFFECTIVE x (`newIndex`) — a rank flip fires once the dragged card
+// covers roughly HALF of a neighbour's card, not once it has fully passed
+// it: shifting the dragged card's own sort key half a card-width further in
+// whichever direction it's actually moving (from its last committed x) makes
+// the sort flip exactly at that 50%-overlap point, rather than requiring the
+// two cards' positions to nearly coincide. Direction is measured from the
+// card's own committed x, not `originalIndex` (a rank, not a position) — a
+// card can keep the same rank while still having moved, e.g. within a group
+// of 4+ siblings.
+function draggedRank(
+  geometry: ChartGeometry,
+  visibleMembers: readonly string[],
+  employeeId: string,
+  droppedX: number,
+): { sortedVisible: string[]; originalIndex: number; newIndex: number } {
+  const originalSorted = [...visibleMembers].sort((a, b) => geometry.baseXOf(a) - geometry.baseXOf(b));
+  const committedX = geometry.baseXOf(employeeId);
+  const direction = Math.sign(droppedX - committedX);
+  const effectiveX = droppedX + direction * (NODE_WIDTH / 2);
+  const xOf = (id: string) => (id === employeeId ? effectiveX : geometry.baseXOf(id));
+  const sortedVisible = [...visibleMembers].sort((a, b) => xOf(a) - xOf(b));
+  return {
+    sortedVisible,
+    originalIndex: originalSorted.indexOf(employeeId),
+    newIndex: sortedVisible.indexOf(employeeId),
+  };
+}
+
 /**
  * Given a sibling group's OTHER members' sibling_order values (ascending, never
  * including the dragged node itself) and the index the dragged node should land
@@ -87,7 +121,12 @@ export function computeReorder(
   const otherXs = visibleMembers.filter((id) => id !== employeeId).map(geometry.baseXOf);
   if (!isWithinGroupSpan(droppedX, otherXs)) return { kind: 'snap-back' };
 
-  const xOf = (id: string) => (id === employeeId ? droppedX : geometry.baseXOf(id));
+  const { sortedVisible, originalIndex, newIndex } = draggedRank(geometry, visibleMembers, employeeId, droppedX);
+  // The dragged card hasn't actually crossed anyone yet — same boundary
+  // findDisplacementTargets uses to decide whether to highlight anyone at
+  // all, so a drop here must agree and be a no-op rather than a silent,
+  // meaningless DB write (and a "Réordonner" undo entry for nothing).
+  if (newIndex === originalIndex) return { kind: 'snap-back' };
 
   // Step 1: make sure every member of the FULL group (visible or not) has a
   // real sibling_order, backfilling from natural (dagre) order the first time
@@ -105,12 +144,10 @@ export function computeReorder(
 
   // Step 2: derive the dragged node's new value from where it landed among the
   // (now numeric) VISIBLE siblings only.
-  const sortedVisible = [...visibleMembers].sort((a, b) => xOf(a) - xOf(b));
-  const draggedIndex = sortedVisible.indexOf(employeeId);
   const neighborValues = sortedVisible
     .filter((id) => id !== employeeId)
     .map((id) => orderById.get(id)!);
-  const newValue = computeNewOrderValue(neighborValues, draggedIndex);
+  const newValue = computeNewOrderValue(neighborValues, newIndex);
   orderById.set(employeeId, newValue);
 
   return {
@@ -122,33 +159,33 @@ export function computeReorder(
 }
 
 /**
- * Live mid-drag feedback: whichever visible sibling is nearest the dragged
- * card's current x is the one about to be displaced, along with their whole
- * subtree. Read-only — never writes an order, and never disagrees with
- * computeReorder about whether the position is inside the group at all.
+ * Live mid-drag feedback: whichever visible siblings the dragged card has
+ * actually crossed rank with — i.e. exactly the set computeReorder would
+ * reorder if released right now — get highlighted, along with each one's own
+ * subtree. Read-only — never writes an order. Deliberately shares
+ * `draggedRank` with computeReorder (not just `isWithinGroupSpan`) so a
+ * released drop can never disagree with what was just highlighted: nobody
+ * highlighted means a release here is a no-op, and releasing always resolves
+ * to precisely the highlighted card(s) changing rank with the dragged one.
  */
 export function findDisplacementTargets(
   geometry: ChartGeometry,
   employeeId: string,
   droppedX: number,
 ): Set<string> {
-  const others = groupMemberIds(geometry, employeeId).filter(
-    (id) => id !== employeeId && geometry.visibleIds.has(id),
-  );
+  const members = groupMemberIds(geometry, employeeId);
+  const visibleMembers = members.filter((id) => id === employeeId || geometry.visibleIds.has(id));
+  const others = visibleMembers.filter((id) => id !== employeeId);
   if (others.length === 0) return new Set();
   if (!isWithinGroupSpan(droppedX, others.map(geometry.baseXOf))) return new Set();
 
-  let nearestId = others[0];
-  let nearestDist = Math.abs(geometry.baseXOf(nearestId) - droppedX);
-  for (const id of others) {
-    const dist = Math.abs(geometry.baseXOf(id) - droppedX);
-    if (dist < nearestDist) {
-      nearestDist = dist;
-      nearestId = id;
-    }
-  }
+  const { sortedVisible, originalIndex, newIndex } = draggedRank(geometry, visibleMembers, employeeId, droppedX);
+  if (newIndex === originalIndex) return new Set();
 
-  const targets = new Set<string>([nearestId]);
+  const [lo, hi] = originalIndex < newIndex ? [originalIndex, newIndex] : [newIndex, originalIndex];
+  const crossed = sortedVisible.slice(lo, hi + 1).filter((id) => id !== employeeId);
+
+  const targets = new Set<string>(crossed);
   const collect = (id: string) => {
     for (const childId of geometry.childrenOf(id)) {
       if (targets.has(childId)) continue;
@@ -156,6 +193,6 @@ export function findDisplacementTargets(
       collect(childId);
     }
   };
-  collect(nearestId);
+  for (const id of crossed) collect(id);
   return targets;
 }
