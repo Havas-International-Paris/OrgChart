@@ -73,17 +73,15 @@ export function OrgChartView() {
   const [exportError, setExportError] = useState<string | null>(null);
 
   // Above FULL_EXPAND_THRESHOLD (useChartViewport.ts), the chart defaults to
-  // roots + one level rather than fully expanded, so the initial auto-layout
-  // still fits the canvas at minimum zoom. This is the manual override for
-  // "no, I actually want to see everyone" — sets every employee expanded, then
-  // re-fits once the newly-revealed cards are laid out (same two-rAF wait
-  // handleExport uses, so fitView reads real, mounted card sizes rather than
-  // dagre's approximate NODE_WIDTH/NODE_HEIGHT).
-  async function handleExpandAll() {
+  // roots + one level rather than fully expanded. This is the manual override
+  // for "no, I actually want to see everyone" — sets every employee expanded
+  // and leaves the current pan/zoom untouched (deliberately no fitView call
+  // here: a real user report was that this button unexpectedly changed the
+  // zoom level, which isn't what "expand" should do — only useChartViewport's
+  // own one-time initial auto-fit and handleExport's own capture are allowed
+  // to move the viewport).
+  function handleExpandAll() {
     setExpandedNodeIds(new Set(data.employees.map((e) => e.id)));
-    await new Promise(requestAnimationFrame);
-    await new Promise(requestAnimationFrame);
-    reactFlowInstanceRef.current?.fitView({ padding: 0.08 });
   }
 
   async function handleExport() {
