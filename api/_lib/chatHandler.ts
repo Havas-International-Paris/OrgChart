@@ -78,8 +78,11 @@ function resolveProviderMeta(requestedOverride?: string): ProviderMeta | { error
     const meta = PROVIDER_REGISTRY[id];
     if (process.env[meta.envVar]) return meta;
   }
+  // Nemotron and GLM-5.2 share NVIDIA_API_KEY (both hosted by NVIDIA NIM,
+  // see providerRegistry.ts) — dedupe so the error doesn't list it twice.
+  const uniqueEnvVars = [...new Set(PROVIDER_ORDER.map((id) => PROVIDER_REGISTRY[id].envVar))];
   return {
-    error: `No LLM API key configured on the server (set one of: ${PROVIDER_ORDER.map((id) => PROVIDER_REGISTRY[id].envVar).join(', ')}).`,
+    error: `No LLM API key configured on the server (set one of: ${uniqueEnvVars.join(', ')}).`,
   };
 }
 
