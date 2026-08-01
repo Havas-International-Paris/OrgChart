@@ -15,6 +15,15 @@ interface ChatPanelProps {
 // codes (src/i18n/config.ts) — the two don't share a format.
 const SPEECH_LANG: Record<string, string> = { en: 'en-US', fr: 'fr-FR' };
 
+// providerRegistry.ts's labels carry provider/pricing detail meant for
+// developer-facing contexts (e.g. "GLM-5.2 (Zhipu, via NVIDIA NIM, free)") —
+// too much for the model picker's default display, per design-critique
+// feedback. Keeps just the name before the first "(", the full label stays
+// available via the option/select's title attribute for anyone who hovers.
+function shortProviderName(label: string): string {
+  return label.split('(')[0].trim();
+}
+
 // Plain outline mic — dictation only, matches the ChatGPT/Claude convention
 // the user pointed at: fills the input for review, doesn't speak.
 function MicIcon() {
@@ -215,15 +224,21 @@ export function ChatPanel({ orgChartId, accessToken, onClose }: ChatPanelProps) 
       {providers.length > 0 && (
         <div className="flex items-center gap-1 border-t border-slate-100 px-2 py-1 text-xs text-slate-400">
           <span>{t('chat.modelLabel')}</span>
+          {/* Design-critique finding: showing the raw model id (e.g.
+              "z-ai/glm-5.2") and provider plumbing detail ("via NVIDIA NIM")
+              inline is more than a non-technical user needs to see by
+              default. Visible text is now just the provider's short name;
+              the full label + exact model id still live in the title
+              attribute for anyone who hovers wanting the technical detail. */}
           <select
             value={selectedProviderId ?? ''}
             onChange={(e) => setChatProviderId(e.target.value)}
-            title={selectedProvider?.model}
+            title={selectedProvider ? `${selectedProvider.label} — ${selectedProvider.model}` : undefined}
             className="min-w-0 flex-1 truncate bg-transparent text-xs text-slate-500 outline-none"
           >
             {providers.map((p) => (
-              <option key={p.id} value={p.id} disabled={!p.available}>
-                {p.label} — {p.model}
+              <option key={p.id} value={p.id} disabled={!p.available} title={`${p.label} — ${p.model}`}>
+                {shortProviderName(p.label)}
                 {!p.available ? ` (${t('chat.providerUnavailable')})` : ''}
               </option>
             ))}

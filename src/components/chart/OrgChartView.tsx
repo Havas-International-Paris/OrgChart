@@ -213,16 +213,20 @@ export function OrgChartView() {
       >
         {showOverlays && (
           <Panel position="top-right" className="flex flex-col items-end gap-1">
+            {/* hover:shadow-md — design-critique feedback: these floated
+                enough like plain links at rest that their clickability
+                wasn't obvious; a deeper shadow on hover (on top of the
+                existing bg change) reads more like a pressable button. */}
             <button
               onClick={handleExpandAll}
-              className="rounded border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50"
+              className="rounded border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm transition-shadow hover:bg-slate-50 hover:shadow-md"
             >
               {t('chart.expandAll')}
             </button>
             <button
               onClick={handleExport}
               disabled={exporting}
-              className="rounded border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+              className="rounded border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm transition-shadow hover:bg-slate-50 hover:shadow-md disabled:opacity-50 disabled:shadow-sm"
             >
               {exporting ? t('chart.exporting') : t('chart.export')}
             </button>

@@ -18,7 +18,9 @@
     "openingOrgChart": "Ouverture de l’organigramme…",
     "manage": "Gérer",
     "signOut": "Déconnexion",
-    "resize": "Redimensionner"
+    "resize": "Redimensionner",
+    "gridTab": "Grille",
+    "chartTab": "Organigramme"
   },
   "leftPanel": {
     "tabs": {

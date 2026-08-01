@@ -25,3 +25,24 @@ export function useActiveFilterCount(): number {
     (isRangeActive(etpReelRange) ? 1 : 0)
   );
 }
+
+// Which of the 5 dimensions are active, as i18n keys under "filters." —
+// FiltersToggle.tsx turns these into translated labels for its badge's hover
+// tooltip, so "which filter is on" doesn't require opening the bar to check.
+// Same 5-dimension shape as the count above, deliberately kept as a sibling
+// hook rather than folded into it, since most callers only need the count.
+export function useActiveFilterKeys(): string[] {
+  const clientMissionFilterIds = useSelectionStore((s) => s.clientMissionFilterIds);
+  const deptFilterNames = useSelectionStore((s) => s.deptFilterNames);
+  const jobTitleFilterNames = useSelectionStore((s) => s.jobTitleFilterNames);
+  const etpVenduRange = useSelectionStore((s) => s.etpVenduRange);
+  const etpReelRange = useSelectionStore((s) => s.etpReelRange);
+
+  const keys: string[] = [];
+  if (deptFilterNames.size > 0) keys.push('businessUnit');
+  if (jobTitleFilterNames.size > 0) keys.push('jobTitle');
+  if (clientMissionFilterIds.size > 0) keys.push('clientMission');
+  if (isRangeActive(etpVenduRange)) keys.push('timeSold');
+  if (isRangeActive(etpReelRange)) keys.push('timeActual');
+  return keys;
+}

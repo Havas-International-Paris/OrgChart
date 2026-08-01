@@ -30,6 +30,43 @@ function LoadingScreen({ label }: { label: string }) {
   return <div className="flex h-full items-center justify-center text-slate-500">{label}</div>;
 }
 
+// Purely visual affordance for the grid/chart and chart/chat dividers —
+// design-critique feedback: the draggable divider gave no visual hint it was
+// interactive besides the cursor changing on hover, which a first-time user
+// has no reason to discover. Three dots, invisible until the divider itself
+// is hovered (`group-hover`), centered on it — doesn't change the actual
+// hit-area/drag behavior, purely a hover-revealed hint.
+function DividerGrip() {
+  return (
+    <div className="pointer-events-none absolute inset-y-0 left-1/2 flex -translate-x-1/2 flex-col items-center justify-center gap-1 opacity-0 group-hover:opacity-100">
+      <span className="h-1 w-1 rounded-full bg-slate-500" />
+      <span className="h-1 w-1 rounded-full bg-slate-500" />
+      <span className="h-1 w-1 rounded-full bg-slate-500" />
+    </div>
+  );
+}
+
+// Matches Tailwind's default `lg` breakpoint, used below to switch between
+// the desktop side-by-side split and the mobile stacked-tabs layout. Driven
+// by matchMedia rather than pure CSS (hidden/lg:flex) on purpose: OrgChartView
+// owns realtime subscriptions, elk layout computation and drag state — CSS-
+// only hiding still mounts it, so a naive hidden/lg:flex + lg:hidden pair
+// would mount it TWICE simultaneously near the breakpoint (once per branch),
+// double-subscribing and double-computing for no benefit. Gating which
+// branch even mounts in React, not just which one is visible, avoids that.
+const LG_BREAKPOINT_PX = 1024;
+
+function useIsDesktopViewport(): boolean {
+  const [isDesktop, setIsDesktop] = useState(() => window.innerWidth >= LG_BREAKPOINT_PX);
+  useEffect(() => {
+    const mql = window.matchMedia(`(min-width: ${LG_BREAKPOINT_PX}px)`);
+    const handleChange = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
+    mql.addEventListener('change', handleChange);
+    return () => mql.removeEventListener('change', handleChange);
+  }, []);
+  return isDesktop;
+}
+
 // Auth gate only. Everything that reads data lives in AuthenticatedApp below and
 // is mounted ONLY once a session exists — that ordering is the whole point, not
 // a stylistic choice.
@@ -112,6 +149,16 @@ function AuthenticatedApp({ signOut, accessToken }: { signOut: () => void; acces
   // Whether the panel shows is ephemeral (like filtersOpen above); only its
   // width (chatWidthFraction) is a persisted preference.
   const [chatOpen, setChatOpen] = useState(false);
+  // Below the `lg` breakpoint (see the mobile-only block further down), the
+  // grid/chart side-by-side split is replaced by two stacked tabs instead —
+  // design-critique finding: the split has no responsive behavior at all, so
+  // under ~1024px both panels get squeezed into unreadable slivers rather
+  // than adapting. Purely local/ephemeral (like filtersOpen above): which
+  // mobile tab is showing isn't worth persisting across reloads or chart
+  // switches, unlike splitFraction/chatWidthFraction which describe the
+  // desktop layout the user actually tuned.
+  const [mobileTab, setMobileTab] = useState<'grid' | 'chart'>('grid');
+  const isDesktop = useIsDesktopViewport();
   const chatWidthFraction = useUiPreferencesStore((s) => s.chatWidthFraction);
   const setChatWidthFraction = useUiPreferencesStore((s) => s.setChatWidthFraction);
 
@@ -191,9 +238,15 @@ function AuthenticatedApp({ signOut, accessToken }: { signOut: () => void; acces
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-2">
+      {/* flex-wrap: design-critique finding — below ~1024px the fixed
+          single-row header squeezed the title down to a sliver, wrapping it
+          onto 3 lines instead of letting the button group drop to its own
+          row. Wrapping here just lets that happen cleanly; nothing about the
+          desktop layout changes since everything still fits on one row above
+          that width. */}
+      <header className="flex flex-wrap items-center justify-between gap-y-2 border-b border-slate-200 bg-white px-4 py-2">
         <h1 className="text-sm font-semibold text-slate-900">{t('appShell.title')}</h1>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <select
             value={currentOrgChartId}
             onChange={(e) => switchOrgChart(e.target.value)}
@@ -234,42 +287,95 @@ function AuthenticatedApp({ signOut, accessToken }: { signOut: () => void; acces
           floating popover — this is what makes the header's own bottom
           edge move down when "Filtres" is toggled, per the user's request. */}
       {filtersOpen && <FiltersBar orgChartId={currentOrgChartId} />}
-      <div ref={splitContainerRef} className="flex flex-1 overflow-hidden">
-        <section
-          className="overflow-auto border-r border-slate-200 p-4"
-          style={{ width: `${splitFraction * 100}%` }}
-        >
-          <LeftPanel />
-        </section>
-        <div
-          onPointerDown={handleDividerPointerDown}
-          onPointerMove={handleDividerPointerMove}
-          className="w-1.5 shrink-0 cursor-col-resize bg-slate-200 hover:bg-slate-300 active:bg-slate-400"
-          title={t('appShell.resize')}
-        />
-        <section className="min-w-0 flex-1 overflow-hidden">
-          <ErrorBoundary>
-            <OrgChartView />
-          </ErrorBoundary>
-        </section>
-        {chatOpen && (
+      {isDesktop ? (
+        // Desktop (lg and up) — the side-by-side resizable split.
+        <div ref={splitContainerRef} className="flex flex-1 overflow-hidden">
+          <section
+            className="overflow-auto border-r border-slate-200 p-4"
+            style={{ width: `${splitFraction * 100}%` }}
+          >
+            <LeftPanel />
+          </section>
+          <div
+            onPointerDown={handleDividerPointerDown}
+            onPointerMove={handleDividerPointerMove}
+            className="group relative w-1.5 shrink-0 cursor-col-resize bg-slate-200 hover:bg-slate-300 active:bg-slate-400"
+            title={t('appShell.resize')}
+          >
+            <DividerGrip />
+          </div>
+          <section className="min-w-0 flex-1 overflow-hidden">
+            <ErrorBoundary>
+              <OrgChartView />
+            </ErrorBoundary>
+          </section>
+          {chatOpen && (
+            <>
+              <div
+                onPointerDown={handleDividerPointerDown}
+                onPointerMove={handleChatDividerPointerMove}
+                className="group relative w-1.5 shrink-0 cursor-col-resize bg-slate-200 hover:bg-slate-300 active:bg-slate-400"
+                title={t('appShell.resize')}
+              >
+                <DividerGrip />
+              </div>
+              <section className="shrink-0 overflow-hidden" style={{ width: `${chatWidthFraction * 100}%` }}>
+                <ChatPanel
+                  orgChartId={currentOrgChartId}
+                  accessToken={accessToken}
+                  onClose={() => setChatOpen(false)}
+                />
+              </section>
+            </>
+          )}
+        </div>
+      ) : (
+      // Mobile/tablet (below lg) — stacked tabs instead of a side-by-side
+      // split, which has no room to be readable at these widths. If the chat
+      // is open it takes over this whole area instead of the tabs — no space
+      // for a third side-by-side pane down here the way there is on desktop,
+      // and ChatPanel already has its own close button to get back to the
+      // tabs.
+      <div className="flex flex-1 flex-col overflow-hidden">
+        {chatOpen ? (
+          <ChatPanel orgChartId={currentOrgChartId} accessToken={accessToken} onClose={() => setChatOpen(false)} />
+        ) : (
           <>
-            <div
-              onPointerDown={handleDividerPointerDown}
-              onPointerMove={handleChatDividerPointerMove}
-              className="w-1.5 shrink-0 cursor-col-resize bg-slate-200 hover:bg-slate-300 active:bg-slate-400"
-              title={t('appShell.resize')}
-            />
-            <section className="shrink-0 overflow-hidden" style={{ width: `${chatWidthFraction * 100}%` }}>
-              <ChatPanel
-                orgChartId={currentOrgChartId}
-                accessToken={accessToken}
-                onClose={() => setChatOpen(false)}
-              />
-            </section>
+            <div className="flex shrink-0 border-b border-slate-200">
+              <button
+                onClick={() => setMobileTab('grid')}
+                className={`flex-1 px-3 py-2 text-sm font-medium ${
+                  mobileTab === 'grid' ? 'border-b-2 border-slate-900 text-slate-900' : 'text-slate-500'
+                }`}
+              >
+                {t('appShell.gridTab')}
+              </button>
+              <button
+                onClick={() => setMobileTab('chart')}
+                className={`flex-1 px-3 py-2 text-sm font-medium ${
+                  mobileTab === 'chart' ? 'border-b-2 border-slate-900 text-slate-900' : 'text-slate-500'
+                }`}
+              >
+                {t('appShell.chartTab')}
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-hidden">
+              {mobileTab === 'grid' ? (
+                <section className="h-full overflow-auto p-4">
+                  <LeftPanel />
+                </section>
+              ) : (
+                <section className="h-full overflow-hidden">
+                  <ErrorBoundary>
+                    <OrgChartView />
+                  </ErrorBoundary>
+                </section>
+              )}
+            </div>
           </>
         )}
       </div>
+      )}
       {assignmentsEmployee && (
         <AssignmentEditorModal
           employee={assignmentsEmployee}

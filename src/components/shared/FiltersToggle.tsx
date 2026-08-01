@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { useActiveFilterCount } from '../../hooks/useActiveFilterCount';
+import { useActiveFilterCount, useActiveFilterKeys } from '../../hooks/useActiveFilterCount';
 
 interface FiltersToggleProps {
   open: boolean;
@@ -15,11 +15,17 @@ interface FiltersToggleProps {
 export function FiltersToggle({ open, onToggle }: FiltersToggleProps) {
   const { t } = useTranslation();
   const activeFilterCount = useActiveFilterCount();
+  const activeFilterKeys = useActiveFilterKeys();
+  // Lets the badge answer "which filter?" on hover without opening the bar —
+  // real friction reported: the count alone gives no clue which dimension is
+  // active once more than one has been toggled off since.
+  const tooltip = activeFilterKeys.length > 0 ? activeFilterKeys.map((k) => t(`filters.${k}`)).join(', ') : undefined;
 
   return (
     <button
       type="button"
       onClick={onToggle}
+      title={tooltip}
       className={`flex items-center gap-1.5 rounded border px-2.5 py-1.5 text-sm ${
         open ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
       }`}

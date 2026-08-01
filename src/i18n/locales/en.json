@@ -18,7 +18,9 @@
     "openingOrgChart": "Opening org chart…",
     "manage": "Manage",
     "signOut": "Sign out",
-    "resize": "Resize"
+    "resize": "Resize",
+    "gridTab": "Grid",
+    "chartTab": "Org chart"
   },
   "leftPanel": {
     "tabs": {
