@@ -34,6 +34,7 @@ export function OrgChartView() {
   const selectedEmployeeId = useSelectionStore((s) => s.selectedEmployeeId);
   const setSelectedEmployee = useSelectionStore((s) => s.setSelectedEmployee);
   const setExpandedNodeIds = useSelectionStore((s) => s.setExpandedNodeIds);
+  const setFocusedNodeIds = useSelectionStore((s) => s.setFocusedNodeIds);
 
   // Business Unit / Poste / ETP range filters — shared with the grid via
   // selectionStore; the chart-local DepartmentLegend below is a read-only
@@ -80,8 +81,19 @@ export function OrgChartView() {
   // zoom level, which isn't what "expand" should do — only useChartViewport's
   // own one-time initial auto-fit and handleExport's own capture are allowed
   // to move the viewport).
+  //
+  // Also clears focusedNodeIds — a second, real bug the user caught right
+  // after the zoom fix: expandedNodeIds only controls visibility DOWNWARD
+  // (a card's own subtree), while "focus mode" (the top collapse badge,
+  // useChartVisibility.ts) hides everyone ABOVE/beside a focused card
+  // regardless of expandedNodeIds. Without resetting it too, "Expand all"
+  // correctly revealed every descendant but any active focus mode still hid
+  // ancestors and unrelated branches — exactly the "unfolds what's below but
+  // not above" symptom reported. Expand all is meant to mean "show
+  // everyone," so both hiding mechanisms need clearing together.
   function handleExpandAll() {
     setExpandedNodeIds(new Set(data.employees.map((e) => e.id)));
+    setFocusedNodeIds(new Set());
   }
 
   async function handleExport() {

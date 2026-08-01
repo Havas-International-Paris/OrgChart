@@ -62,6 +62,7 @@ interface SelectionState {
   toggleExpanded: (id: string) => void;
   setExpandedNodeIds: (ids: Set<string>) => void;
   toggleFocused: (id: string) => void;
+  setFocusedNodeIds: (ids: Set<string>) => void;
   expandAncestors: (id: string, getPrimaryManagerId: (employeeId: string) => string | null) => void;
   setAssignmentsEmployeeId: (id: string | null) => void;
   toggleClientMissionFilter: (id: string) => void;
@@ -120,6 +121,8 @@ export const useSelectionStore = create<SelectionState>((set) => ({
       else next.add(id);
       return { focusedNodeIds: next };
     }),
+
+  setFocusedNodeIds: (ids) => set({ focusedNodeIds: ids }),
 
   toggleClientMissionFilter: (id) =>
     set((state) => {
