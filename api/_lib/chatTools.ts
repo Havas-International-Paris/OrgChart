@@ -39,6 +39,37 @@ function employeeLabel(e: { first_name: string; last_name: string }) {
   return `${e.first_name} ${e.last_name}`;
 }
 
+// Job title and department are catalog-backed picklists everywhere else in
+// the app (EmployeeGrid's "Poste"/"Business Unit" columns are select-only,
+// no free text — see CLAUDE.md) — the catalog entry has to already exist
+// before it's selectable. The chat's write tools bypass that UI-level gate
+// entirely (they write straight to employees.job_title/department), so a
+// value the model invents or accepts from the user never appeared in the
+// Postes/Business Units tabs, even though employees.job_title/department
+// have no FK enforcing the relationship and happily stored it anyway. Real
+// bug, reported by the user: asked the chat to fill in a few people's
+// missing job titles, the grid updated correctly but the new titles never
+// showed up in the "Postes" tab. Fixed by having every write path that sets
+// job_title/department also upsert that value into the matching catalog
+// table first — mirrors what a user going through Postes/Business Units
+// first, then the grid, would have produced by hand. Both catalog tables
+// have a `unique` constraint on `name` (0005_job_titles.sql,
+// 0008_departments.sql), so `ignoreDuplicates` makes this a no-op for an
+// already-known value instead of an error.
+async function ensureCatalogEntry(
+  supabase: SupabaseClient<Database>,
+  table: 'job_titles' | 'departments',
+  name: string | null | undefined,
+): Promise<void> {
+  const trimmed = typeof name === 'string' ? name.trim() : '';
+  if (!trimmed) return;
+  const { error } = await supabase.from(table).upsert({ name: trimmed }, { onConflict: 'name', ignoreDuplicates: true });
+  // Non-fatal on purpose: the employee's own field is the source of truth the
+  // user asked to change, and RLS or a race on the catalog table shouldn't
+  // block that write from succeeding.
+  if (error) console.error(`[chatTools] ensureCatalogEntry(${table}, "${trimmed}") failed:`, error.message);
+}
+
 const findEmployee: ToolDefinition = {
   name: 'find_employee',
   description:
@@ -451,6 +482,8 @@ const createEmployee: ToolDefinition = {
     required: ['firstName', 'lastName'],
   },
   async run({ supabase, orgChartId }, args) {
+    await ensureCatalogEntry(supabase, 'job_titles', args.jobTitle as string | undefined);
+    await ensureCatalogEntry(supabase, 'departments', args.department as string | undefined);
     const { data: employee, error } = await supabase
       .from('employees')
       .insert({
@@ -502,6 +535,9 @@ const updateEmployee: ToolDefinition = {
     if (typeof args.jobTitle === 'string') changes.job_title = args.jobTitle;
     if (typeof args.department === 'string') changes.department = args.department;
     if (Object.keys(changes).length === 0) return { error: 'No fields to update were provided.' };
+
+    if (changes.job_title !== undefined) await ensureCatalogEntry(supabase, 'job_titles', changes.job_title);
+    if (changes.department !== undefined) await ensureCatalogEntry(supabase, 'departments', changes.department);
 
     const { data, error } = await supabase
       .from('employees')
@@ -609,6 +645,8 @@ const createTeam: ToolDefinition = {
     const created: unknown[] = [];
 
     for (const entry of entries) {
+      await ensureCatalogEntry(supabase, 'job_titles', entry.jobTitle);
+      await ensureCatalogEntry(supabase, 'departments', entry.department);
       const { data, error } = await supabase
         .from('employees')
         .insert({
