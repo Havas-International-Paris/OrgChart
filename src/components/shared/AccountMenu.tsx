@@ -34,10 +34,20 @@ export function AccountMenu({ email, onSignOut }: AccountMenuProps) {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setOpen(false);
     };
-    document.addEventListener('mousedown', onMouseDown);
+    // Capture phase, not bubble — same fix already proven for
+    // ContextMenu.tsx's identical outside-click listener (see CLAUDE.md).
+    // Plenty of controls elsewhere in the app (chart cards, badges, the
+    // photo avatar, assignment gauges…) call e.stopPropagation() in their
+    // own handlers, which also silently stops a bubble-phase `document`
+    // listener from ever seeing that click — the menu would then only
+    // close on a click landing somewhere with no stopPropagation at all,
+    // reported by the user as it "not closing" on most clicks. Capture
+    // fires top-down before the click reaches its target, so no
+    // descendant's stopPropagation() can block it.
+    document.addEventListener('mousedown', onMouseDown, true);
     document.addEventListener('keydown', onKeyDown);
     return () => {
-      document.removeEventListener('mousedown', onMouseDown);
+      document.removeEventListener('mousedown', onMouseDown, true);
       document.removeEventListener('keydown', onKeyDown);
     };
   }, [open]);
