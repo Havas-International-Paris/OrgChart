@@ -259,12 +259,24 @@ function AuthenticatedApp({ signOut, accessToken }: { signOut: () => void; acces
               </option>
             ))}
           </select>
+          {/* Same outline treatment as FiltersToggle's inactive state —
+              design-critique finding: Manage/Sign out were bare unstyled
+              text while their neighbors (Filters, Ask AI) were bordered
+              buttons, so the header read as 4 unrelated button styles
+              instead of one system with a single primary action (Ask AI,
+              dark when open) and everything else secondary/outline. */}
           <button
             onClick={() => setManagingCharts(true)}
-            className="rounded px-2 py-1 text-sm text-slate-500 hover:bg-slate-100"
+            className="rounded border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
           >
             {t('appShell.manage')}
           </button>
+          {/* Divider: separates "which chart, and its admin" (selector +
+              Manage) from the tools that work within the currently open
+              chart (search/filter/undo-redo) — design-critique finding that
+              the header read as one undifferentiated row with no way to
+              scan it in logical groups. */}
+          <div className="h-5 w-px shrink-0 bg-slate-200" />
           <SearchBar />
           <FiltersToggle open={filtersOpen} onToggle={() => setFiltersOpen((o) => !o)} />
           {/* Undo/redo applies globally (one shared historyStore) to both
@@ -273,11 +285,22 @@ function AuthenticatedApp({ signOut, accessToken }: { signOut: () => void; acces
               history to show, regardless of which panel the user is
               looking at. */}
           <UndoRedoButtons />
+          {/* Divider: isolates Ask AI as its own standalone feature/cluster,
+              distinct from the chart-editing tools before it. */}
+          <div className="h-5 w-px shrink-0 bg-slate-200" />
           <ChatToggleButton open={chatOpen} onToggle={() => setChatOpen((o) => !o)} />
           <LanguageSwitcher />
+          {/* Divider + the same outline treatment as Manage above — design-
+              critique finding: Sign out sat directly against EN/FR with no
+              separation and no button boundary, so a click aimed at the
+              frequently-used language toggle could land on a rare,
+              consequential action (ending the session) instead. Both the
+              gap and the visible border now make it a deliberate, separate
+              target rather than an extension of the language toggle. */}
+          <div className="h-5 w-px shrink-0 bg-slate-200" />
           <button
             onClick={() => signOut()}
-            className="rounded px-2 py-1 text-sm text-slate-500 hover:bg-slate-100"
+            className="rounded border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
           >
             {t('appShell.signOut')}
           </button>
