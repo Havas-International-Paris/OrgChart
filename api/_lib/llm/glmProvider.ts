@@ -3,14 +3,17 @@ import { chatTools, chatToolsByName, type ToolDefinition } from '../chatTools.js
 import type { LlmProvider, LlmRunParams } from './types.js';
 import { SYSTEM_INSTRUCTION } from './systemInstruction.js';
 
-// GLM-5.2 (Zhipu/Z.ai) via OpenRouter — added 2026-08-01 to compare quality
-// against Nemotron/Gemini on the same questions, per the user's explicit
-// request ("je suis prêt à mettre quelques $"). OpenRouter is pay-as-you-go
-// here, not a free tier — GLM-5.2 has no genuine free hosted endpoint as of
-// this writing (Z.ai's own API and OpenRouter's routing are both metered;
-// only the older GLM-4.5-air has an OpenRouter :free tier, which is a
-// different, weaker model). Cost at this app's usage volume (occasional
-// chat questions) is expected to be a few cents per test session.
+// GLM-5.2 (Zhipu/Z.ai) — added 2026-08-01 to compare quality against
+// Nemotron/Gemini, originally wired through OpenRouter (paid) per the user's
+// "je suis prêt à mettre quelques $". Switched the same day to NVIDIA NIM
+// instead, once discovered that build.nvidia.com also serves z-ai/glm-5.2
+// for free — same OpenAI-compatible endpoint and NVIDIA_API_KEY already used
+// by nemotronProvider.ts, confirmed working via a direct curl test. Strictly
+// better for this app than the OpenRouter route: no cost, one fewer external
+// dependency, and the domain is already reachable through the corporate
+// network (OpenRouter momentarily wasn't — see the v3 write-up in
+// docs/chat-ia-cahier-des-charges.md — while integrate.api.nvidia.com,
+// already used by Nemotron, never had that problem).
 export const MODEL = 'z-ai/glm-5.2';
 
 function isRetryableError(err: unknown): boolean {
@@ -48,7 +51,7 @@ interface StreamedToolCall {
 export function createGlmProvider(apiKey: string): LlmProvider {
   const client = new OpenAI({
     apiKey,
-    baseURL: 'https://openrouter.ai/api/v1',
+    baseURL: 'https://integrate.api.nvidia.com/v1',
   });
   const tools = glmTools();
 

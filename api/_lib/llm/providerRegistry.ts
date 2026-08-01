@@ -39,9 +39,9 @@ export const PROVIDER_REGISTRY: Record<ProviderId, ProviderMeta> = {
   },
   glm: {
     id: 'glm',
-    label: 'GLM-5.2 (Zhipu, via OpenRouter)',
+    label: 'GLM-5.2 (Zhipu, via NVIDIA NIM, free)',
     model: GLM_MODEL,
-    envVar: 'OPENROUTER_API_KEY',
+    envVar: 'NVIDIA_API_KEY',
     create: createGlmProvider,
   },
   gemini: {
