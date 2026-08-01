@@ -20,7 +20,9 @@
     "signOut": "Sign out",
     "resize": "Resize",
     "gridTab": "Grid",
-    "chartTab": "Org chart"
+    "chartTab": "Org chart",
+    "account": "Account",
+    "language": "Language"
   },
   "leftPanel": {
     "tabs": {

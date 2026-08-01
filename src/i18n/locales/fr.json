@@ -20,7 +20,9 @@
     "signOut": "Déconnexion",
     "resize": "Redimensionner",
     "gridTab": "Grille",
-    "chartTab": "Organigramme"
+    "chartTab": "Organigramme",
+    "account": "Compte",
+    "language": "Langue"
   },
   "leftPanel": {
     "tabs": {

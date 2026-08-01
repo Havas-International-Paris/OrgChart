@@ -22,7 +22,7 @@ import { UndoRedoButtons } from '../shared/UndoRedoButtons';
 import { AssignmentEditorModal } from '../shared/AssignmentEditorModal';
 import { ErrorBoundary } from '../shared/ErrorBoundary';
 import { Toast } from '../shared/Toast';
-import { LanguageSwitcher } from '../shared/LanguageSwitcher';
+import { AccountMenu } from '../shared/AccountMenu';
 import { ChatToggleButton } from '../chat/ChatToggleButton';
 import { ChatPanel } from '../chat/ChatPanel';
 
@@ -99,10 +99,25 @@ export function AppShell() {
     return <LoginPage />;
   }
 
-  return <AuthenticatedApp key={session.user.id} signOut={signOut} accessToken={session.access_token} />;
+  return (
+    <AuthenticatedApp
+      key={session.user.id}
+      signOut={signOut}
+      accessToken={session.access_token}
+      email={session.user.email}
+    />
+  );
 }
 
-function AuthenticatedApp({ signOut, accessToken }: { signOut: () => void; accessToken: string }) {
+function AuthenticatedApp({
+  signOut,
+  accessToken,
+  email,
+}: {
+  signOut: () => void;
+  accessToken: string;
+  email: string | undefined;
+}) {
   const { t } = useTranslation();
   const {
     orgCharts,
@@ -289,21 +304,16 @@ function AuthenticatedApp({ signOut, accessToken }: { signOut: () => void; acces
               distinct from the chart-editing tools before it. */}
           <div className="h-5 w-px shrink-0 bg-slate-200" />
           <ChatToggleButton open={chatOpen} onToggle={() => setChatOpen((o) => !o)} />
-          <LanguageSwitcher />
-          {/* Divider + the same outline treatment as Manage above — design-
-              critique finding: Sign out sat directly against EN/FR with no
-              separation and no button boundary, so a click aimed at the
-              frequently-used language toggle could land on a rare,
-              consequential action (ending the session) instead. Both the
-              gap and the visible border now make it a deliberate, separate
-              target rather than an extension of the language toggle. */}
+          {/* Divider, then the account/profile button: EN/FR and Sign out
+              used to be two separate top-level controls at the end of the
+              row (the previous header-restyle pass had already separated
+              Sign out from EN/FR with its own divider to reduce a misclick
+              risk) — consolidated into one round account button per a
+              follow-up design request, matching the conventional
+              "account menu" pattern instead of spreading account-level
+              settings across the header. See AccountMenu.tsx. */}
           <div className="h-5 w-px shrink-0 bg-slate-200" />
-          <button
-            onClick={() => signOut()}
-            className="rounded border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
-          >
-            {t('appShell.signOut')}
-          </button>
+          <AccountMenu email={email} onSignOut={signOut} />
         </div>
       </header>
       {/* Renders as a full-width row directly below <header>, not a
