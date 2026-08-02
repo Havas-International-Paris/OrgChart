@@ -47,6 +47,12 @@ export interface EmployeeDetailPanelProps {
   functionalManagers: Employee[];
   directReports: Employee[];
   functionalReports: Employee[];
+  // Surfaced here (backlog item 51) so compact-mode cards, which hide the
+  // ETP bars/advertiser list on the card itself, keep them reachable one
+  // click away — same data EmployeeNode.tsx's MetricRow/AdvertisersRow show.
+  assignmentsTotalEtpVendu: number;
+  assignmentsTotalEtpReel: number;
+  advertiserNames: string[];
   onClose: () => void;
   onSelectEmployee: (id: string) => void;
 }
@@ -58,6 +64,9 @@ export function EmployeeDetailPanel({
   functionalManagers,
   directReports,
   functionalReports,
+  assignmentsTotalEtpVendu,
+  assignmentsTotalEtpReel,
+  advertiserNames,
   onClose,
   onSelectEmployee,
 }: EmployeeDetailPanelProps) {
@@ -85,6 +94,25 @@ export function EmployeeDetailPanel({
         >
           {employee.department}
         </span>
+      )}
+
+      {(assignmentsTotalEtpVendu > 0 || assignmentsTotalEtpReel > 0) && (
+        <Section label={t('chart.detailPanel.assignments')}>
+          <div className="flex items-center gap-3 text-xs text-slate-600">
+            <span>
+              {t('chart.node.sold')}: <span className="font-semibold text-slate-900">{assignmentsTotalEtpVendu}%</span>
+            </span>
+            <span>
+              {t('chart.node.actual')}: <span className="font-semibold text-slate-900">{assignmentsTotalEtpReel}%</span>
+            </span>
+          </div>
+        </Section>
+      )}
+
+      {advertiserNames.length > 0 && (
+        <Section label={t('chart.detailPanel.clientsMissions')}>
+          <p className="text-xs text-slate-600">{advertiserNames.join(', ')}</p>
+        </Section>
       )}
 
       {manager && (

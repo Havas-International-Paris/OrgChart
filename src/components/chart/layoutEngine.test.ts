@@ -1,10 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import type { Edge, Node } from '@xyflow/react';
-import { NODE_HEIGHT, NODE_WIDTH, layoutWithElk, packDisconnectedTrees, resolveOverlaps } from './layoutEngine';
-
-// elk's layered.spacing.nodeNodeBetweenLayers, kept in sync with the graph
-// options in layoutEngine.ts.
-const RANK_SEP = 64;
+import {
+  COMPACT_NODE_HEIGHT,
+  COMPACT_NODE_WIDTH,
+  COMPACT_RANK_SEP,
+  COMPACT_SIBLING_GAP,
+  NODE_HEIGHT,
+  NODE_WIDTH,
+  RANK_SEP,
+  SIBLING_GAP,
+  layoutWithElk,
+  packDisconnectedTrees,
+  resolveOverlaps,
+} from './layoutEngine';
 
 const node = (id: string): Node => ({ id, position: { x: 0, y: 0 }, data: {} });
 const edge = (source: string, target: string): Edge => ({ id: `${source}-${target}`, source, target });
@@ -47,6 +55,62 @@ describe('layoutWithElk', () => {
     const { nodes, edges } = build(['m', 'e'], [['m', 'e']]);
     const pos = byId(await layoutWithElk(nodes, edges));
     expect(pos.get('e')!.y - pos.get('m')!.y).toBeCloseTo(NODE_HEIGHT + RANK_SEP);
+  });
+
+  // Backlog item 51 (compact card mode) — explicit nodeHeight arg tightens
+  // the rank gap to match the shorter card, and never affects detailed-mode
+  // callers (every test above omits it and gets the NODE_HEIGHT default).
+  it('tightens vertical rank spacing when a shorter compact node height is passed', async () => {
+    const { nodes, edges } = build(['m', 'e'], [['m', 'e']]);
+    const pos = byId(await layoutWithElk(nodes, edges, undefined, COMPACT_NODE_HEIGHT));
+    expect(pos.get('e')!.y - pos.get('m')!.y).toBeCloseTo(COMPACT_NODE_HEIGHT + RANK_SEP);
+    expect(COMPACT_NODE_HEIGHT).toBeLessThan(NODE_HEIGHT);
+  });
+
+  // Card width narrowed ~30% for compact mode (2026-08-02 follow-up) — a
+  // narrower nodeWidth arg must pack siblings closer together horizontally
+  // (same SIBLING_GAP, smaller cards), and every helper that reasons about a
+  // card's own width (applySiblingOrder, centerParentsOverChildren,
+  // resolveOverlaps, packDisconnectedTrees) must use the passed-in width
+  // rather than the NODE_WIDTH constant, or this would silently fail.
+  it('packs siblings closer together when a narrower compact node width is passed', async () => {
+    const { nodes, edges } = build(['m', 'p', 'q'], [['m', 'p'], ['m', 'q']]);
+    const detailed = byId(await layoutWithElk(nodes, edges));
+    const compact = byId(await layoutWithElk(nodes, edges, undefined, NODE_HEIGHT, COMPACT_NODE_WIDTH));
+    expect(compact.get('q')!.x - compact.get('p')!.x).toBeLessThan(detailed.get('q')!.x - detailed.get('p')!.x);
+    expect(COMPACT_NODE_WIDTH).toBeLessThan(NODE_WIDTH);
+  });
+
+  // Compact mode's horizontal (sibling) and vertical (rank) gaps are tied to
+  // the same constant in layoutEngine.ts specifically so a compact chart is
+  // tighter on BOTH axes by the same amount, not just one — an earlier pass
+  // this same day went the wrong direction (raised the horizontal gap up to
+  // match the UNCHANGED vertical one) before this was corrected.
+  it('compact sibling gap and compact rank gap are the same value, both smaller than detailed', () => {
+    expect(COMPACT_SIBLING_GAP).toBe(COMPACT_RANK_SEP);
+    expect(COMPACT_SIBLING_GAP).toBeLessThan(SIBLING_GAP);
+    expect(COMPACT_RANK_SEP).toBeLessThan(RANK_SEP);
+  });
+
+  // Isolated from the width test above by holding nodeWidth at its detailed
+  // value and only varying siblingGap, so the center-to-center distance
+  // changes by exactly the gap delta.
+  it('packs siblings closer together when a smaller compact sibling gap is passed, independent of width', async () => {
+    const { nodes, edges } = build(['m', 'p', 'q'], [['m', 'p'], ['m', 'q']]);
+    const detailed = byId(await layoutWithElk(nodes, edges));
+    const compactGap = byId(await layoutWithElk(nodes, edges, undefined, NODE_HEIGHT, NODE_WIDTH, COMPACT_SIBLING_GAP));
+    const detailedDistance = detailed.get('q')!.x - detailed.get('p')!.x;
+    const compactGapDistance = compactGap.get('q')!.x - compactGap.get('p')!.x;
+    expect(compactGapDistance).toBeCloseTo(detailedDistance - (SIBLING_GAP - COMPACT_SIBLING_GAP));
+  });
+
+  // Vertical counterpart of the sibling-gap test above — a smaller rankSep
+  // arg must tighten the parent/child rank gap the same way COMPACT_NODE_HEIGHT
+  // tightens it via the card's own height.
+  it('tightens vertical rank spacing when a smaller compact rank gap is passed', async () => {
+    const { nodes, edges } = build(['m', 'e'], [['m', 'e']]);
+    const pos = byId(await layoutWithElk(nodes, edges, undefined, NODE_HEIGHT, NODE_WIDTH, SIBLING_GAP, COMPACT_RANK_SEP));
+    expect(pos.get('e')!.y - pos.get('m')!.y).toBeCloseTo(NODE_HEIGHT + COMPACT_RANK_SEP);
   });
 
   it('puts siblings on the same rank, side by side', async () => {

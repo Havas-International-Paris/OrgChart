@@ -3,17 +3,47 @@ import type { Node, Edge } from '@xyflow/react';
 import { ROOT_GROUP_KEY } from './siblingOrder';
 
 export const NODE_WIDTH = 220;
+// Compact mode (backlog item 51, narrowed further 2026-08-02) — about 30%
+// narrower than the detailed card, on top of the shorter height, so the
+// whole chart packs noticeably tighter. Same "elk spacing hint only, real
+// size is auto-measured" caveat as COMPACT_NODE_HEIGHT below, and every
+// layout helper that reasons about a card's own width (applySiblingOrder,
+// centerParentsOverChildren, resolveOverlaps, packDisconnectedTrees) takes it
+// as a parameter rather than reading the NODE_WIDTH constant directly, or
+// their spacing math would silently stay sized for the wider detailed card.
+export const COMPACT_NODE_WIDTH = 154;
 // Approximate spacing hint for elk only — actual card height is
 // content-driven (avatar row, dept pill, two ETP bars, advertisers,
 // badge) and auto-measured by React Flow once mounted, same as NODE_WIDTH.
 export const NODE_HEIGHT = 190;
+// Compact mode (backlog item 51) drops the two ETP bars, advertiser list and
+// subordinate badge from the card, so it's meaningfully shorter — this is
+// only elk's spacing hint (real height is still auto-measured), but a stale
+// hint would leave elk's vertical rank gap sized for the taller detailed
+// card even when every card on screen is the shorter compact one.
+export const COMPACT_NODE_HEIGHT = 100;
 // Shared with elk's own nodeNode spacing option below so sibling reordering
 // packs cards with the same gap elk itself would have used.
-const SIBLING_GAP = 32;
+export const SIBLING_GAP = 32;
 // elk's layered.spacing.nodeNodeBetweenLayers, kept equal to dagre's old
 // ranksep so the parent/child vertical gap is unchanged (layoutEngine.test.ts
 // asserts this exact value).
-const RANK_SEP = 64;
+export const RANK_SEP = 64;
+// Compact mode (backlog item 51, 2026-08-02) — shared by both axes on
+// purpose: horizontal (siblingGap) and vertical (rankSep) spacing should
+// match each other in compact mode, and tying both constants to this one
+// value is what makes that a guarantee rather than two numbers someone has
+// to remember to keep in sync. (An earlier version of this pass went the
+// other way — raising the horizontal gap up to RANK_SEP's 64 instead of
+// lowering the vertical gap down to this — which was backwards from what was
+// actually wanted: a tighter compact chart on both axes, not just one.)
+// Every layout parameter below that reads SIBLING_GAP/RANK_SEP takes it as
+// an explicit argument (default to the detailed constant, so every other
+// caller/test is unaffected), same reason nodeWidth/nodeHeight are threaded
+// rather than read as module-level constants.
+const COMPACT_GAP = 16;
+export const COMPACT_SIBLING_GAP = COMPACT_GAP;
+export const COMPACT_RANK_SEP = COMPACT_GAP;
 
 const elk = new ELK();
 
@@ -63,6 +93,14 @@ export async function layoutWithElk<T extends Node>(
   // same-parent siblings in a user-chosen left-to-right order. Omitted
   // callers (or every sibling returning null) get elk's untouched output.
   siblingOrderOf?: (id: string) => number | null,
+  // Compact mode (backlog item 51) passes the COMPACT_* constants here so
+  // elk's own spacing tightens along with the smaller card — all four
+  // default to the detailed card's dimensions so every other caller (tests
+  // included) is unaffected.
+  nodeHeight: number = NODE_HEIGHT,
+  nodeWidth: number = NODE_WIDTH,
+  siblingGap: number = SIBLING_GAP,
+  rankSep: number = RANK_SEP,
 ): Promise<T[]> {
   if (nodes.length === 0) return [];
 
@@ -71,8 +109,8 @@ export async function layoutWithElk<T extends Node>(
     layoutOptions: {
       'elk.algorithm': 'layered',
       'elk.direction': 'DOWN',
-      'elk.layered.spacing.nodeNodeBetweenLayers': String(RANK_SEP),
-      'elk.spacing.nodeNode': String(SIBLING_GAP),
+      'elk.layered.spacing.nodeNodeBetweenLayers': String(rankSep),
+      'elk.spacing.nodeNode': String(siblingGap),
       // elk pads the whole graph by default; dagre didn't. Zeroing it out
       // keeps the coordinate space anchored the same way dagre's was.
       'elk.padding': '[top=0,left=0,bottom=0,right=0]',
@@ -84,7 +122,7 @@ export async function layoutWithElk<T extends Node>(
       // order keeps each manager's team together.
       'elk.layered.considerModelOrder.strategy': 'NODES_AND_EDGES',
     },
-    children: nodes.map((n) => ({ id: n.id, width: NODE_WIDTH, height: NODE_HEIGHT })),
+    children: nodes.map((n) => ({ id: n.id, width: nodeWidth, height: nodeHeight })),
     edges: edges.map((e) => ({ id: `${e.source}->${e.target}`, sources: [e.source], targets: [e.target] })),
   };
 
@@ -96,7 +134,7 @@ export async function layoutWithElk<T extends Node>(
   // in the final map at the bottom of this function, exactly mirroring
   // dagre's own last step.
   const centerById = new Map<string, Position>(
-    (result.children ?? []).map((c) => [c.id, { x: (c.x ?? 0) + NODE_WIDTH / 2, y: (c.y ?? 0) + NODE_HEIGHT / 2 }]),
+    (result.children ?? []).map((c) => [c.id, { x: (c.x ?? 0) + nodeWidth / 2, y: (c.y ?? 0) + nodeHeight / 2 }]),
   );
 
   // applySiblingOrder/centerParentsOverChildren/resolveOverlaps are all
@@ -104,9 +142,9 @@ export async function layoutWithElk<T extends Node>(
   // at a time on elk's own raw, unaligned output — different disconnected
   // trees essentially never share elk's own scattered y values, so nothing
   // here needs the trees pre-aligned to run correctly.
-  if (siblingOrderOf) applySiblingOrder(centerById, nodes, edges, siblingOrderOf);
-  centerParentsOverChildren(centerById, nodes, edges);
-  resolveOverlaps(centerById, nodes, edges);
+  if (siblingOrderOf) applySiblingOrder(centerById, nodes, edges, siblingOrderOf, nodeWidth, siblingGap);
+  centerParentsOverChildren(centerById, nodes, edges, nodeWidth, siblingGap);
+  resolveOverlaps(centerById, nodes, edges, nodeWidth, siblingGap);
   // Runs LAST, deliberately, not first: it measures each tree's bounding
   // box to decide how tightly to pack it against its neighbour, and the two
   // passes above can widen a tree's own true footprint after the fact (e.g.
@@ -115,13 +153,13 @@ export async function layoutWithElk<T extends Node>(
   // Measuring before they'd run once left the packed gap too small for the
   // tree's real, settled width, which read as leftover dead space once
   // everything else had finished moving (reported live, 2026-08-01).
-  packDisconnectedTrees(centerById, nodes, edges);
+  packDisconnectedTrees(centerById, nodes, edges, nodeWidth, siblingGap);
 
   return nodes.map((n) => {
     const pos = centerById.get(n.id)!;
     return {
       ...n,
-      position: { x: pos.x - NODE_WIDTH / 2, y: pos.y - NODE_HEIGHT / 2 },
+      position: { x: pos.x - nodeWidth / 2, y: pos.y - nodeHeight / 2 },
     };
   });
 }
@@ -154,7 +192,13 @@ export async function layoutWithElk<T extends Node>(
 // so it changes nothing for a normal, fully-connected chart. Exported only
 // so layoutEngine.test.ts can drive it directly against a crafted
 // multi-root position map, same reasoning as resolveOverlaps below.
-export function packDisconnectedTrees(positions: Map<string, Position>, nodes: Node[], edges: Edge[]): void {
+export function packDisconnectedTrees(
+  positions: Map<string, Position>,
+  nodes: Node[],
+  edges: Edge[],
+  nodeWidth: number = NODE_WIDTH,
+  siblingGap: number = SIBLING_GAP,
+): void {
   const childrenOf = new Map<string, string[]>();
   const hasPrimaryManager = new Set<string>();
   for (const e of edges) {
@@ -200,7 +244,7 @@ export function packDisconnectedTrees(positions: Map<string, Position>, nodes: N
         pos.y += dy;
       }
     }
-    cursor += tree.maxX - tree.minX + NODE_WIDTH + SIBLING_GAP;
+    cursor += tree.maxX - tree.minX + nodeWidth + siblingGap;
   }
 }
 
@@ -246,6 +290,8 @@ function applySiblingOrder(
   nodes: Node[],
   edges: Edge[],
   siblingOrderOf: (id: string) => number | null,
+  nodeWidth: number = NODE_WIDTH,
+  siblingGap: number = SIBLING_GAP,
 ): void {
   const parentOf = new Map<string, string>();
   const childrenOf = new Map<string, string[]>();
@@ -290,12 +336,12 @@ function applySiblingOrder(
       const min = Math.min(...xs);
       const max = Math.max(...xs);
       subtreeIdsOf.set(id, subtreeIds);
-      widthOf.set(id, max - min + NODE_WIDTH);
+      widthOf.set(id, max - min + nodeWidth);
       oldCenterOf.set(id, (min + max) / 2);
     }
 
     const sorted = [...memberIds].sort((a, b) => siblingOrderOf(a)! - siblingOrderOf(b)!);
-    const totalWidth = sorted.reduce((sum, id) => sum + widthOf.get(id)!, 0) + SIBLING_GAP * (sorted.length - 1);
+    const totalWidth = sorted.reduce((sum, id) => sum + widthOf.get(id)!, 0) + siblingGap * (sorted.length - 1);
     const originalCenter = memberIds.reduce((sum, id) => sum + positions.get(id)!.x, 0) / memberIds.length;
 
     // Each sibling's WHOLE subtree is translated as one rigid block so its
@@ -318,7 +364,7 @@ function applySiblingOrder(
       if (delta !== 0) {
         for (const sid of subtreeIdsOf.get(id)!) positions.get(sid)!.x += delta;
       }
-      cursor += width + SIBLING_GAP;
+      cursor += width + siblingGap;
     }
   }
 }
@@ -355,7 +401,13 @@ function applySiblingOrder(
 // judges "is this card centred over its team," and how dagre itself centred
 // a parent, regardless of how much horizontal room any one child's own
 // subtree occupies underneath it.
-function centerParentsOverChildren(positions: Map<string, Position>, nodes: Node[], edges: Edge[]): void {
+function centerParentsOverChildren(
+  positions: Map<string, Position>,
+  nodes: Node[],
+  edges: Edge[],
+  nodeWidth: number = NODE_WIDTH,
+  siblingGap: number = SIBLING_GAP,
+): void {
   const childrenOf = new Map<string, string[]>();
   for (const e of edges) {
     const kids = childrenOf.get(e.source) ?? [];
@@ -389,9 +441,9 @@ function centerParentsOverChildren(positions: Map<string, Position>, nodes: Node
 
     const sorted = [...ids].sort((a, b) => positions.get(a)!.x - positions.get(b)!.x);
     for (let i = 1; i < sorted.length; i += 1) {
-      const prevRight = positions.get(sorted[i - 1])!.x + NODE_WIDTH / 2;
-      const currLeft = positions.get(sorted[i])!.x - NODE_WIDTH / 2;
-      const shortfall = SIBLING_GAP - (currLeft - prevRight);
+      const prevRight = positions.get(sorted[i - 1])!.x + nodeWidth / 2;
+      const currLeft = positions.get(sorted[i])!.x - nodeWidth / 2;
+      const shortfall = siblingGap - (currLeft - prevRight);
       if (shortfall > 0) shiftSubtree(sorted[i], shortfall);
     }
   }
@@ -421,7 +473,13 @@ function centerParentsOverChildren(positions: Map<string, Position>, nodes: Node
 // own internal compaction pass at production scale, which a small unit-test
 // fixture can't reliably reproduce on demand the way it can for
 // applySiblingOrder above.
-export function resolveOverlaps(positions: Map<string, Position>, nodes: Node[], edges: Edge[]): void {
+export function resolveOverlaps(
+  positions: Map<string, Position>,
+  nodes: Node[],
+  edges: Edge[],
+  nodeWidth: number = NODE_WIDTH,
+  siblingGap: number = SIBLING_GAP,
+): void {
   const childrenOf = new Map<string, string[]>();
   for (const e of edges) {
     const kids = childrenOf.get(e.source) ?? [];
@@ -446,9 +504,9 @@ export function resolveOverlaps(positions: Map<string, Position>, nodes: Node[],
   for (const y of ranks) {
     const ids = idsByRank.get(y)!.sort((a, b) => positions.get(a)!.x - positions.get(b)!.x);
     for (let i = 1; i < ids.length; i += 1) {
-      const prevRight = positions.get(ids[i - 1])!.x + NODE_WIDTH / 2;
-      const currLeft = positions.get(ids[i])!.x - NODE_WIDTH / 2;
-      const shortfall = SIBLING_GAP - (currLeft - prevRight);
+      const prevRight = positions.get(ids[i - 1])!.x + nodeWidth / 2;
+      const currLeft = positions.get(ids[i])!.x - nodeWidth / 2;
+      const shortfall = siblingGap - (currLeft - prevRight);
       if (shortfall > 0) shiftSubtree(ids[i], shortfall);
     }
   }

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { ReactFlow, Background, Controls, MiniMap, Panel } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useSelectionStore } from '../../stores/selectionStore';
+import { useUiPreferencesStore } from '../../stores/uiPreferencesStore';
 import { LinkExistingEmployeeModal } from '../shared/LinkExistingEmployeeModal';
 import { PhotoEditorModal } from '../shared/PhotoEditorModal';
 import { EmployeeNode } from './EmployeeNode';
@@ -45,6 +46,9 @@ export function OrgChartView() {
   const jobTitleFilterNames = useSelectionStore((s) => s.jobTitleFilterNames);
   const etpVenduRange = useSelectionStore((s) => s.etpVenduRange);
   const etpReelRange = useSelectionStore((s) => s.etpReelRange);
+
+  const cardDensity = useUiPreferencesStore((s) => s.chartCardDensity);
+  const setCardDensity = useUiPreferencesStore((s) => s.setChartCardDensity);
 
   const data = useChartData(currentOrgChartId);
   const visibility = useChartVisibility(data.employees, data.primaryEdges);
@@ -218,6 +222,12 @@ export function OrgChartView() {
                 wasn't obvious; a deeper shadow on hover (on top of the
                 existing bg change) reads more like a pressable button. */}
             <button
+              onClick={() => setCardDensity(cardDensity === 'compact' ? 'detailed' : 'compact')}
+              className="rounded border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm transition-shadow hover:bg-slate-50 hover:shadow-md"
+            >
+              {cardDensity === 'compact' ? t('chart.switchToDetailed') : t('chart.switchToCompact')}
+            </button>
+            <button
               onClick={handleExpandAll}
               className="rounded border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm transition-shadow hover:bg-slate-50 hover:shadow-md"
             >
@@ -249,6 +259,9 @@ export function OrgChartView() {
           functionalManagers={actions.detailPanelProps.functionalManagers}
           directReports={actions.detailPanelProps.directReports}
           functionalReports={actions.detailPanelProps.functionalReports}
+          assignmentsTotalEtpVendu={actions.detailPanelProps.assignmentsTotalEtpVendu}
+          assignmentsTotalEtpReel={actions.detailPanelProps.assignmentsTotalEtpReel}
+          advertiserNames={actions.detailPanelProps.advertiserNames}
           onClose={() => setSelectedEmployee(null)}
           onSelectEmployee={setSelectedEmployee}
         />

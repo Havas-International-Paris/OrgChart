@@ -3,8 +3,19 @@ import { useTranslation } from 'react-i18next';
 import { applyNodeChanges, type Edge, type Node, type NodeChange } from '@xyflow/react';
 import type { ReportingRelationship } from '../../types/domain';
 import { useSelectionStore } from '../../stores/selectionStore';
+import { useUiPreferencesStore } from '../../stores/uiPreferencesStore';
 import { NEUTRAL_DEPARTMENT_COLOR } from '../../lib/departmentColor';
-import { layoutWithElk, NODE_HEIGHT, NODE_WIDTH } from './layoutEngine';
+import {
+  layoutWithElk,
+  COMPACT_NODE_HEIGHT,
+  COMPACT_NODE_WIDTH,
+  COMPACT_RANK_SEP,
+  COMPACT_SIBLING_GAP,
+  NODE_HEIGHT,
+  NODE_WIDTH,
+  RANK_SEP,
+  SIBLING_GAP,
+} from './layoutEngine';
 import { routeAroundObstacles, type Rect } from './edgeRouting';
 import { ROOT_GROUP_KEY } from './siblingOrder';
 import { computeReorder, findDisplacementTargets, type ChartGeometry } from './siblingReorderGeometry';
@@ -78,6 +89,11 @@ export function useChartNodes({
   const selectedEmployeeId = useSelectionStore((s) => s.selectedEmployeeId);
   const toggleExpanded = useSelectionStore((s) => s.toggleExpanded);
   const toggleFocused = useSelectionStore((s) => s.toggleFocused);
+  const cardDensity = useUiPreferencesStore((s) => s.chartCardDensity);
+  const nodeHeight = cardDensity === 'compact' ? COMPACT_NODE_HEIGHT : NODE_HEIGHT;
+  const nodeWidth = cardDensity === 'compact' ? COMPACT_NODE_WIDTH : NODE_WIDTH;
+  const siblingGap = cardDensity === 'compact' ? COMPACT_SIBLING_GAP : SIBLING_GAP;
+  const rankSep = cardDensity === 'compact' ? COMPACT_RANK_SEP : RANK_SEP;
 
   // Hovering highlights the reporting chain the same way pinning (clicking)
   // a card does; hover takes priority while active, falling back to the
@@ -178,11 +194,19 @@ export function useChartNodes({
       data: {},
     }));
     const primaryEdgeAll = primaryEdges.map((r) => ({ id: r.id, source: r.manager_id, target: r.employee_id }));
-    layoutWithElk(rawNodes, primaryEdgeAll, (id) => employeeById.get(id)?.sibling_order ?? null).then((laidOut) => {
+    layoutWithElk(
+      rawNodes,
+      primaryEdgeAll,
+      (id) => employeeById.get(id)?.sibling_order ?? null,
+      nodeHeight,
+      nodeWidth,
+      siblingGap,
+      rankSep,
+    ).then((laidOut) => {
       if (layoutRequestIdRef.current !== requestId) return;
       setLayoutedNodeById(new Map(laidOut.map((n) => [n.id, n])));
     });
-  }, [employees, primaryEdges, employeeById]);
+  }, [employees, primaryEdges, employeeById, nodeHeight, nodeWidth, siblingGap, rankSep]);
 
   // The chart's current geometry, as the plain lookups siblingReorderGeometry.ts
   // works from. Shared by the drop handler and the live mid-drag feedback so the
@@ -379,6 +403,7 @@ export function useChartNodes({
             onToggleExpand: toggleExpanded,
             onToggleFocus: toggleFocused,
             actions: nodeActions,
+            cardDensity,
           },
         },
       ];
@@ -455,8 +480,8 @@ export function useChartNodes({
       obstacleRectById.set(employee.id, {
         x: base.position.x,
         y: base.position.y,
-        width: NODE_WIDTH,
-        height: NODE_HEIGHT,
+        width: nodeWidth,
+        height: nodeHeight,
       });
     }
 
@@ -475,8 +500,8 @@ export function useChartNodes({
       const bendPoints =
         sourceRect && targetRect
           ? routeAroundObstacles(
-              { x: sourceRect.x + NODE_WIDTH / 2, y: sourceRect.y + NODE_HEIGHT },
-              { x: targetRect.x + NODE_WIDTH / 2, y: targetRect.y },
+              { x: sourceRect.x + nodeWidth / 2, y: sourceRect.y + nodeHeight },
+              { x: targetRect.x + nodeWidth / 2, y: targetRect.y },
               [...obstacleRectById.entries()]
                 .filter(([id]) => id !== e.source && id !== e.target)
                 .map(([, rect]) => rect),
@@ -536,6 +561,9 @@ export function useChartNodes({
     hoveredEdgeId,
     hoveredRelationship,
     handleEdgeHoverChange,
+    cardDensity,
+    nodeHeight,
+    nodeWidth,
   ]);
 
   // React Flow only renders a node's position from its OWN internal store

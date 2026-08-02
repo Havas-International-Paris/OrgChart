@@ -39,6 +39,10 @@ export function useChartActions(currentOrgChartId: string | null, data: ChartDat
     assignments,
     restoreAssignment,
     departmentColorByName,
+    assignmentsOf,
+    totalEtpOf,
+    totalEtpReelOf,
+    clientMissionNameById,
   } = data;
 
   const selectedEmployeeId = useSelectionStore((s) => s.selectedEmployeeId);
@@ -322,6 +326,12 @@ export function useChartActions(currentOrgChartId: string | null, data: ChartDat
       .map((r) => employeeById.get(r.employee_id))
       .filter((e): e is NonNullable<typeof e> => Boolean(e));
 
+    // ETP/advertisers surfaced here too (backlog item 51) so compact-mode
+    // cards, which hide these on the card itself, keep them one click away.
+    const advertiserNames = assignmentsOf(selectedEmployeeId)
+      .map((a) => clientMissionNameById.get(a.client_mission_id))
+      .filter((name): name is string => Boolean(name));
+
     return {
       employee,
       departmentColor: employee.department ? (departmentColorByName.get(employee.department) ?? null) : null,
@@ -329,8 +339,21 @@ export function useChartActions(currentOrgChartId: string | null, data: ChartDat
       functionalManagers,
       directReports,
       functionalReports,
+      assignmentsTotalEtpVendu: totalEtpOf(selectedEmployeeId),
+      assignmentsTotalEtpReel: totalEtpReelOf(selectedEmployeeId),
+      advertiserNames,
     };
-  }, [selectedEmployeeId, employeeById, managersOf, directReportsOf, departmentColorByName]);
+  }, [
+    selectedEmployeeId,
+    employeeById,
+    managersOf,
+    directReportsOf,
+    departmentColorByName,
+    assignmentsOf,
+    totalEtpOf,
+    totalEtpReelOf,
+    clientMissionNameById,
+  ]);
 
   return {
     actions,

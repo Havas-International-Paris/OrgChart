@@ -1,8 +1,10 @@
-import { memo, useState } from 'react';
+import { memo, useState, type MouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Handle, Position, useConnection, type Node, type NodeProps } from '@xyflow/react';
 import { NEUTRAL_DEPARTMENT_COLOR, withAlpha } from '../../lib/departmentColor';
 import { PhotoAvatar } from '../shared/PhotoAvatar';
+import type { ChartCardDensity } from '../../stores/uiPreferencesStore';
+import { COMPACT_NODE_WIDTH, NODE_WIDTH } from './layoutEngine';
 import type { Employee } from '../../types/domain';
 
 // Adding a manager/subordinate and deleting the employee moved out of this
@@ -64,6 +66,11 @@ export interface EmployeeNodeData extends Record<string, unknown> {
   onToggleExpand: (employeeId: string) => void;
   onToggleFocus: (employeeId: string) => void;
   actions: EmployeeNodeActions;
+  // Backlog item 51 — 'compact' hides the two ETP bars, advertiser list and
+  // subordinate-count badge (still reachable via EmployeeDetailPanel.tsx on
+  // click); everything else about the card (photo, name, poste, BU dot,
+  // collapse badges) renders the same in both modes.
+  cardDensity: ChartCardDensity;
 }
 
 function CollapseBadge({
@@ -180,22 +187,35 @@ function EmployeeNodeImpl({ data }: NodeProps<Node<EmployeeNodeData>>) {
     onToggleExpand,
     onToggleFocus,
     actions,
+    cardDensity,
   } = data;
+  const isCompact = cardDensity === 'compact';
 
   const [editingField, setEditingField] = useState<EditableField | null>(null);
   const [draft, setDraft] = useState('');
 
-  // Only a card that was ALREADY selected before this gesture can open an
-  // inline editor — otherwise the first click of a double-click (which also
-  // bubbles up and selects the card, via React Flow's own onNodeClick) reads
-  // as "select", and only a second, separate double-click on an
-  // already-selected card opens the field. Without this guard, simply
-  // double-clicking a not-yet-selected card to select it could accidentally
-  // pop open a name/poste/department editor the user never meant to touch.
+  // Only a card that's ALREADY selected can open an inline editor — a click
+  // on an unselected card's field must behave exactly like clicking anywhere
+  // else on it (select only), never open an editor in the same gesture. The
+  // guard lives here rather than at each call site so every field shares one
+  // rule (backlog item 52, 2026-08-02 — replaced the old double-click
+  // requirement now that this guard alone is enough to prevent an accidental
+  // open on first selection).
   function startEdit(field: EditableField, currentValue: string) {
     if (!isSelected) return;
     setDraft(currentValue);
     setEditingField(field);
+  }
+
+  // Field click handler shared by all five editable spans below. Doesn't
+  // unconditionally stopPropagation: on an unselected card the click must
+  // still bubble up to React Flow's onNodeClick so the normal "first click
+  // selects" behavior keeps working — only once the card is already selected
+  // do we swallow the click (so it can't also reach onPaneClick) and open
+  // the editor.
+  function handleFieldClick(e: MouseEvent, field: EditableField, currentValue: string) {
+    if (isSelected) e.stopPropagation();
+    startEdit(field, currentValue);
   }
 
   function cancelEdit() {
@@ -274,8 +294,9 @@ function EmployeeNodeImpl({ data }: NodeProps<Node<EmployeeNodeData>>) {
 
   return (
     <div
-      className={`relative w-[220px] rounded-lg border bg-white px-3 pb-6 pt-3 shadow-sm ${borderClass}`}
+      className={`relative rounded-lg border bg-white px-3 pt-3 shadow-sm ${isCompact ? 'pb-3' : 'pb-6'} ${borderClass}`}
       style={{
+        width: isCompact ? COMPACT_NODE_WIDTH : NODE_WIDTH,
         opacity: isDimmed ? 0.3 : 1,
         // "Editable mode" is exactly isSelected, not the broader
         // isChainHighlighted a hover/pin can also put an ancestor or
@@ -359,7 +380,9 @@ function EmployeeNodeImpl({ data }: NodeProps<Node<EmployeeNodeData>>) {
           canOpen={isSelected}
         />
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1 text-sm font-semibold text-slate-900">
+          <div
+            className={`text-sm font-semibold text-slate-900 ${isCompact ? 'flex flex-col' : 'flex items-center gap-1'}`}
+          >
             {editingField === 'first_name' ? (
               <input
                 autoFocus
@@ -376,10 +399,8 @@ function EmployeeNodeImpl({ data }: NodeProps<Node<EmployeeNodeData>>) {
             ) : (
               <span
                 className="truncate"
-                onDoubleClick={(e) => {
-                  e.stopPropagation();
-                  startEdit('first_name', employee.first_name);
-                }}
+                onClick={(e) => handleFieldClick(e, 'first_name', employee.first_name)}
+                title={isSelected ? t('chart.node.editField') : undefined}
               >
                 {employee.first_name}
               </span>
@@ -400,10 +421,8 @@ function EmployeeNodeImpl({ data }: NodeProps<Node<EmployeeNodeData>>) {
             ) : (
               <span
                 className="truncate"
-                onDoubleClick={(e) => {
-                  e.stopPropagation();
-                  startEdit('last_name', employee.last_name);
-                }}
+                onClick={(e) => handleFieldClick(e, 'last_name', employee.last_name)}
+                title={isSelected ? t('chart.node.editField') : undefined}
               >
                 {employee.last_name}
               </span>
@@ -434,20 +453,16 @@ function EmployeeNodeImpl({ data }: NodeProps<Node<EmployeeNodeData>>) {
           ) : employee.job_title ? (
             <div
               className="truncate text-xs text-slate-500"
-              onDoubleClick={(e) => {
-                e.stopPropagation();
-                startEdit('job_title', employee.job_title ?? '');
-              }}
+              onClick={(e) => handleFieldClick(e, 'job_title', employee.job_title ?? '')}
+              title={isSelected ? t('chart.node.editField') : undefined}
             >
               {employee.job_title}
             </div>
           ) : (
             <div
               className="truncate text-xs text-slate-300"
-              onDoubleClick={(e) => {
-                e.stopPropagation();
-                startEdit('job_title', '');
-              }}
+              onClick={(e) => handleFieldClick(e, 'job_title', '')}
+              title={isSelected ? t('chart.node.editField') : undefined}
             >
               {t('chart.node.addJobTitle')}
             </div>
@@ -455,79 +470,78 @@ function EmployeeNodeImpl({ data }: NodeProps<Node<EmployeeNodeData>>) {
         </div>
       </div>
 
-      {editingField === 'department' ? (
-        <select
-          autoFocus
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={commitEdit}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') cancelEdit();
-          }}
-          onMouseDown={(e) => e.stopPropagation()}
-          className="nodrag mt-2 w-full rounded border border-slate-300 px-1 py-0.5 text-xs text-slate-700"
-        >
-          <option value="" disabled>
-            {t('chart.node.chooseBusinessUnit')}
-          </option>
-          {departmentNames.map((name) => (
-            <option key={name} value={name}>
-              {name}
+      {!isCompact &&
+        (editingField === 'department' ? (
+          <select
+            autoFocus
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commitEdit}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') cancelEdit();
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+            className="nodrag mt-2 w-full rounded border border-slate-300 px-1 py-0.5 text-xs text-slate-700"
+          >
+            <option value="" disabled>
+              {t('chart.node.chooseBusinessUnit')}
             </option>
-          ))}
-        </select>
-      ) : employee.department ? (
-        <span
-          className="mt-2 inline-block rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide"
-          style={{ backgroundColor: trackColor, color: swatch }}
-          onDoubleClick={(e) => {
+            {departmentNames.map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
+        ) : employee.department ? (
+          <span
+            className="mt-2 inline-block rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide"
+            style={{ backgroundColor: trackColor, color: swatch }}
+            onClick={(e) => handleFieldClick(e, 'department', employee.department ?? '')}
+            title={isSelected ? t('chart.node.editField') : undefined}
+          >
+            {employee.department}
+          </span>
+        ) : (
+          <div
+            className="mt-2 truncate text-xs text-slate-300"
+            onClick={(e) => handleFieldClick(e, 'department', '')}
+            title={isSelected ? t('chart.node.editField') : undefined}
+          >
+            {t('chart.node.addBusinessUnit')}
+          </div>
+        ))}
+
+      {!isCompact && (
+        <button
+          type="button"
+          onClick={(e) => {
+            // Same "must already be selected" guard as startEdit above, and for
+            // the same reason: a plain click here used to stopPropagation and
+            // open the assignments modal unconditionally, even on a card that
+            // had never been selected — so a single click meant for
+            // "select this card" could open a modal instead. Not stopping
+            // propagation here lets the click bubble up to React Flow's
+            // onNodeClick and select the card normally.
+            if (!isSelected) return;
             e.stopPropagation();
-            startEdit('department', employee.department ?? '');
+            actions.openAssignments(employee.id);
           }}
+          title={t('chart.node.editAssignments')}
+          className="nodrag mt-2 block w-full text-left"
         >
-          {employee.department}
-        </span>
-      ) : (
-        <div
-          className="mt-2 truncate text-xs text-slate-300"
-          onDoubleClick={(e) => {
-            e.stopPropagation();
-            startEdit('department', '');
-          }}
-        >
-          {t('chart.node.addBusinessUnit')}
-        </div>
+          <MetricRow
+            label={t('chart.node.sold')}
+            pct={assignmentsTotalEtpVendu}
+            trackColor={trackColor}
+            fillColor={withAlpha(swatch, 0.55)}
+          />
+          <MetricRow label={t('chart.node.actual')} pct={assignmentsTotalEtpReel} trackColor={trackColor} fillColor={swatch} />
+        </button>
       )}
 
-      <button
-        type="button"
-        onClick={(e) => {
-          // Same "must already be selected" guard as startEdit above, and for
-          // the same reason: a plain click here used to stopPropagation and
-          // open the assignments modal unconditionally, even on a card that
-          // had never been selected — so a single click meant for
-          // "select this card" could open a modal instead. Not stopping
-          // propagation here lets the click bubble up to React Flow's
-          // onNodeClick and select the card normally.
-          if (!isSelected) return;
-          e.stopPropagation();
-          actions.openAssignments(employee.id);
-        }}
-        title={t('chart.node.editAssignments')}
-        className="nodrag mt-2 block w-full text-left"
-      >
-        <MetricRow
-          label={t('chart.node.sold')}
-          pct={assignmentsTotalEtpVendu}
-          trackColor={trackColor}
-          fillColor={withAlpha(swatch, 0.55)}
-        />
-        <MetricRow label={t('chart.node.actual')} pct={assignmentsTotalEtpReel} trackColor={trackColor} fillColor={swatch} />
-      </button>
+      {!isCompact && advertiserNames.length > 0 && <AdvertisersRow names={advertiserNames} />}
 
-      {advertiserNames.length > 0 && <AdvertisersRow names={advertiserNames} />}
-
-      {showBadge && (
+      {!isCompact && showBadge && (
         <div className="absolute bottom-1.5 right-2.5 text-[9px] font-medium text-slate-400">{badgeText}</div>
       )}
 

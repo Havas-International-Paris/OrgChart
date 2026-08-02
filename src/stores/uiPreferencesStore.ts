@@ -2,10 +2,18 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
 export type GridDensity = 'compact' | 'comfortable';
+export type ChartCardDensity = 'compact' | 'detailed';
 
 interface UiPreferencesState {
   gridDensity: GridDensity;
   setGridDensity: (density: GridDensity) => void;
+  // Chart card display mode (backlog item 51) — 'detailed' (default) shows
+  // everything EmployeeNode.tsx can render; 'compact' hides the ETP bars,
+  // advertiser list and subordinate-count badge (still reachable via
+  // EmployeeDetailPanel.tsx on click). Default 'detailed' so this never
+  // changes existing behavior for someone who's never touched the toggle.
+  chartCardDensity: ChartCardDensity;
+  setChartCardDensity: (density: ChartCardDensity) => void;
   // Left panel's width as a fraction of the grid/chart split — see AppShell.tsx.
   splitFraction: number;
   setSplitFraction: (fraction: number) => void;
@@ -35,6 +43,8 @@ export const useUiPreferencesStore = create<UiPreferencesState>()(
     (set) => ({
       gridDensity: 'comfortable',
       setGridDensity: (density) => set({ gridDensity: density }),
+      chartCardDensity: 'detailed',
+      setChartCardDensity: (density) => set({ chartCardDensity: density }),
       splitFraction: 0.5,
       setSplitFraction: (fraction) => set({ splitFraction: fraction }),
       chatWidthFraction: 0.3,
