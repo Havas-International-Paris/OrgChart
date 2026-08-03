@@ -1,10 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { UserRoleName } from '../../types/domain';
 import { LanguageSwitcher } from './LanguageSwitcher';
 
 interface AccountMenuProps {
   email: string | undefined;
   onSignOut: () => void;
+  // Backlog item 53 — admin-only entry into AccessManagementScreen.tsx.
+  // null/non-'admin' simply hides the item rather than disabling it, same
+  // as every other role-gated affordance in this pass.
+  role: UserRoleName | null;
+  onOpenAccessManagement: () => void;
 }
 
 function initialOf(email: string | undefined): string {
@@ -21,7 +27,7 @@ function initialOf(email: string | undefined): string {
 // per-user color here (no department to key off), so it uses the app's own
 // "primary" dark (bg-slate-900), matching Ask AI's active state and
 // LanguageSwitcher's own active segment.
-export function AccountMenu({ email, onSignOut }: AccountMenuProps) {
+export function AccountMenu({ email, onSignOut, role, onOpenAccessManagement }: AccountMenuProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -72,6 +78,18 @@ export function AccountMenu({ email, onSignOut }: AccountMenuProps) {
             <span className="text-sm text-slate-700">{t('appShell.language')}</span>
             <LanguageSwitcher />
           </div>
+          {role === 'admin' && (
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                onOpenAccessManagement();
+              }}
+              className="block w-full px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+            >
+              {t('appShell.accessManagement')}
+            </button>
+          )}
           <div className="my-1 border-t border-slate-100" />
           <button
             type="button"

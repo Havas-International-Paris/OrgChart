@@ -156,6 +156,27 @@ export interface Database {
         };
         Relationships: [];
       };
+      user_roles: {
+        Row: {
+          user_id: string;
+          email: string;
+          role: string;
+          status: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          email: string;
+          role?: string;
+          status?: string;
+        };
+        Update: {
+          role?: string;
+          status?: string;
+        };
+        Relationships: [];
+      };
       org_charts: {
         Row: {
           id: string;

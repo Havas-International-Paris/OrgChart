@@ -26,6 +26,11 @@ export function useAuth() {
     loading,
     signInWithPassword: (email: string, password: string) =>
       supabase.auth.signInWithPassword({ email, password }),
+    // Lands the new auth.users row through 0015_user_roles.sql's
+    // on_auth_user_created trigger — always a pending lecteur, regardless of
+    // whether this project's Auth settings require email confirmation
+    // before a session comes back.
+    signUp: (email: string, password: string) => supabase.auth.signUp({ email, password }),
     signOut: () => supabase.auth.signOut(),
   };
 }

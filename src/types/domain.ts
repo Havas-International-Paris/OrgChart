@@ -99,3 +99,17 @@ export interface Department {
   color: string | null;
   created_at: string;
 }
+
+// Foundation for backlog item 53 — global roles only, no per-chart
+// visibility/sharing yet (see CLAUDE.md/backlog for what's deferred).
+export type UserRoleName = 'admin' | 'editeur' | 'lecteur';
+export type UserRoleStatus = 'pending' | 'active';
+
+export interface UserRole {
+  user_id: string;
+  email: string;
+  role: UserRoleName;
+  status: UserRoleStatus;
+  created_at: string;
+  updated_at: string;
+}

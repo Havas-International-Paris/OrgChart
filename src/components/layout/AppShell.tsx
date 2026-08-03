@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } f
 import { useTranslation } from 'react-i18next';
 import { isSupabaseConfigured } from '../../lib/supabaseClient';
 import { useAuth } from '../../hooks/useAuth';
+import { useCurrentUserRole } from '../../hooks/useCurrentUserRole';
 import { useEmployees } from '../../hooks/useEmployees';
 import { useAssignments } from '../../hooks/useAssignments';
 import { useClientsMissions } from '../../hooks/useClientsMissions';
@@ -23,6 +24,7 @@ import { AssignmentEditorModal } from '../shared/AssignmentEditorModal';
 import { ErrorBoundary } from '../shared/ErrorBoundary';
 import { Toast } from '../shared/Toast';
 import { AccountMenu } from '../shared/AccountMenu';
+import { AccessManagementScreen } from '../access/AccessManagementScreen';
 import { ChatToggleButton } from '../chat/ChatToggleButton';
 import { ChatPanel } from '../chat/ChatPanel';
 
@@ -105,6 +107,7 @@ export function AppShell() {
       signOut={signOut}
       accessToken={session.access_token}
       email={session.user.email}
+      userId={session.user.id}
     />
   );
 }
@@ -113,12 +116,16 @@ function AuthenticatedApp({
   signOut,
   accessToken,
   email,
+  userId,
 }: {
   signOut: () => void;
   accessToken: string;
   email: string | undefined;
+  userId: string;
 }) {
   const { t } = useTranslation();
+  const { role, status: roleStatus } = useCurrentUserRole(userId);
+  const [showAccessManagement, setShowAccessManagement] = useState(false);
   const {
     orgCharts,
     loading: orgChartsLoading,
@@ -208,6 +215,17 @@ function AuthenticatedApp({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentOrgChartId, orgCharts]);
 
+  // Reachable regardless of chart-loading state (an admin should be able to
+  // approve accounts even before any chart has loaded) — checked ahead of
+  // every other early return below.
+  if (showAccessManagement) {
+    return (
+      <div className="flex h-full flex-col">
+        <AccessManagementScreen onBack={() => setShowAccessManagement(false)} />
+      </div>
+    );
+  }
+
   // Each waiting state says which one it is. They all used to read "Chargement…",
   // which made the hang above genuinely hard to place: the page gave no way to
   // tell "still checking the session" from "session fine, no chart to open".
@@ -217,12 +235,22 @@ function AuthenticatedApp({
 
   // A signed-in user with no chart at all would otherwise sit on a spinner
   // forever, since nothing can be selected. Reachable by deleting the last
-  // chart, and previously indistinguishable from a network stall.
+  // chart, and previously indistinguishable from a network stall — now ALSO
+  // reachable by a brand-new signup, since 0015_user_roles.sql's RLS makes
+  // org_charts return zero rows for a pending account (not an error, so this
+  // is the only place that state is visible). Backlog item 53's spec asks
+  // for this to read differently from the generic "no chart at all" case.
   if (orgCharts.length === 0) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 text-sm text-slate-500">
-        <p>{t('appShell.noOrgChartsTitle')}</p>
-        <p className="text-slate-400">{t('appShell.noOrgChartsSubtitle')}</p>
+        {roleStatus === 'pending' ? (
+          <p>{t('access.awaitingApproval')}</p>
+        ) : (
+          <>
+            <p>{t('appShell.noOrgChartsTitle')}</p>
+            <p className="text-slate-400">{t('appShell.noOrgChartsSubtitle')}</p>
+          </>
+        )}
       </div>
     );
   }
@@ -313,7 +341,12 @@ function AuthenticatedApp({
               "account menu" pattern instead of spreading account-level
               settings across the header. See AccountMenu.tsx. */}
           <div className="h-5 w-px shrink-0 bg-slate-200" />
-          <AccountMenu email={email} onSignOut={signOut} />
+          <AccountMenu
+            email={email}
+            onSignOut={signOut}
+            role={role}
+            onOpenAccessManagement={() => setShowAccessManagement(true)}
+          />
         </div>
       </header>
       {/* Renders as a full-width row directly below <header>, not a
