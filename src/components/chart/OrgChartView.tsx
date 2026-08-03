@@ -11,6 +11,7 @@ import { ReportingEdge } from './ReportingEdge';
 import { NodeContextMenu } from './NodeContextMenu';
 import { ContextMenu } from './ContextMenu';
 import { DepartmentLegend } from './DepartmentLegend';
+import { ChartOptionsMenu } from './ChartOptionsMenu';
 import { EmployeeDetailPanel } from './EmployeeDetailPanel';
 import { exportChartAsPng } from './exportChartImage';
 import { isE2EMode } from '../../lib/e2eMode';
@@ -216,35 +217,15 @@ export function OrgChartView() {
         isValidConnection={(connection) => actions.computeDropValidity(connection.target, connection.source) === 'valid'}
       >
         {showOverlays && (
-          <Panel position="top-right" className="flex flex-col items-end gap-1">
-            {/* hover:shadow-md — design-critique feedback: these floated
-                enough like plain links at rest that their clickability
-                wasn't obvious; a deeper shadow on hover (on top of the
-                existing bg change) reads more like a pressable button. */}
-            <button
-              onClick={() => setCardDensity(cardDensity === 'compact' ? 'detailed' : 'compact')}
-              className="rounded border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm transition-shadow hover:bg-slate-50 hover:shadow-md"
-            >
-              {cardDensity === 'compact' ? t('chart.switchToDetailed') : t('chart.switchToCompact')}
-            </button>
-            <button
-              onClick={handleExpandAll}
-              className="rounded border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm transition-shadow hover:bg-slate-50 hover:shadow-md"
-            >
-              {t('chart.expandAll')}
-            </button>
-            <button
-              onClick={handleExport}
-              disabled={exporting}
-              className="rounded border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm transition-shadow hover:bg-slate-50 hover:shadow-md disabled:opacity-50 disabled:shadow-sm"
-            >
-              {exporting ? t('chart.exporting') : t('chart.export')}
-            </button>
-            {exportError && (
-              <p className="max-w-[220px] rounded bg-red-50 px-2 py-1 text-right text-xs text-red-600">
-                {exportError}
-              </p>
-            )}
+          <Panel position="top-right">
+            <ChartOptionsMenu
+              cardDensity={cardDensity}
+              onToggleDensity={() => setCardDensity(cardDensity === 'compact' ? 'detailed' : 'compact')}
+              onExpandAll={handleExpandAll}
+              onExport={handleExport}
+              exporting={exporting}
+              exportError={exportError}
+            />
           </Panel>
         )}
         <Background />

@@ -22,7 +22,8 @@
     "gridTab": "Grid",
     "chartTab": "Org chart",
     "account": "Account",
-    "language": "Language"
+    "language": "Language",
+    "accessManagement": "Access management"
   },
   "leftPanel": {
     "tabs": {
@@ -173,6 +174,7 @@
   },
   "chart": {
     "emptyState": "No employees yet — add one in the spreadsheet.",
+    "optionsMenu": "Chart options",
     "expandAll": "Expand all",
     "switchToCompact": "Compact view",
     "switchToDetailed": "Detailed view",
@@ -305,6 +307,12 @@
       "connecting": "Signing in…",
       "signIn": "Sign in"
     },
+    "signup": {
+      "createAccount": "Create an account",
+      "submit": "Sign up",
+      "backToSignIn": "Back to sign in",
+      "pendingMessage": "Your request has been sent. An administrator must approve your access before you can sign in."
+    },
     "setupNotice": {
       "title": "Supabase configuration required",
       "intro": "No Supabase project is linked to this application yet. To continue:",
@@ -315,6 +323,21 @@
       "step3middle": "to",
       "step3suffix": "and fill in the project's URL and anon key",
       "step4": "Restart the dev server"
+    }
+  },
+  "access": {
+    "backToChart": "← Back to the org chart",
+    "loading": "Loading…",
+    "awaitingApproval": "Your account is awaiting approval by an administrator.",
+    "pendingRequests": "Pending requests",
+    "noPendingRequests": "No pending requests.",
+    "users": "Users",
+    "approve": "Approve",
+    "refuse": "Refuse",
+    "roles": {
+      "admin": "Admin",
+      "editeur": "Editor",
+      "lecteur": "Viewer"
     }
   },
   "history": {

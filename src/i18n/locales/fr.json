@@ -22,7 +22,8 @@
     "gridTab": "Grille",
     "chartTab": "Organigramme",
     "account": "Compte",
-    "language": "Langue"
+    "language": "Langue",
+    "accessManagement": "Gestion des accès"
   },
   "leftPanel": {
     "tabs": {
@@ -173,6 +174,7 @@
   },
   "chart": {
     "emptyState": "Aucun employé pour le moment — ajoutez-en un dans le tableur.",
+    "optionsMenu": "Options du graphique",
     "expandAll": "Tout développer",
     "switchToCompact": "Vue compacte",
     "switchToDetailed": "Vue détaillée",
@@ -305,6 +307,12 @@
       "connecting": "Connexion…",
       "signIn": "Se connecter"
     },
+    "signup": {
+      "createAccount": "Créer un compte",
+      "submit": "S'inscrire",
+      "backToSignIn": "Retour à la connexion",
+      "pendingMessage": "Votre demande a été envoyée. Un administrateur doit valider votre accès avant que vous puissiez vous connecter."
+    },
     "setupNotice": {
       "title": "Configuration Supabase requise",
       "intro": "Aucun projet Supabase n'est encore relié à cette application. Pour continuer :",
@@ -315,6 +323,21 @@
       "step3middle": "vers",
       "step3suffix": "et renseignez l'URL et la clé anonyme du projet",
       "step4": "Relancez le serveur de développement"
+    }
+  },
+  "access": {
+    "backToChart": "← Retour à l'organigramme",
+    "loading": "Chargement…",
+    "awaitingApproval": "Votre compte est en attente de validation par un administrateur.",
+    "pendingRequests": "Demandes en attente",
+    "noPendingRequests": "Aucune demande en attente.",
+    "users": "Utilisateurs",
+    "approve": "Approuver",
+    "refuse": "Refuser",
+    "roles": {
+      "admin": "Admin",
+      "editeur": "Éditeur",
+      "lecteur": "Lecteur"
     }
   },
   "history": {
