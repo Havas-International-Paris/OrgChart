@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabaseClient';
+import { assertRowsAffected } from '../lib/mutationGuard';
 import type { Department } from '../types/domain';
 
 export async function fetchDepartments(): Promise<Department[]> {
@@ -14,18 +15,18 @@ export async function createDepartment(name: string): Promise<Department> {
 }
 
 export async function updateDepartment(id: string, name: string): Promise<void> {
-  const { error } = await supabase.from('departments').update({ name }).eq('id', id);
-  if (error) throw error;
+  const { data, error } = await supabase.from('departments').update({ name }).eq('id', id).select();
+  assertRowsAffected(data, error);
 }
 
 export async function updateDepartmentColor(id: string, color: string | null): Promise<void> {
-  const { error } = await supabase.from('departments').update({ color }).eq('id', id);
-  if (error) throw error;
+  const { data, error } = await supabase.from('departments').update({ color }).eq('id', id).select();
+  assertRowsAffected(data, error);
 }
 
 export async function deleteDepartment(id: string): Promise<void> {
-  const { error } = await supabase.from('departments').delete().eq('id', id);
-  if (error) throw error;
+  const { data, error } = await supabase.from('departments').delete().eq('id', id).select();
+  assertRowsAffected(data, error);
 }
 
 // Re-inserts under the ORIGINAL id — see employeeService.restoreEmployee.

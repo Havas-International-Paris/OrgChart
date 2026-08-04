@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabaseClient';
+import { assertRowsAffected } from '../lib/mutationGuard';
 import type { ClientMission, ClientMissionType } from '../types/domain';
 
 export async function fetchClientsMissions(): Promise<ClientMission[]> {
@@ -24,13 +25,13 @@ export async function updateClientMission(
   id: string,
   changes: Partial<Pick<ClientMission, 'name' | 'type'>>,
 ): Promise<void> {
-  const { error } = await supabase.from('clients_missions').update(changes).eq('id', id);
-  if (error) throw error;
+  const { data, error } = await supabase.from('clients_missions').update(changes).eq('id', id).select();
+  assertRowsAffected(data, error);
 }
 
 export async function deleteClientMission(id: string): Promise<void> {
-  const { error } = await supabase.from('clients_missions').delete().eq('id', id);
-  if (error) throw error;
+  const { data, error } = await supabase.from('clients_missions').delete().eq('id', id).select();
+  assertRowsAffected(data, error);
 }
 
 // Re-inserts under the ORIGINAL id — see employeeService.restoreEmployee.

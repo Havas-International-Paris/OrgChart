@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabaseClient';
+import { assertRowsAffected } from '../lib/mutationGuard';
 import type { ReportingRelationship } from '../types/domain';
 
 export async function fetchReportingRelationships(orgChartId: string): Promise<ReportingRelationship[]> {
@@ -31,24 +32,26 @@ export async function createRelationship(
 }
 
 export async function updateRelationshipPrimary(id: string, isPrimary: boolean): Promise<void> {
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('reporting_relationships')
     .update({ is_primary: isPrimary })
-    .eq('id', id);
-  if (error) throw error;
+    .eq('id', id)
+    .select();
+  assertRowsAffected(data, error);
 }
 
 export async function updateRelationshipManager(id: string, newManagerId: string): Promise<void> {
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('reporting_relationships')
     .update({ manager_id: newManagerId })
-    .eq('id', id);
-  if (error) throw error;
+    .eq('id', id)
+    .select();
+  assertRowsAffected(data, error);
 }
 
 export async function deleteRelationship(id: string): Promise<void> {
-  const { error } = await supabase.from('reporting_relationships').delete().eq('id', id);
-  if (error) throw error;
+  const { data, error } = await supabase.from('reporting_relationships').delete().eq('id', id).select();
+  assertRowsAffected(data, error);
 }
 
 // Re-inserts under the ORIGINAL id — see employeeService.restoreEmployee for why

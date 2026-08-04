@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabaseClient';
+import { assertRowsAffected } from '../lib/mutationGuard';
 import type { JobTitle } from '../types/domain';
 
 export async function fetchJobTitles(): Promise<JobTitle[]> {
@@ -14,13 +15,13 @@ export async function createJobTitle(name: string): Promise<JobTitle> {
 }
 
 export async function updateJobTitle(id: string, name: string): Promise<void> {
-  const { error } = await supabase.from('job_titles').update({ name }).eq('id', id);
-  if (error) throw error;
+  const { data, error } = await supabase.from('job_titles').update({ name }).eq('id', id).select();
+  assertRowsAffected(data, error);
 }
 
 export async function deleteJobTitle(id: string): Promise<void> {
-  const { error } = await supabase.from('job_titles').delete().eq('id', id);
-  if (error) throw error;
+  const { data, error } = await supabase.from('job_titles').delete().eq('id', id).select();
+  assertRowsAffected(data, error);
 }
 
 // Re-inserts under the ORIGINAL id — see employeeService.restoreEmployee.

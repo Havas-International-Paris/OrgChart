@@ -54,6 +54,16 @@ export interface ReportingRelationship {
   updated_at: string;
 }
 
+// Backlog item 53 Phase B. 'private' (default): only the owner
+// (created_by) and admins can read/write. 'public': any active user can
+// read; write still needs the global éditeur/admin role (see
+// can_write_org_chart in 0017_org_chart_sharing.sql) or an explicit
+// org_chart_access grant. A per-chart org_chart_access grant works on
+// EITHER visibility and overrides the grantee's own global role for that
+// one chart.
+export type OrgChartVisibility = 'private' | 'public';
+export type OrgChartAccessRole = 'lecteur' | 'editeur';
+
 export interface OrgChart {
   id: string;
   name: string;
@@ -67,9 +77,22 @@ export interface OrgChart {
   // offered by orgChartService.fetchOrgCharts() (the normal selector/
   // duplicate-source list) — see fetchRegistryOrgChart for how it's reached.
   is_registry: boolean;
+  visibility: OrgChartVisibility;
 }
 
 export type OrgChartInput = Pick<OrgChart, 'name'> & Partial<Pick<OrgChart, 'short_label'>>;
+
+// One row per (chart, user) grant — only the chart's owner (created_by) or
+// an admin can create/update/delete these (RLS, 0017). email is resolved
+// client-side against orgChartAccessService.listActiveUsers() rather than
+// stored here, same "join client-side in memory" convention as
+// usePromotionCandidates.ts.
+export interface OrgChartAccess {
+  org_chart_id: string;
+  user_id: string;
+  role: OrgChartAccessRole;
+  created_at: string;
+}
 
 export type ClientMissionType = 'client' | 'mission';
 

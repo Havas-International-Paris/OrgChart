@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabaseClient';
+import { assertRowsAffected } from '../lib/mutationGuard';
 import type { Employee, EmployeeInput, PhotoFrameValues } from '../types/domain';
 
 export async function fetchEmployees(orgChartId: string): Promise<Employee[]> {
@@ -27,8 +28,12 @@ export async function fetchCandidateEmployees(registryChartId: string, includeHi
 }
 
 export async function setHiddenFromRegistryCandidates(id: string, hidden: boolean): Promise<void> {
-  const { error } = await supabase.from('employees').update({ hidden_from_registry_candidates: hidden }).eq('id', id);
-  if (error) throw error;
+  const { data, error } = await supabase
+    .from('employees')
+    .update({ hidden_from_registry_candidates: hidden })
+    .eq('id', id)
+    .select();
+  assertRowsAffected(data, error);
 }
 
 export async function createEmployee(orgChartId: string, input: EmployeeInput): Promise<Employee> {
@@ -42,19 +47,14 @@ export async function createEmployee(orgChartId: string, input: EmployeeInput): 
 }
 
 export async function updateEmployee(id: string, changes: Partial<EmployeeInput>): Promise<Employee> {
-  const { data, error } = await supabase
-    .from('employees')
-    .update(changes)
-    .eq('id', id)
-    .select()
-    .single();
-  if (error) throw error;
-  return data as Employee;
+  const { data, error } = await supabase.from('employees').update(changes).eq('id', id).select();
+  assertRowsAffected(data, error);
+  return data[0] as Employee;
 }
 
 export async function deleteEmployee(id: string): Promise<void> {
-  const { error } = await supabase.from('employees').delete().eq('id', id);
-  if (error) throw error;
+  const { data, error } = await supabase.from('employees').delete().eq('id', id).select();
+  assertRowsAffected(data, error);
 }
 
 export async function updateEmployeePhoto(id: string, photoPath: string | null): Promise<Employee> {
@@ -64,10 +64,9 @@ export async function updateEmployeePhoto(id: string, photoPath: string | null):
     .from('employees')
     .update({ photo_path: photoPath, photo_zoom: 1, photo_pan_x: 0, photo_pan_y: 0 })
     .eq('id', id)
-    .select()
-    .single();
-  if (error) throw error;
-  return data as Employee;
+    .select();
+  assertRowsAffected(data, error);
+  return data[0] as Employee;
 }
 
 export async function updateEmployeePhotoFrame(id: string, frame: PhotoFrameValues): Promise<Employee> {
@@ -75,10 +74,9 @@ export async function updateEmployeePhotoFrame(id: string, frame: PhotoFrameValu
     .from('employees')
     .update({ photo_zoom: frame.zoom, photo_pan_x: frame.panX, photo_pan_y: frame.panY })
     .eq('id', id)
-    .select()
-    .single();
-  if (error) throw error;
-  return data as Employee;
+    .select();
+  assertRowsAffected(data, error);
+  return data[0] as Employee;
 }
 
 // Drag-to-reorder support (siblingOrder.ts) — a single reorder gesture may
@@ -90,11 +88,10 @@ export async function updateSiblingOrders(
 ): Promise<void> {
   const results = await Promise.all(
     updates.map(({ id, siblingOrder }) =>
-      supabase.from('employees').update({ sibling_order: siblingOrder }).eq('id', id),
+      supabase.from('employees').update({ sibling_order: siblingOrder }).eq('id', id).select(),
     ),
   );
-  const firstError = results.find((r) => r.error)?.error;
-  if (firstError) throw firstError;
+  for (const r of results) assertRowsAffected(r.data, r.error);
 }
 
 // Re-inserts a previously-deleted row under its ORIGINAL id, rather than letting

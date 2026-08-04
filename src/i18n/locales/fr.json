@@ -9,6 +9,9 @@
     "confirm": "Confirmer",
     "loading": "Chargement…"
   },
+  "errors": {
+    "permissionDenied": "Vous n'avez pas les droits pour faire cette action."
+  },
   "appShell": {
     "title": "Organigramme Havas International",
     "verifyingSession": "Vérification de la session…",
@@ -93,10 +96,18 @@
     "existingCharts": "Organigrammes existants",
     "copyOf": "Copie de {{name}}",
     "deleteConfirm": "Supprimer définitivement « {{name}} » et toutes ses données (employés, rattachements, missions) ? Cette action est irréversible.",
-    "deleteNotPermitted": "Vous n'avez pas les droits pour supprimer un organigramme — contactez un admin ou un éditeur.",
+    "deleteNotPermitted": "Vous n'avez pas les droits pour supprimer cet organigramme — contactez son créateur ou un admin.",
     "deleteFailed": "Impossible de supprimer cet organigramme.",
     "cannotDeleteLast": "Impossible de supprimer le dernier organigramme",
-    "saving": "…"
+    "saving": "…",
+    "visibility": "Visibilité",
+    "visibilityPrivate": "Privé",
+    "visibilityPublic": "Public",
+    "share": "Partager",
+    "sharedWithNoOne": "Pas encore partagé.",
+    "addUser": "Ajouter",
+    "addUserPlaceholder": "Choisir une personne…",
+    "remove": "Retirer"
   },
   "grid": {
     "employees": {

@@ -9,6 +9,9 @@
     "confirm": "Confirm",
     "loading": "Loading…"
   },
+  "errors": {
+    "permissionDenied": "You don't have permission to do that."
+  },
   "appShell": {
     "title": "Havas International Org Chart",
     "verifyingSession": "Verifying session…",
@@ -93,10 +96,18 @@
     "existingCharts": "Existing org charts",
     "copyOf": "Copy of {{name}}",
     "deleteConfirm": "Permanently delete “{{name}}” and all its data (employees, reporting relationships, missions)? This action is irreversible.",
-    "deleteNotPermitted": "You don't have permission to delete org charts — ask an admin or editor.",
+    "deleteNotPermitted": "You don't have permission to delete this org chart — ask its owner or an admin.",
     "deleteFailed": "Couldn't delete this org chart.",
     "cannotDeleteLast": "Cannot delete the last org chart",
-    "saving": "…"
+    "saving": "…",
+    "visibility": "Visibility",
+    "visibilityPrivate": "Private",
+    "visibilityPublic": "Public",
+    "share": "Share",
+    "sharedWithNoOne": "Not shared with anyone yet.",
+    "addUser": "Add",
+    "addUserPlaceholder": "Choose a person…",
+    "remove": "Remove"
   },
   "grid": {
     "employees": {

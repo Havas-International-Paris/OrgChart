@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabaseClient';
+import { assertRowsAffected } from '../lib/mutationGuard';
 import type { UserRole, UserRoleName } from '../types/domain';
 
 export async function fetchAllUserRoles(): Promise<UserRole[]> {
@@ -17,13 +18,17 @@ export async function fetchOwnUserRole(userId: string): Promise<UserRole | null>
 }
 
 export async function approveUser(userId: string, role: UserRoleName): Promise<void> {
-  const { error } = await supabase.from('user_roles').update({ role, status: 'active' }).eq('user_id', userId);
-  if (error) throw error;
+  const { data, error } = await supabase
+    .from('user_roles')
+    .update({ role, status: 'active' })
+    .eq('user_id', userId)
+    .select();
+  assertRowsAffected(data, error);
 }
 
 export async function changeUserRole(userId: string, role: UserRoleName): Promise<void> {
-  const { error } = await supabase.from('user_roles').update({ role }).eq('user_id', userId);
-  if (error) throw error;
+  const { data, error } = await supabase.from('user_roles').update({ role }).eq('user_id', userId).select();
+  assertRowsAffected(data, error);
 }
 
 // Deletes the pending row rather than setting some "rejected" status — a
@@ -31,6 +36,6 @@ export async function changeUserRole(userId: string, role: UserRoleName): Promis
 // stays false for them permanently (same as CLAUDE.md's spec: no role/table
 // mutation possible from the client without one).
 export async function refuseUser(userId: string): Promise<void> {
-  const { error } = await supabase.from('user_roles').delete().eq('user_id', userId);
-  if (error) throw error;
+  const { data, error } = await supabase.from('user_roles').delete().eq('user_id', userId).select();
+  assertRowsAffected(data, error);
 }

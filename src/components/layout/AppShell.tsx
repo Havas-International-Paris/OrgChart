@@ -478,6 +478,8 @@ function AuthenticatedApp({
         <OrgChartManagerModal
           orgCharts={orgCharts}
           currentOrgChartId={currentOrgChartId}
+          currentUserId={userId}
+          currentUserRole={role}
           onCreate={handleCreateOrgChart}
           onRename={updateOrgChart}
           onDuplicate={handleDuplicateOrgChart}

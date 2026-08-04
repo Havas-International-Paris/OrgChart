@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabaseClient';
+import { assertRowsAffected } from '../lib/mutationGuard';
 import type { Assignment, RemunerationModel } from '../types/domain';
 
 export async function fetchAssignments(orgChartId: string): Promise<Assignment[]> {
@@ -32,13 +33,13 @@ export async function createAssignment(
 }
 
 export async function updateAssignmentEtpVendu(id: string, etpVendu: number | null): Promise<void> {
-  const { error } = await supabase.from('assignments').update({ etp_vendu: etpVendu }).eq('id', id);
-  if (error) throw error;
+  const { data, error } = await supabase.from('assignments').update({ etp_vendu: etpVendu }).eq('id', id).select();
+  assertRowsAffected(data, error);
 }
 
 export async function updateAssignmentEtpReel(id: string, etpReel: number | null): Promise<void> {
-  const { error } = await supabase.from('assignments').update({ etp_reel: etpReel }).eq('id', id);
-  if (error) throw error;
+  const { data, error } = await supabase.from('assignments').update({ etp_reel: etpReel }).eq('id', id).select();
+  assertRowsAffected(data, error);
 }
 
 // clearVendu ensures a switch to 'commission' clears etp_vendu in the same
@@ -53,13 +54,13 @@ export async function updateAssignmentRemuneration(
     remuneration_model: remunerationModel,
   };
   if (clearVendu) patch.etp_vendu = null;
-  const { error } = await supabase.from('assignments').update(patch).eq('id', id);
-  if (error) throw error;
+  const { data, error } = await supabase.from('assignments').update(patch).eq('id', id).select();
+  assertRowsAffected(data, error);
 }
 
 export async function deleteAssignment(id: string): Promise<void> {
-  const { error } = await supabase.from('assignments').delete().eq('id', id);
-  if (error) throw error;
+  const { data, error } = await supabase.from('assignments').delete().eq('id', id).select();
+  assertRowsAffected(data, error);
 }
 
 // Re-inserts under the ORIGINAL id — see employeeService.restoreEmployee.

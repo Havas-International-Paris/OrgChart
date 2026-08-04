@@ -41,7 +41,7 @@ export function useOrgCharts() {
       await refresh();
       return created;
     },
-    updateOrgChart: async (id: string, changes: Partial<Pick<OrgChart, 'name' | 'short_label'>>) => {
+    updateOrgChart: async (id: string, changes: Partial<Pick<OrgChart, 'name' | 'short_label' | 'visibility'>>) => {
       await orgChartService.updateOrgChart(id, changes);
       await refresh();
     },

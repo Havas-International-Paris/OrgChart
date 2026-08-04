@@ -3,6 +3,8 @@
 
 export type ClientMissionType = 'client' | 'mission';
 export type RemunerationModel = 'retainer' | 'commission';
+export type OrgChartVisibility = 'private' | 'public';
+export type OrgChartAccessRole = 'lecteur' | 'editeur';
 
 export interface Database {
   public: {
@@ -190,16 +192,36 @@ export interface Database {
           created_by: string | null;
           updated_by: string | null;
           is_registry: boolean;
+          visibility: OrgChartVisibility;
         };
         Insert: {
           id?: string;
           name: string;
           short_label?: string;
           is_registry?: boolean;
+          visibility?: OrgChartVisibility;
         };
         Update: {
           name?: string;
           short_label?: string;
+          visibility?: OrgChartVisibility;
+        };
+        Relationships: [];
+      };
+      org_chart_access: {
+        Row: {
+          org_chart_id: string;
+          user_id: string;
+          role: OrgChartAccessRole;
+          created_at: string;
+        };
+        Insert: {
+          org_chart_id: string;
+          user_id: string;
+          role: OrgChartAccessRole;
+        };
+        Update: {
+          role?: OrgChartAccessRole;
         };
         Relationships: [];
       };
@@ -209,6 +231,10 @@ export interface Database {
       duplicate_org_chart: {
         Args: { source_id: string; new_name: string; new_short_label: string };
         Returns: string;
+      };
+      list_active_users: {
+        Args: Record<string, never>;
+        Returns: { user_id: string; email: string }[];
       };
     };
   };

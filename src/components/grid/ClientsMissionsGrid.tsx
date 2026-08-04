@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useClientsMissions } from '../../hooks/useClientsMissions';
+import { PermissionDeniedError } from '../../lib/mutationGuard';
 import { useAssignments } from '../../hooks/useAssignments';
 import { useEmployees } from '../../hooks/useEmployees';
 import { useSelectionStore } from '../../stores/selectionStore';
@@ -78,7 +79,13 @@ export function ClientsMissionsGrid() {
   const handleDelete = useCallback(
     (id: string) => {
       setActionError(null);
-      deleteClientMission(id).catch(() => setActionError(t('grid.clientsMissions.deleteInUseError')));
+      deleteClientMission(id).catch((err) =>
+        setActionError(
+          err instanceof PermissionDeniedError
+            ? t('errors.permissionDenied')
+            : t('grid.clientsMissions.deleteInUseError'),
+        ),
+      );
     },
     [deleteClientMission],
   );
