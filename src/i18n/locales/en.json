@@ -23,7 +23,8 @@
     "chartTab": "Org chart",
     "account": "Account",
     "language": "Language",
-    "accessManagement": "Access management"
+    "accessManagement": "Access management",
+    "registryMenuItem": "Central employee registry"
   },
   "leftPanel": {
     "tabs": {
@@ -31,7 +32,8 @@
       "clientsMissions": "Clients / Missions",
       "allocations": "Allocations",
       "jobTitles": "Job Titles",
-      "departments": "Business Units"
+      "departments": "Business Units",
+      "promotionCandidates": "Promote employees"
     },
     "density": {
       "comfortable": "Comfortable",
@@ -91,6 +93,8 @@
     "existingCharts": "Existing org charts",
     "copyOf": "Copy of {{name}}",
     "deleteConfirm": "Permanently delete “{{name}}” and all its data (employees, reporting relationships, missions)? This action is irreversible.",
+    "deleteNotPermitted": "You don't have permission to delete org charts — ask an admin or editor.",
+    "deleteFailed": "Couldn't delete this org chart.",
     "cannotDeleteLast": "Cannot delete the last org chart",
     "saving": "…"
   },
@@ -98,6 +102,7 @@
     "employees": {
       "title": "Employees",
       "exportCsv": "Export CSV",
+      "addFromRegistry": "Add from the central registry",
       "add": "+ Add",
       "loading": "Loading…",
       "empty": "No employees.",
@@ -268,6 +273,16 @@
       "wouldCreateCycle": "Would create a reporting cycle",
       "close": "Close"
     },
+    "importFromRegistry": {
+      "title": "Add from the central registry",
+      "searchPlaceholder": "Search by name, poste or business unit…",
+      "empty": "No employee found.",
+      "includeAssignments": "Also import sold/actual time (missions)",
+      "cancel": "Cancel",
+      "importing": "Importing…",
+      "confirm_one": "Import {{count}} employee",
+      "confirm_other": "Import {{count}} employees"
+    },
     "managerEditor": {
       "title": "Managers for {{name}}",
       "description": "Check one or more managers (multi-reporting). The radio button marks the primary manager (solid line in the org chart).",
@@ -340,6 +355,23 @@
       "lecteur": "Viewer"
     }
   },
+  "promotionCandidates": {
+    "title": "Employees to promote",
+    "showHidden": "Show hidden",
+    "hideHidden": "Hide hidden",
+    "loading": "Loading…",
+    "empty": "No employees to promote.",
+    "columns": {
+      "name": "Name",
+      "jobTitle": "Job title",
+      "originChart": "Origin org chart"
+    },
+    "promote": "Promote",
+    "hide": "Hide",
+    "duplicateWarning": "An employee with the same name already exists in the registry.",
+    "promoteAnyway": "Promote anyway",
+    "cancel": "Cancel"
+  },
   "history": {
     "deleteEmployee": "Delete {{name}}",
     "addAssignment": "Add an assignment",
@@ -366,6 +398,8 @@
     "deleteJobTitle": "Delete job title {{name}}",
     "addManager": "Add a manager",
     "addSubordinate": "Add a subordinate",
+    "importFromRegistry_one": "Import {{count}} employee from the registry",
+    "importFromRegistry_other": "Import {{count}} employees from the registry",
     "reorder": "Reorder {{name}}",
     "reorderFallback": "Reorder"
   },

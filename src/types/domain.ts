@@ -28,6 +28,11 @@ export interface Employee {
   updated_at: string;
   created_by: string | null;
   updated_by: string | null;
+  // Backlog item 58 Phase B (not yet built) — only meaningful for employees
+  // outside the registry chart; drives the "Salariés à promouvoir" list's
+  // hide/unhide toggle. Added in Phase A's migration so Phase B needs no
+  // migration of its own.
+  hidden_from_registry_candidates: boolean;
 }
 
 export interface PhotoFrameValues {
@@ -57,6 +62,11 @@ export interface OrgChart {
   updated_at: string;
   created_by: string | null;
   updated_by: string | null;
+  // Backlog item 58 — at most one chart ever has this true (enforced by a
+  // partial unique index). The registry, unlike every other chart, is never
+  // offered by orgChartService.fetchOrgCharts() (the normal selector/
+  // duplicate-source list) — see fetchRegistryOrgChart for how it's reached.
+  is_registry: boolean;
 }
 
 export type OrgChartInput = Pick<OrgChart, 'name'> & Partial<Pick<OrgChart, 'short_label'>>;

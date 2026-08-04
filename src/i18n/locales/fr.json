@@ -23,7 +23,8 @@
     "chartTab": "Organigramme",
     "account": "Compte",
     "language": "Langue",
-    "accessManagement": "Gestion des accès"
+    "accessManagement": "Gestion des accès",
+    "registryMenuItem": "Base centrale des salariés"
   },
   "leftPanel": {
     "tabs": {
@@ -31,7 +32,8 @@
       "clientsMissions": "Clients / Missions",
       "allocations": "Allocations",
       "jobTitles": "Postes",
-      "departments": "Business Units"
+      "departments": "Business Units",
+      "promotionCandidates": "Promouvoir des salariés"
     },
     "density": {
       "comfortable": "Confortable",
@@ -91,6 +93,8 @@
     "existingCharts": "Organigrammes existants",
     "copyOf": "Copie de {{name}}",
     "deleteConfirm": "Supprimer définitivement « {{name}} » et toutes ses données (employés, rattachements, missions) ? Cette action est irréversible.",
+    "deleteNotPermitted": "Vous n'avez pas les droits pour supprimer un organigramme — contactez un admin ou un éditeur.",
+    "deleteFailed": "Impossible de supprimer cet organigramme.",
     "cannotDeleteLast": "Impossible de supprimer le dernier organigramme",
     "saving": "…"
   },
@@ -98,6 +102,7 @@
     "employees": {
       "title": "Employés",
       "exportCsv": "Exporter CSV",
+      "addFromRegistry": "Ajouter depuis la base centrale",
       "add": "+ Ajouter",
       "loading": "Chargement…",
       "empty": "Aucun employé.",
@@ -268,6 +273,16 @@
       "wouldCreateCycle": "Créerait une boucle de reporting",
       "close": "Fermer"
     },
+    "importFromRegistry": {
+      "title": "Ajouter depuis la base centrale",
+      "searchPlaceholder": "Rechercher par nom, poste ou business unit…",
+      "empty": "Aucun employé trouvé.",
+      "includeAssignments": "Importer aussi les temps vendus/réels (missions)",
+      "cancel": "Annuler",
+      "importing": "Import en cours…",
+      "confirm_one": "Importer {{count}} employé",
+      "confirm_other": "Importer {{count}} employés"
+    },
     "managerEditor": {
       "title": "Managers de {{name}}",
       "description": "Cochez un ou plusieurs managers (multi-reporting). Le bouton radio indique le manager principal (trait plein dans l'organigramme).",
@@ -340,6 +355,23 @@
       "lecteur": "Lecteur"
     }
   },
+  "promotionCandidates": {
+    "title": "Salariés à promouvoir",
+    "showHidden": "Afficher les masqués",
+    "hideHidden": "Masquer les masqués",
+    "loading": "Chargement…",
+    "empty": "Aucun salarié à promouvoir.",
+    "columns": {
+      "name": "Nom",
+      "jobTitle": "Poste",
+      "originChart": "Organigramme d'origine"
+    },
+    "promote": "Promouvoir",
+    "hide": "Masquer",
+    "duplicateWarning": "Un salarié du même nom existe déjà dans la base centrale.",
+    "promoteAnyway": "Promouvoir quand même",
+    "cancel": "Annuler"
+  },
   "history": {
     "deleteEmployee": "Supprimer {{name}}",
     "addAssignment": "Ajouter une affectation",
@@ -366,6 +398,8 @@
     "deleteJobTitle": "Supprimer le poste {{name}}",
     "addManager": "Ajouter un manager",
     "addSubordinate": "Ajouter un subordonné",
+    "importFromRegistry_one": "Importer {{count}} employé depuis la base centrale",
+    "importFromRegistry_other": "Importer {{count}} employés depuis la base centrale",
     "reorder": "Réordonner {{name}}",
     "reorderFallback": "Réordonner"
   },

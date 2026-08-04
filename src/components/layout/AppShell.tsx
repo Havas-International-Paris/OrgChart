@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { isSupabaseConfigured } from '../../lib/supabaseClient';
 import { useAuth } from '../../hooks/useAuth';
 import { useCurrentUserRole } from '../../hooks/useCurrentUserRole';
+import { useRegistryOrgChart } from '../../hooks/useRegistryOrgChart';
 import { useEmployees } from '../../hooks/useEmployees';
 import { useAssignments } from '../../hooks/useAssignments';
 import { useClientsMissions } from '../../hooks/useClientsMissions';
@@ -126,6 +127,7 @@ function AuthenticatedApp({
   const { t } = useTranslation();
   const { role, status: roleStatus } = useCurrentUserRole(userId);
   const [showAccessManagement, setShowAccessManagement] = useState(false);
+  const { registryOrgChart } = useRegistryOrgChart();
   const {
     orgCharts,
     loading: orgChartsLoading,
@@ -293,7 +295,7 @@ function AuthenticatedApp({
           <select
             value={currentOrgChartId}
             onChange={(e) => switchOrgChart(e.target.value)}
-            title={orgCharts.find((c) => c.id === currentOrgChartId)?.name}
+            title={orgCharts.find((c) => c.id === currentOrgChartId)?.name ?? registryOrgChart?.name}
             className="rounded border border-slate-200 bg-white px-2 py-1 text-sm text-slate-700"
           >
             {orgCharts.map((chart) => (
@@ -301,6 +303,17 @@ function AuthenticatedApp({
                 {chart.short_label ? `${chart.name} – ${chart.short_label}` : chart.name}
               </option>
             ))}
+            {/* orgCharts (from useOrgCharts) deliberately excludes the
+                registry chart — see orgChartService.fetchOrgCharts. Without
+                this, the <select> would show nothing selected while the
+                registry is the active chart (reached via AccountMenu's
+                admin-only entry below). Switching away just means picking a
+                normal chart from the list above, as usual. */}
+            {registryOrgChart && currentOrgChartId === registryOrgChart.id && (
+              <option key={registryOrgChart.id} value={registryOrgChart.id} title={registryOrgChart.name}>
+                {registryOrgChart.name}
+              </option>
+            )}
           </select>
           {/* Same outline treatment as FiltersToggle's inactive state —
               design-critique finding: Manage/Sign out were bare unstyled
@@ -346,6 +359,7 @@ function AuthenticatedApp({
             onSignOut={signOut}
             role={role}
             onOpenAccessManagement={() => setShowAccessManagement(true)}
+            onOpenRegistry={registryOrgChart ? () => switchOrgChart(registryOrgChart.id) : null}
           />
         </div>
       </header>

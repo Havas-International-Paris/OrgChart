@@ -11,6 +11,26 @@ export async function fetchEmployees(orgChartId: string): Promise<Employee[]> {
   return data as Employee[];
 }
 
+// Backlog item 58 Phase B ("Salariés à promouvoir") — the one genuinely
+// cross-chart query in this app; every other fetch* here is scoped to a
+// single org_chart_id. Deliberately plain (`.neq`, no embedded relationship
+// select) to match this codebase's existing "join client-side in memory"
+// convention (see CLAUDE.md) rather than introducing Supabase's embedded-
+// select syntax nowhere else in the app uses — usePromotionCandidates.ts
+// joins the org chart's own name in afterward.
+export async function fetchCandidateEmployees(registryChartId: string, includeHidden: boolean): Promise<Employee[]> {
+  let query = supabase.from('employees').select('*').neq('org_chart_id', registryChartId);
+  if (!includeHidden) query = query.eq('hidden_from_registry_candidates', false);
+  const { data, error } = await query.order('last_name');
+  if (error) throw error;
+  return data as Employee[];
+}
+
+export async function setHiddenFromRegistryCandidates(id: string, hidden: boolean): Promise<void> {
+  const { error } = await supabase.from('employees').update({ hidden_from_registry_candidates: hidden }).eq('id', id);
+  if (error) throw error;
+}
+
 export async function createEmployee(orgChartId: string, input: EmployeeInput): Promise<Employee> {
   const { data, error } = await supabase
     .from('employees')
@@ -103,6 +123,39 @@ export async function restoreEmployee(row: Employee): Promise<Employee> {
       photo_pan_y: row.photo_pan_y,
       sibling_order: row.sibling_order,
       org_chart_id: row.org_chart_id,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data as Employee;
+}
+
+// Backlog item 58 — a NEW row (fresh id, via a separate insert from
+// restoreEmployee above, never the source's own id) in a DIFFERENT chart,
+// copying the source employee's name/poste/BU/photo fields. Deliberately
+// excludes sibling_order (the spec says never copy it — the target chart's
+// own layout should decide it) and doesn't take EmployeeInput, which
+// deliberately excludes photo fields from the plain create/edit form; this
+// is a distinct, special-purpose insert, same reasoning as restoreEmployee's
+// own dedicated shape. Generic over direction — used both by flux 1 (Phase A,
+// registry → a working chart, via useRegistryImport.ts) and flux 2 (Phase B,
+// a working chart → the registry, via usePromotionCandidates.ts): both are
+// "copy this employee's core fields into a different chart," just with the
+// source/target swapped.
+export async function importEmployee(targetOrgChartId: string, source: Employee): Promise<Employee> {
+  const { data, error } = await supabase
+    .from('employees')
+    .insert({
+      first_name: source.first_name,
+      last_name: source.last_name,
+      job_title: source.job_title,
+      role_desc: source.role_desc,
+      department: source.department,
+      photo_path: source.photo_path,
+      photo_zoom: source.photo_zoom,
+      photo_pan_x: source.photo_pan_x,
+      photo_pan_y: source.photo_pan_y,
+      org_chart_id: targetOrgChartId,
     })
     .select()
     .single();

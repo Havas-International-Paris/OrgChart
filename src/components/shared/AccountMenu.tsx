@@ -11,6 +11,10 @@ interface AccountMenuProps {
   // as every other role-gated affordance in this pass.
   role: UserRoleName | null;
   onOpenAccessManagement: () => void;
+  // Backlog item 58 — admin-only entry that switches the current chart to
+  // the registry. null if the registry chart itself hasn't loaded yet
+  // (hides the item rather than disabling it, same convention as above).
+  onOpenRegistry: (() => void) | null;
 }
 
 function initialOf(email: string | undefined): string {
@@ -27,7 +31,7 @@ function initialOf(email: string | undefined): string {
 // per-user color here (no department to key off), so it uses the app's own
 // "primary" dark (bg-slate-900), matching Ask AI's active state and
 // LanguageSwitcher's own active segment.
-export function AccountMenu({ email, onSignOut, role, onOpenAccessManagement }: AccountMenuProps) {
+export function AccountMenu({ email, onSignOut, role, onOpenAccessManagement, onOpenRegistry }: AccountMenuProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -88,6 +92,18 @@ export function AccountMenu({ email, onSignOut, role, onOpenAccessManagement }: 
               className="block w-full px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
             >
               {t('appShell.accessManagement')}
+            </button>
+          )}
+          {role === 'admin' && onOpenRegistry && (
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                onOpenRegistry();
+              }}
+              className="block w-full px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+            >
+              {t('appShell.registryMenuItem')}
             </button>
           )}
           <div className="my-1 border-t border-slate-100" />

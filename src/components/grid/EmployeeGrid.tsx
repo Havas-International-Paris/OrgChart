@@ -1,5 +1,9 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useAuth } from '../../hooks/useAuth';
+import { useCurrentUserRole } from '../../hooks/useCurrentUserRole';
+import { useRegistryOrgChart } from '../../hooks/useRegistryOrgChart';
+import { useRegistryImport } from '../../hooks/useRegistryImport';
 import { useEmployees } from '../../hooks/useEmployees';
 import { useReportingGraph } from '../../hooks/useReportingGraph';
 import { useAssignments } from '../../hooks/useAssignments';
@@ -11,6 +15,7 @@ import { useEmployeeDeletion } from '../../hooks/useEmployeeDeletion';
 import { useSelectionStore } from '../../stores/selectionStore';
 import { useUiPreferencesStore } from '../../stores/uiPreferencesStore';
 import { ManagerEditorModal } from '../shared/ManagerEditorModal';
+import { ImportFromRegistryModal } from '../shared/ImportFromRegistryModal';
 import { PhotoAvatar } from '../shared/PhotoAvatar';
 import { PhotoEditorModal } from '../shared/PhotoEditorModal';
 import { etpStatus } from '../../lib/etpStatus';
@@ -55,6 +60,7 @@ function emptyDraft(orgChartId: string): Employee {
     updated_at: now,
     created_by: null,
     updated_by: null,
+    hidden_from_registry_candidates: false,
   };
 }
 
@@ -90,9 +96,10 @@ export function EmployeeGrid() {
   } = useEmployees(currentOrgChartId);
   const { replacePhoto, saveFrame, deletePhoto } = usePhotoActions(employees, updateEmployeePhoto, updateEmployeePhotoFrame);
   const [photoEditEmployeeId, setPhotoEditEmployeeId] = useState<string | null>(null);
-  const { relationships, managersOf, restoreRelationship, wouldCreateCycle, replaceManagersForEmployee } =
+  const { relationships, managersOf, addRelationship, restoreRelationship, wouldCreateCycle, replaceManagersForEmployee } =
     useReportingGraph(currentOrgChartId);
-  const { assignments, assignmentsOf, totalEtpOf, totalEtpReelOf, restoreAssignment } = useAssignments(currentOrgChartId);
+  const { assignments, assignmentsOf, totalEtpOf, totalEtpReelOf, createAssignment, restoreAssignment } =
+    useAssignments(currentOrgChartId);
   const deleteEmployeeWithHistory = useEmployeeDeletion(
     currentOrgChartId,
     { employees, restoreEmployee, deleteEmployee },
@@ -103,6 +110,26 @@ export function EmployeeGrid() {
   const { jobTitles } = useJobTitles();
   const { departments } = useDepartments();
   const [editingManagersFor, setEditingManagersFor] = useState<Employee | null>(null);
+
+  // Backlog item 58 — "Ajouter depuis la base centrale" picker. session.user.id
+  // isn't otherwise threaded into this component, so it's read directly via
+  // useAuth() here rather than prop-drilled from AppShell.
+  const { session } = useAuth();
+  const { role } = useCurrentUserRole(session?.user.id);
+  const { registryOrgChart } = useRegistryOrgChart();
+  const { importFromRegistry } = useRegistryImport(currentOrgChartId, {
+    deleteEmployee,
+    restoreEmployee,
+    addRelationship,
+    restoreRelationship,
+    createAssignment,
+    restoreAssignment,
+  });
+  const [importingFromRegistry, setImportingFromRegistry] = useState(false);
+  const canUseRegistry =
+    registryOrgChart !== null &&
+    currentOrgChartId !== registryOrgChart.id &&
+    (role === 'admin' || role === 'editeur');
 
   const selectedEmployeeId = useSelectionStore((s) => s.selectedEmployeeId);
   const setSelectedEmployee = useSelectionStore((s) => s.setSelectedEmployee);
@@ -285,6 +312,14 @@ export function EmployeeGrid() {
           >
             {t('grid.employees.exportCsv')}
           </button>
+          {canUseRegistry && (
+            <button
+              onClick={() => setImportingFromRegistry(true)}
+              className="rounded border border-slate-300 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+            >
+              {t('grid.employees.addFromRegistry')}
+            </button>
+          )}
           <button
             onClick={handleAddEmployee}
             disabled={Boolean(editing.draft)}
@@ -454,6 +489,13 @@ export function EmployeeGrid() {
             />
           );
         })()}
+      {importingFromRegistry && registryOrgChart && (
+        <ImportFromRegistryModal
+          registryChartId={registryOrgChart.id}
+          onImport={(ids, includeAssignments) => importFromRegistry(registryOrgChart.id, ids, includeAssignments)}
+          onClose={() => setImportingFromRegistry(false)}
+        />
+      )}
     </div>
   );
 }

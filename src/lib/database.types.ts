@@ -25,6 +25,7 @@ export interface Database {
           updated_at: string;
           created_by: string | null;
           updated_by: string | null;
+          hidden_from_registry_candidates: boolean;
         };
         Insert: {
           id?: string;
@@ -39,6 +40,7 @@ export interface Database {
           photo_pan_y?: number;
           sibling_order?: number | null;
           org_chart_id: string;
+          hidden_from_registry_candidates?: boolean;
         };
         Update: {
           first_name?: string;
@@ -51,6 +53,7 @@ export interface Database {
           photo_pan_x?: number;
           photo_pan_y?: number;
           sibling_order?: number | null;
+          hidden_from_registry_candidates?: boolean;
         };
         Relationships: [];
       };
@@ -186,11 +189,13 @@ export interface Database {
           updated_at: string;
           created_by: string | null;
           updated_by: string | null;
+          is_registry: boolean;
         };
         Insert: {
           id?: string;
           name: string;
           short_label?: string;
+          is_registry?: boolean;
         };
         Update: {
           name?: string;
