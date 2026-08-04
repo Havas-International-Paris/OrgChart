@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useToastStore } from '../../stores/toastStore';
 import type { OrgChart } from '../../types/domain';
 
 interface OrgChartManagerModalProps {
@@ -209,6 +210,17 @@ function OrgChartRow({ chart, canDelete, onRename, onDelete }: OrgChartRowProps)
     setDeleting(true);
     try {
       await onDelete(chart.id);
+    } catch (err) {
+      // Surfaces what used to be a silent no-op: RLS denies a delete by
+      // simply matching zero rows, not by throwing — orgChartService's own
+      // deleteOrgChart turns that into DELETE_NOT_PERMITTED specifically so
+      // this has something to catch. Any OTHER error still gets a message,
+      // just a more generic one — this isn't meant to swallow real failures.
+      const message =
+        err instanceof Error && err.message === 'DELETE_NOT_PERMITTED'
+          ? t('orgChartManager.deleteNotPermitted')
+          : t('orgChartManager.deleteFailed');
+      useToastStore.getState().show({ message });
     } finally {
       setDeleting(false);
     }
