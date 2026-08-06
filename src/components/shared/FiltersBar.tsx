@@ -102,6 +102,7 @@ export function FiltersBar({ orgChartId }: FiltersBarProps) {
     <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 bg-white px-4 py-2">
       <FilterDropdown
         title={t('filters.businessUnit')}
+        hint={t('filters.businessUnitHint')}
         options={deptOptions}
         selected={deptFilterNames}
         onToggle={toggleDeptFilter}

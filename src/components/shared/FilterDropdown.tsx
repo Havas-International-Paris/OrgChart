@@ -9,6 +9,11 @@ export interface FilterDropdownOption {
 
 interface FilterDropdownProps {
   title: string;
+  // Native tooltip on the button — used by FiltersBar's Business Unit
+  // instance (item 55) to clarify it's the same filter as the chart's own
+  // DepartmentLegend swatches, not a separate one. Optional since the other
+  // two instances (Poste, Client/Mission) have no such counterpart to explain.
+  hint?: string;
   options: FilterDropdownOption[];
   selected: Set<string>;
   onToggle: (key: string) => void;
@@ -23,7 +28,7 @@ interface FilterDropdownProps {
 // list doesn't affect Poste's own collapsed state. Same open/close/
 // outside-click pattern the old standalone ClientMissionFilter.tsx/
 // DepartmentFilter.tsx each used to own individually.
-export function FilterDropdown({ title, options, selected, onToggle }: FilterDropdownProps) {
+export function FilterDropdown({ title, hint, options, selected, onToggle }: FilterDropdownProps) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -43,6 +48,7 @@ export function FilterDropdown({ title, options, selected, onToggle }: FilterDro
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
+        title={hint}
         className="flex items-center gap-1.5 rounded border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
       >
         {title}

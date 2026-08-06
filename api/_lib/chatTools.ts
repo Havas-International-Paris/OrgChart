@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import type { Database } from '../../src/lib/database.types.js';
+import type { Database, RemunerationModel } from '../../src/lib/database.types.js';
 
 // One client per request, authenticated as the calling user's own session
 // (their access token, forwarded from the browser) rather than a service-role
@@ -68,6 +68,39 @@ async function ensureCatalogEntry(
   // user asked to change, and RLS or a race on the catalog table shouldn't
   // block that write from succeeding.
   if (error) console.error(`[chatTools] ensureCatalogEntry(${table}, "${trimmed}") failed:`, error.message);
+}
+
+// Same "resolve or create" shape as ensureCatalogEntry above, but can't
+// reuse it: job_titles/departments back a plain TEXT column with no FK (the
+// employee row just needs a MATCHING catalog row to exist, its own field
+// stores the string directly), while assignments.client_mission_id is a
+// real FK (`on delete restrict`) — the caller needs the actual id back,
+// whether the catalog entry already existed or was just created. Mirrors
+// the frontend's own useClientsMissions.ts findOrCreate (same
+// case-insensitive name+type match, create if nothing matches) rather than
+// inventing a different resolution rule server-side.
+async function findOrCreateClientMission(
+  supabase: SupabaseClient<Database>,
+  name: string,
+  type: 'client' | 'mission',
+): Promise<{ id: string; created: boolean }> {
+  const trimmed = name.trim();
+  const { data: matches, error: findError } = await supabase
+    .from('clients_missions')
+    .select('id')
+    .eq('type', type)
+    .ilike('name', trimmed)
+    .limit(1);
+  if (findError) throw findError;
+  if (matches && matches.length > 0) return { id: matches[0].id, created: false };
+
+  const { data: created, error: createError } = await supabase
+    .from('clients_missions')
+    .insert({ name: trimmed, type })
+    .select('id')
+    .single();
+  if (createError) throw createError;
+  return { id: created.id, created: true };
 }
 
 const findEmployee: ToolDefinition = {
@@ -601,6 +634,86 @@ const setManager: ToolDefinition = {
   },
 };
 
+// Backlog item 50 — the chat previously had no way to create or modify an
+// assignment or a clients_missions catalog row at all (get_assignments is
+// read-only). Resolves-or-creates the named client/mission the same way
+// create_employee/update_employee already resolve-or-create job titles and
+// departments, so the model can do this in one call rather than requiring
+// the user to pre-create the client/mission via the Clients/Missions tab
+// first. Deliberately upserts by (employeeId, clientMissionId) instead of
+// always inserting: uq_employee_client_mission means a second assignment on
+// the same client/mission would otherwise just fail with a constraint
+// error — updating in place matches what re-editing the same row in
+// AssignmentEditorModal would do.
+const createAssignment: ToolDefinition = {
+  name: 'create_assignment',
+  description:
+    "Create or update a client/mission assignment for an employee (from find_employee), setting their %ETP vendu (sold) and/or %ETP réel (actual) allocation. If the named client/mission doesn't already exist in the Clients/Missions catalog, it is created automatically — never ask the user to create it first. If this employee already has an assignment on this exact client/mission, this updates it in place rather than creating a duplicate. Note: a 'commission' remunerationModel can never carry an etpVendu value (DB constraint) — omit etpVendu when setting commission.",
+  parametersJsonSchema: {
+    type: 'object',
+    properties: {
+      employeeId: { type: 'string' },
+      clientMissionName: { type: 'string', description: 'Name of the client or mission, new or existing.' },
+      clientMissionType: {
+        type: 'string',
+        enum: ['client', 'mission'],
+        description: 'Whether this is a client or an internal mission.',
+      },
+      etpVendu: { type: 'number', description: '% ETP vendu (sold), 0-100. Omit to leave unset/unchanged.' },
+      etpReel: { type: 'number', description: '% ETP réel (actual), 0-100. Omit to leave unset/unchanged.' },
+      remunerationModel: { type: 'string', enum: ['retainer', 'commission'], description: 'Optional remuneration model.' },
+    },
+    required: ['employeeId', 'clientMissionName', 'clientMissionType'],
+  },
+  async run({ supabase, orgChartId }, args) {
+    const employeeId = args.employeeId as string;
+    const clientMissionType = args.clientMissionType as 'client' | 'mission';
+    const etpVendu = typeof args.etpVendu === 'number' ? args.etpVendu : undefined;
+    const etpReel = typeof args.etpReel === 'number' ? args.etpReel : undefined;
+    const remunerationModel = args.remunerationModel as RemunerationModel | undefined;
+
+    const { id: clientMissionId, created: clientMissionCreated } = await findOrCreateClientMission(
+      supabase,
+      args.clientMissionName as string,
+      clientMissionType,
+    );
+
+    const { data: existing, error: findExistingError } = await supabase
+      .from('assignments')
+      .select('id')
+      .eq('org_chart_id', orgChartId)
+      .eq('employee_id', employeeId)
+      .eq('client_mission_id', clientMissionId)
+      .maybeSingle();
+    if (findExistingError) throw findExistingError;
+
+    if (existing) {
+      const changes: Partial<{ etp_vendu: number; etp_reel: number; remuneration_model: RemunerationModel }> = {};
+      if (etpVendu !== undefined) changes.etp_vendu = etpVendu;
+      if (etpReel !== undefined) changes.etp_reel = etpReel;
+      if (remunerationModel !== undefined) changes.remuneration_model = remunerationModel;
+      const { data, error } = await supabase.from('assignments').update(changes).eq('id', existing.id).select().single();
+      if (error) throw error;
+      return { assignment: data, action: 'updated', clientMissionCreated };
+    }
+
+    const { data, error } = await supabase
+      .from('assignments')
+      .insert({
+        employee_id: employeeId,
+        client_mission_id: clientMissionId,
+        etp_vendu: etpVendu ?? null,
+        etp_reel: etpReel ?? null,
+        remuneration_model: remunerationModel ?? null,
+        org_chart_id: orgChartId,
+      })
+      .select()
+      .single();
+    if (error) throw error;
+    return { assignment: data, action: 'created', clientMissionCreated };
+  },
+};
+
 interface BatchEmployeeInput {
   localId: string;
   firstName: string;
@@ -851,6 +964,7 @@ export const chatTools: ToolDefinition[] = [
   createEmployee,
   updateEmployee,
   setManager,
+  createAssignment,
   createTeam,
   deleteEmployee,
   restoreEmployee,

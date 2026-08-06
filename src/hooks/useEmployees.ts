@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabaseClient';
 import * as employeeService from '../services/employeeService';
 import type { Employee, EmployeeInput, PhotoFrameValues } from '../types/domain';
 import { useHistoryStore, withSuppressedRecording } from '../stores/historyStore';
+import { hasConcurrentUpdate } from '../lib/conflictCheck';
 
 export function useEmployees(orgChartId: string | null) {
   const { t } = useTranslation();
@@ -150,6 +151,12 @@ export function useEmployees(orgChartId: string | null) {
       oldValuesHint?: Partial<EmployeeInput>,
     ): Promise<Employee> => {
       const before = employees.find((e) => e.id === id);
+      // Must run BEFORE the update, not in parallel with it: our own write
+      // is likely to commit before a concurrent SELECT runs, which would
+      // make it see our OWN new updated_at and false-positive a conflict on
+      // every single edit. Sequential ordering is what makes this correct
+      // — the small added latency (one extra round trip) is the price.
+      const hadConflict = before ? await hasConcurrentUpdate('employees', id, before.updated_at) : false;
       const updated = await employeeService.updateEmployee(id, changes);
       await refresh();
       if (before && orgChartId) {
@@ -158,8 +165,13 @@ export function useEmployees(orgChartId: string | null) {
           (oldChanges as Record<string, unknown>)[key] =
             oldValuesHint && key in oldValuesHint ? oldValuesHint[key] : before[key];
         }
+        const name = `${before.first_name} ${before.last_name}`;
         useHistoryStore.getState().push({
-          label: t('history.updateEmployee', { name: `${before.first_name} ${before.last_name}` }),
+          // Folded into the SAME toast as the undo confirmation rather than
+          // a separate one — the toast store only ever shows one toast at a
+          // time, and a standalone warning would just get immediately
+          // clobbered by this push's own toast a moment later.
+          label: hadConflict ? t('history.updateEmployeeConflict', { name }) : t('history.updateEmployee', { name }),
           orgChartId,
           undo: async () => { await updateEmployee(id, oldChanges); },
           redo: async () => { await updateEmployee(id, changes); },

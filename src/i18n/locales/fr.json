@@ -49,6 +49,7 @@
   "filters": {
     "button": "Filtres",
     "businessUnit": "Business Unit",
+    "businessUnitHint": "Le même filtre que la légende Business Unit en bas du chart — en sélectionner un met l'autre à jour.",
     "jobTitle": "Poste",
     "clientMission": "Client / Mission",
     "timeSold": "Temps vendu",
@@ -197,6 +198,7 @@
     "switchToDetailed": "Vue détaillée",
     "export": "Exporter en image",
     "exporting": "Export…",
+    "exportSlow": "Cela prend un peu plus de temps que d'habitude, merci de patienter…",
     "deleteRelationship": "Supprimer ce rattachement",
     "node": {
       "showEveryone": "Afficher tout le monde",
@@ -409,6 +411,7 @@
     "createClientMission": "Créer {{name}}",
     "createEmployee": "Créer {{name}}",
     "updateEmployee": "Modifier {{name}}",
+    "updateEmployeeConflict": "Modifier {{name}} — ⚠ quelqu'un d'autre vient aussi de le modifier",
     "reframePhoto": "Recadrer la photo de {{name}}",
     "createJobTitle": "Créer le poste {{name}}",
     "renameJobTitle": "Renommer le poste {{name}}",

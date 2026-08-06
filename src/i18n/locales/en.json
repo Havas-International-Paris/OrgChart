@@ -49,6 +49,7 @@
   "filters": {
     "button": "Filters",
     "businessUnit": "Business Unit",
+    "businessUnitHint": "Same filter as the chart's Business Unit legend at the bottom — selecting one updates the other.",
     "jobTitle": "Job Title",
     "clientMission": "Client / Mission",
     "timeSold": "Time sold",
@@ -197,6 +198,7 @@
     "switchToDetailed": "Detailed view",
     "export": "Export as image",
     "exporting": "Exporting…",
+    "exportSlow": "This is taking a bit longer than usual, please wait…",
     "deleteRelationship": "Delete this relationship",
     "node": {
       "showEveryone": "Show everyone",
@@ -409,6 +411,7 @@
     "createClientMission": "Create {{name}}",
     "createEmployee": "Create {{name}}",
     "updateEmployee": "Edit {{name}}",
+    "updateEmployeeConflict": "Edit {{name}} — ⚠ someone else just edited this too",
     "reframePhoto": "Reframe {{name}}'s photo",
     "createJobTitle": "Create job title {{name}}",
     "renameJobTitle": "Rename job title {{name}}",

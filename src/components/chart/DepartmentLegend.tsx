@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import type { Department } from '../../types/domain';
 
 interface DepartmentLegendProps {
@@ -13,6 +14,7 @@ interface DepartmentLegendProps {
 // the same field the header's FiltersPanel edits, so the two stay in sync
 // for free (shared state, not a separate local selection mirrored back).
 export function DepartmentLegend({ departments, colorByName, counts, selectedNames, onToggle }: DepartmentLegendProps) {
+  const { t } = useTranslation();
   if (departments.length === 0) return null;
 
   return (
@@ -29,6 +31,7 @@ export function DepartmentLegend({ departments, colorByName, counts, selectedNam
             type="button"
             onClick={() => onToggle(d.name)}
             aria-pressed={isSelected}
+            title={t('filters.businessUnitHint')}
             className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors ${
               isSelected
                 ? 'border-slate-400 bg-slate-100 text-slate-900'

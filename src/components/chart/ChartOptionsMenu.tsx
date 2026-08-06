@@ -30,6 +30,21 @@ export function ChartOptionsMenu({
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // Backlog item 56 — a normal export resolves in well under a second, so a
+  // spinner would just be flicker; only escalate to a visible "this may
+  // take a moment" state once exporting has genuinely been running for a
+  // while (~3s). Reset whenever exporting flips back to false, whether that
+  // means it finished or errored.
+  const [showSlowExportHint, setShowSlowExportHint] = useState(false);
+  useEffect(() => {
+    if (!exporting) {
+      setShowSlowExportHint(false);
+      return;
+    }
+    const id = setTimeout(() => setShowSlowExportHint(true), 3000);
+    return () => clearTimeout(id);
+  }, [exporting]);
+
   // Same capture-phase outside-click + Escape pattern as AccountMenu.tsx —
   // capture, not bubble, because chart controls elsewhere call
   // e.stopPropagation() in their own handlers, which would otherwise stop a
@@ -91,10 +106,16 @@ export function ChartOptionsMenu({
             type="button"
             onClick={onExport}
             disabled={exporting}
-            className={itemClass}
+            className={`${itemClass} ${showSlowExportHint ? 'flex items-center gap-2' : ''}`}
           >
+            {showSlowExportHint && (
+              <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-slate-300 border-t-slate-600" />
+            )}
             {exporting ? t('chart.exporting') : t('chart.export')}
           </button>
+          {showSlowExportHint && (
+            <p className="mt-1 px-3 text-xs text-slate-400">{t('chart.exportSlow')}</p>
+          )}
           {exportError && (
             <p className="mt-1 rounded bg-red-50 px-2 py-1 text-xs text-red-600">{exportError}</p>
           )}
