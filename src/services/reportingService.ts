@@ -11,6 +11,16 @@ export async function fetchReportingRelationships(orgChartId: string): Promise<R
   return data as ReportingRelationship[];
 }
 
+// Backlog item 58 Phase B — resolving a promotion candidate's manager needs
+// every OTHER chart's relationships (the candidate can come from any of
+// them), not just one. Same "load everything, filter in memory" convention
+// as employeeService.fetchCandidateEmployees.
+export async function fetchRelationshipsAcrossCharts(excludeChartId: string): Promise<ReportingRelationship[]> {
+  const { data, error } = await supabase.from('reporting_relationships').select('*').neq('org_chart_id', excludeChartId);
+  if (error) throw error;
+  return data as ReportingRelationship[];
+}
+
 export async function createRelationship(
   orgChartId: string,
   employeeId: string,

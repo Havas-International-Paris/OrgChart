@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useToastStore } from '../../stores/toastStore';
 import { useOrgChartAccess } from '../../hooks/useOrgChartAccess';
+import * as orgChartAccessService from '../../services/orgChartAccessService';
 import { PermissionDeniedError } from '../../lib/mutationGuard';
 import type { OrgChart, OrgChartAccessRole, OrgChartVisibility, UserRoleName } from '../../types/domain';
 
@@ -45,6 +46,20 @@ export function OrgChartManagerModal({
   const [dupShortLabel, setDupShortLabel] = useState(initialSource?.short_label ?? '');
   const [duplicating, setDuplicating] = useState(false);
 
+  // One-shot, not realtime — used only to resolve created_by -> email for
+  // the "owner" column below. SharingPanel fetches the same list again
+  // (via useOrgChartAccess) when actually open, but that one is scoped to
+  // a single chart and only mounted on demand; this one is needed for
+  // every visible row as soon as the modal opens.
+  const [activeUsers, setActiveUsers] = useState<{ user_id: string; email: string }[]>([]);
+  useEffect(() => {
+    orgChartAccessService.listActiveUsers().then(setActiveUsers);
+  }, []);
+  const ownerEmailOf = useMemo(() => {
+    const map = new Map(activeUsers.map((u) => [u.user_id, u.email]));
+    return (userId: string | null) => (userId ? (map.get(userId) ?? '—') : '—');
+  }, [activeUsers]);
+
   async function handleCreate() {
     if (!newName.trim()) return;
     setCreating(true);
@@ -77,8 +92,13 @@ export function OrgChartManagerModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-      <div className="w-full max-w-lg rounded-lg bg-white p-5 shadow-lg">
+    // Click-outside-to-close: the overlay itself closes on click, the
+    // content stops that click from bubbling up to it.
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onClose}>
+      <div
+        className="w-full max-w-3xl rounded-lg bg-white p-5 shadow-lg"
+        onClick={(e) => e.stopPropagation()}
+      >
         <h2 className="mb-4 text-sm font-semibold text-slate-900">{t('orgChartManager.title')}</h2>
 
         <section className="mb-4">
@@ -164,9 +184,8 @@ export function OrgChartManagerModal({
                 key={chart.id}
                 chart={chart}
                 canDelete={orgCharts.length > 1}
-                canManageSharing={
-                  currentUserRole === 'admin' || chart.created_by === currentUserId
-                }
+                canManage={currentUserRole === 'admin' || chart.created_by === currentUserId}
+                ownerEmail={ownerEmailOf(chart.created_by)}
                 onRename={onRename}
                 onDelete={onDelete}
               />
@@ -190,12 +209,18 @@ export function OrgChartManagerModal({
 interface OrgChartRowProps {
   chart: OrgChart;
   canDelete: boolean;
-  canManageSharing: boolean;
+  // Owner or admin: the only two roles allowed to rename, delete, or manage
+  // sharing/visibility for this specific chart from this window — a global
+  // éditeur who merely has write access (public chart, or a per-chart
+  // "editeur" grant) can still edit the chart's CONTENT elsewhere, just not
+  // its identity/sharing settings here.
+  canManage: boolean;
+  ownerEmail: string;
   onRename: (id: string, changes: { name?: string; short_label?: string; visibility?: OrgChartVisibility }) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
 }
 
-function OrgChartRow({ chart, canDelete, canManageSharing, onRename, onDelete }: OrgChartRowProps) {
+function OrgChartRow({ chart, canDelete, canManage, ownerEmail, onRename, onDelete }: OrgChartRowProps) {
   const { t } = useTranslation();
   const [name, setName] = useState(chart.name);
   const [shortLabel, setShortLabel] = useState(chart.short_label);
@@ -204,7 +229,7 @@ function OrgChartRow({ chart, canDelete, canManageSharing, onRename, onDelete }:
   const [changingVisibility, setChangingVisibility] = useState(false);
   const [sharing, setSharing] = useState(false);
 
-  const dirty = name !== chart.name || shortLabel !== chart.short_label;
+  const dirty = canManage && (name !== chart.name || shortLabel !== chart.short_label);
 
   async function handleSaveRename() {
     setSavingRename(true);
@@ -219,6 +244,7 @@ function OrgChartRow({ chart, canDelete, canManageSharing, onRename, onDelete }:
     setChangingVisibility(true);
     try {
       await onRename(chart.id, { visibility });
+      if (visibility === 'public') setSharing(false);
     } catch (err) {
       const message =
         err instanceof PermissionDeniedError ? t('errors.permissionDenied') : t('orgChartManager.deleteFailed');
@@ -254,22 +280,28 @@ function OrgChartRow({ chart, canDelete, canManageSharing, onRename, onDelete }:
 
   return (
     <div className="rounded border border-slate-200 p-3">
-      <div className="flex items-end gap-2">
-        <div className="flex-1">
+      <div className="flex flex-wrap items-end gap-2">
+        <div className="min-w-[120px] flex-1">
           <label className={FIELD_LABEL_CLASS}>{t('orgChartManager.name')}</label>
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className={FIELD_INPUT_CLASS}
-          />
+          {canManage ? (
+            <input value={name} onChange={(e) => setName(e.target.value)} className={FIELD_INPUT_CLASS} />
+          ) : (
+            <p className="truncate px-2 py-1 text-sm text-slate-700">{chart.name}</p>
+          )}
         </div>
-        <div className="w-28">
+        <div className="w-24">
           <label className={FIELD_LABEL_CLASS}>{t('orgChartManager.shortLabel')}</label>
-          <input
-            value={shortLabel}
-            onChange={(e) => setShortLabel(e.target.value)}
-            className={FIELD_INPUT_CLASS}
-          />
+          {canManage ? (
+            <input value={shortLabel} onChange={(e) => setShortLabel(e.target.value)} className={FIELD_INPUT_CLASS} />
+          ) : (
+            <p className="truncate px-2 py-1 text-sm text-slate-700">{chart.short_label || '—'}</p>
+          )}
+        </div>
+        <div className="w-36 shrink-0">
+          <label className={FIELD_LABEL_CLASS}>{t('orgChartManager.owner')}</label>
+          <p className="truncate px-2 py-1 text-xs text-slate-500" title={ownerEmail}>
+            {ownerEmail}
+          </p>
         </div>
         {dirty && (
           <button
@@ -280,38 +312,41 @@ function OrgChartRow({ chart, canDelete, canManageSharing, onRename, onDelete }:
             {savingRename ? t('orgChartManager.saving') : t('common.save')}
           </button>
         )}
-        <button
-          onClick={handleDelete}
-          disabled={!canDelete || deleting}
-          title={!canDelete ? t('orgChartManager.cannotDeleteLast') : undefined}
-          className="rounded px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 disabled:opacity-30"
-        >
-          {t('common.delete')}
-        </button>
-      </div>
-
-      {canManageSharing && (
-        <div className="mt-2 flex items-center gap-2 border-t border-slate-100 pt-2">
-          <label className="text-xs text-slate-500">{t('orgChartManager.visibility')}</label>
-          <select
-            value={chart.visibility}
-            disabled={changingVisibility}
-            onChange={(e) => handleVisibilityChange(e.target.value as OrgChartVisibility)}
-            className="rounded border border-slate-300 px-2 py-1 text-xs"
-          >
-            <option value="private">{t('orgChartManager.visibilityPrivate')}</option>
-            <option value="public">{t('orgChartManager.visibilityPublic')}</option>
-          </select>
+        {canManage && (
+          <div>
+            <label className={FIELD_LABEL_CLASS}>{t('orgChartManager.visibility')}</label>
+            <select
+              value={chart.visibility}
+              disabled={changingVisibility}
+              onChange={(e) => handleVisibilityChange(e.target.value as OrgChartVisibility)}
+              className="rounded border border-slate-300 px-2 py-1 text-xs"
+            >
+              <option value="private">{t('orgChartManager.visibilityPrivate')}</option>
+              <option value="public">{t('orgChartManager.visibilityPublic')}</option>
+            </select>
+          </div>
+        )}
+        {canManage && chart.visibility === 'private' && (
           <button
             onClick={() => setSharing((s) => !s)}
-            className="ml-auto rounded border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+            className="rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
           >
             {t('orgChartManager.share')}
           </button>
-        </div>
-      )}
+        )}
+        {canManage && (
+          <button
+            onClick={handleDelete}
+            disabled={!canDelete || deleting}
+            title={!canDelete ? t('orgChartManager.cannotDeleteLast') : undefined}
+            className="rounded px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 disabled:opacity-30"
+          >
+            {t('common.delete')}
+          </button>
+        )}
+      </div>
 
-      {canManageSharing && sharing && <SharingPanel orgChartId={chart.id} />}
+      {canManage && chart.visibility === 'private' && sharing && <SharingPanel orgChartId={chart.id} />}
     </div>
   );
 }

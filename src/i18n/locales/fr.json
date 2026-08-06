@@ -107,7 +107,8 @@
     "sharedWithNoOne": "Pas encore partagé.",
     "addUser": "Ajouter",
     "addUserPlaceholder": "Choisir une personne…",
-    "remove": "Retirer"
+    "remove": "Retirer",
+    "owner": "Propriétaire"
   },
   "grid": {
     "employees": {
@@ -381,7 +382,12 @@
     "hide": "Masquer",
     "duplicateWarning": "Un salarié du même nom existe déjà dans la base centrale.",
     "promoteAnyway": "Promouvoir quand même",
-    "cancel": "Annuler"
+    "cancel": "Annuler",
+    "promoteSelected_one": "Promouvoir {{count}} sélectionné",
+    "promoteSelected_other": "Promouvoir {{count}} sélectionnés",
+    "promoting": "Promotion…",
+    "bulkDuplicateWarning_one": "{{count}} salarié sélectionné existe déjà dans la base centrale par son nom. Promouvoir quand même ?",
+    "bulkDuplicateWarning_other": "{{count}} salariés sélectionnés existent déjà dans la base centrale par leur nom. Promouvoir quand même ?"
   },
   "history": {
     "deleteEmployee": "Supprimer {{name}}",

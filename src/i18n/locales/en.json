@@ -107,7 +107,8 @@
     "sharedWithNoOne": "Not shared with anyone yet.",
     "addUser": "Add",
     "addUserPlaceholder": "Choose a person…",
-    "remove": "Remove"
+    "remove": "Remove",
+    "owner": "Owner"
   },
   "grid": {
     "employees": {
@@ -381,7 +382,12 @@
     "hide": "Hide",
     "duplicateWarning": "An employee with the same name already exists in the registry.",
     "promoteAnyway": "Promote anyway",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "promoteSelected_one": "Promote {{count}} selected",
+    "promoteSelected_other": "Promote {{count}} selected",
+    "promoting": "Promoting…",
+    "bulkDuplicateWarning_one": "{{count}} selected employee already exists in the registry by name. Promote anyway?",
+    "bulkDuplicateWarning_other": "{{count}} selected employees already exist in the registry by name. Promote anyway?"
   },
   "history": {
     "deleteEmployee": "Delete {{name}}",

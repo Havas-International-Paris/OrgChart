@@ -8,6 +8,15 @@ export async function fetchAssignments(orgChartId: string): Promise<Assignment[]
   return data as Assignment[];
 }
 
+// Backlog item 58 Phase B — same reasoning as reportingService's own
+// cross-chart fetch: a promotion candidate's assignments can live in any
+// chart but the registry.
+export async function fetchAssignmentsAcrossCharts(excludeChartId: string): Promise<Assignment[]> {
+  const { data, error } = await supabase.from('assignments').select('*').neq('org_chart_id', excludeChartId);
+  if (error) throw error;
+  return data as Assignment[];
+}
+
 export async function createAssignment(
   orgChartId: string,
   employeeId: string,
