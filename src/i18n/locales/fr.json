@@ -394,6 +394,7 @@
   "history": {
     "deleteEmployee": "Supprimer {{name}}",
     "addAssignment": "Ajouter une affectation",
+    "updateAssignment": "Modifier une affectation",
     "updateEtpSold": "Modifier le % vendu",
     "updateEtpActual": "Modifier le % réel",
     "updateRemunerationModel": "Modifier le modèle de rémunération",

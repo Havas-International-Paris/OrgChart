@@ -6,11 +6,13 @@ import { useCurrentUserRole } from '../../hooks/useCurrentUserRole';
 import { useRegistryOrgChart } from '../../hooks/useRegistryOrgChart';
 import { useEmployees } from '../../hooks/useEmployees';
 import { useAssignments } from '../../hooks/useAssignments';
+import { useReportingGraph } from '../../hooks/useReportingGraph';
 import { useClientsMissions } from '../../hooks/useClientsMissions';
 import { useOrgCharts } from '../../hooks/useOrgCharts';
 import { useSelectionStore } from '../../stores/selectionStore';
 import { useUiPreferencesStore } from '../../stores/uiPreferencesStore';
 import { useHistoryStore } from '../../stores/historyStore';
+import { buildChatCommand } from '../../lib/chatUndo';
 import { useUndoRedoShortcuts } from '../../lib/history/useUndoRedoShortcuts';
 import { LoginPage } from '../auth/LoginPage';
 import { SupabaseSetupNotice } from '../auth/SupabaseSetupNotice';
@@ -147,7 +149,7 @@ function AuthenticatedApp({
     setCurrentOrgChartId(id);
   };
   useUndoRedoShortcuts();
-  const { employees } = useEmployees(currentOrgChartId);
+  const { employees, deleteEmployee, restoreEmployee, updateEmployee } = useEmployees(currentOrgChartId);
   const {
     assignmentsOf,
     createAssignment,
@@ -157,7 +159,45 @@ function AuthenticatedApp({
     updateAssignmentRemuneration,
     deleteAssignment,
   } = useAssignments(currentOrgChartId);
+  // Instantiated here purely for its mutators (item 48) — EmployeeGrid and
+  // OrgChartView already have their own separate instances for the grid/
+  // chart UI itself; a third simultaneous instance is the established,
+  // documented pattern for this hook (each subscribes with its own realtime
+  // channel UUID), not a new one invented for chat.
+  const { addRelationship, restoreRelationship, removeRelationship, reassignManager } =
+    useReportingGraph(currentOrgChartId);
   const { clientsMissions, findOrCreate, restoreClientMission, deleteClientMission } = useClientsMissions();
+  // Backlog item 48 — translates a chat write tool's result into a real
+  // historyStore Command using the same hook mutators the grid/chart use,
+  // so it's undoable through the header's own Undo button. See
+  // src/lib/chatUndo.ts for the per-tool mapping and why this can't be
+  // built any other way (a Command's undo/redo must be closures over these
+  // exact mutators, not raw services/*.ts calls).
+  const handleChatWriteToolResult = (name: string, args: Record<string, unknown>, output: unknown) => {
+    if (!currentOrgChartId) return;
+    const command = buildChatCommand(
+      name,
+      args,
+      output,
+      {
+        deleteEmployee,
+        restoreEmployee,
+        updateEmployee,
+        addRelationship,
+        restoreRelationship,
+        removeRelationship,
+        reassignManager,
+        restoreAssignment,
+        deleteAssignment,
+        updateAssignmentEtpVendu,
+        updateAssignmentEtpReel,
+        updateAssignmentRemuneration,
+      },
+      currentOrgChartId,
+      t,
+    );
+    if (command) useHistoryStore.getState().push(command);
+  };
   const assignmentsEmployeeId = useSelectionStore((s) => s.assignmentsEmployeeId);
   const setAssignmentsEmployeeId = useSelectionStore((s) => s.setAssignmentsEmployeeId);
   const [managingCharts, setManagingCharts] = useState(false);
@@ -404,6 +444,7 @@ function AuthenticatedApp({
                   orgChartId={currentOrgChartId}
                   accessToken={accessToken}
                   onClose={() => setChatOpen(false)}
+                  onWriteToolResult={handleChatWriteToolResult}
                 />
               </section>
             </>
@@ -418,7 +459,12 @@ function AuthenticatedApp({
       // tabs.
       <div className="flex flex-1 flex-col overflow-hidden">
         {chatOpen ? (
-          <ChatPanel orgChartId={currentOrgChartId} accessToken={accessToken} onClose={() => setChatOpen(false)} />
+          <ChatPanel
+            orgChartId={currentOrgChartId}
+            accessToken={accessToken}
+            onClose={() => setChatOpen(false)}
+            onWriteToolResult={handleChatWriteToolResult}
+          />
         ) : (
           <>
             <div className="flex shrink-0 border-b border-slate-200">

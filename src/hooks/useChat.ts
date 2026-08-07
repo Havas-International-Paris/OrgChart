@@ -69,7 +69,16 @@ async function* parseSseStream(body: ReadableStream<Uint8Array>): AsyncGenerator
 // Resets whenever orgChartId changes, since the chat is scoped to whichever
 // chart is currently open and a stale conversation from a different chart
 // would be actively misleading, not just irrelevant.
-export function useChat(orgChartId: string | null, accessToken: string | undefined, providerId: string | null) {
+export function useChat(
+  orgChartId: string | null,
+  accessToken: string | undefined,
+  providerId: string | null,
+  // Backlog item 48 — fired for every tool_result, write tools included; the
+  // caller (ChatPanel, forwarded from AppShell) decides which tool names are
+  // writes and turns those into a historyStore Command. Kept fully generic
+  // here, this hook has no notion of undo/redo or which tools mutate data.
+  onWriteToolResult?: (name: string, args: Record<string, unknown>, output: unknown) => void,
+) {
   const { t } = useTranslation();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sending, setSending] = useState(false);
@@ -119,8 +128,17 @@ export function useChat(orgChartId: string | null, accessToken: string | undefin
 
       setError(null);
       const history = [...messages, { role: 'user' as const, text: trimmed }];
-      setMessages(history);
-      setMessages((prev) => [...prev, { role: 'model', text: '' }]);
+      // Local mutable mirror of `messages`, updated synchronously as SSE
+      // events arrive — deliberately NOT read back out of React state via
+      // setMessages's functional-updater form. Outside a React event
+      // handler (this runs inside an async for-await loop), React defers
+      // actually running that updater rather than executing it inline, so
+      // a synchronous read right after calling setMessages(fn) always saw
+      // the value from BEFORE the update — item 48's onWriteToolResult
+      // needs the matched tool_call's args the instant its result arrives,
+      // not whenever React gets around to it.
+      let workingMessages: ChatMessage[] = [...history, { role: 'model', text: '' }];
+      setMessages(workingMessages);
       setSending(true);
       setStatusLabel(t('chat.thinking'));
 
@@ -147,40 +165,44 @@ export function useChat(orgChartId: string | null, accessToken: string | undefin
           if (event === 'text') {
             const delta = (data as { text: string }).text;
             setStatusLabel(null);
-            setMessages((prev) => {
-              const next = [...prev];
-              const last = next[next.length - 1];
-              next[next.length - 1] = { ...last, text: last.text + delta };
-              return next;
-            });
+            const last = workingMessages[workingMessages.length - 1];
+            workingMessages = [...workingMessages.slice(0, -1), { ...last, text: last.text + delta }];
+            setMessages(workingMessages);
           } else if (event === 'tool_call') {
             const { name, args } = data as { name: string; args: Record<string, unknown> };
             setStatusLabel(t('chat.searching'));
-            setMessages((prev) => {
-              const next = [...prev];
-              const last = next[next.length - 1];
-              const toolCalls = [...(last.toolCalls ?? []), { id: crypto.randomUUID(), name, args, output: undefined }];
-              next[next.length - 1] = { ...last, toolCalls };
-              return next;
-            });
+            const last = workingMessages[workingMessages.length - 1];
+            const toolCalls = [...(last.toolCalls ?? []), { id: crypto.randomUUID(), name, args, output: undefined }];
+            workingMessages = [...workingMessages.slice(0, -1), { ...last, toolCalls }];
+            setMessages(workingMessages);
           } else if (event === 'tool_result') {
             const { name, output } = data as { name: string; output: unknown };
-            setMessages((prev) => {
-              const next = [...prev];
-              const last = next[next.length - 1];
-              const toolCalls = [...(last.toolCalls ?? [])];
-              // Tool calls/results arrive as ordered pairs, so the most
-              // recent still-unresolved entry for this tool name is always
-              // the one this result belongs to.
-              for (let i = toolCalls.length - 1; i >= 0; i--) {
-                if (toolCalls[i].name === name && toolCalls[i].output === undefined) {
-                  toolCalls[i] = { ...toolCalls[i], output };
-                  break;
-                }
+            const last = workingMessages[workingMessages.length - 1];
+            const toolCalls = [...(last.toolCalls ?? [])];
+            // Tool calls/results arrive as ordered pairs, so the most
+            // recent still-unresolved entry for this tool name is always
+            // the one this result belongs to.
+            let matchedArgs: Record<string, unknown> | undefined;
+            for (let i = toolCalls.length - 1; i >= 0; i--) {
+              if (toolCalls[i].name === name && toolCalls[i].output === undefined) {
+                matchedArgs = toolCalls[i].args;
+                toolCalls[i] = { ...toolCalls[i], output };
+                break;
               }
-              next[next.length - 1] = { ...last, toolCalls };
-              return next;
-            });
+            }
+            workingMessages = [...workingMessages.slice(0, -1), { ...last, toolCalls }];
+            setMessages(workingMessages);
+            // Deferred via queueMicrotask — onWriteToolResult (item 48) ends
+            // up calling historyStore's zustand `push`, which re-renders
+            // UndoRedoButtons; doing that synchronously in the same tick as
+            // the setMessages call just above is a "Cannot update a
+            // component while rendering a different component" violation
+            // (React is still processing ChatPanel's own queued update) and
+            // silently drops the push — hit live.
+            if (matchedArgs) {
+              const args = matchedArgs;
+              queueMicrotask(() => onWriteToolResult?.(name, args, output));
+            }
           } else if (event === 'error') {
             const errorData = data as { code: 'overloaded' | 'unknown'; message?: string };
             // 'overloaded' has no server-supplied message on purpose — it's a
@@ -199,7 +221,7 @@ export function useChat(orgChartId: string | null, accessToken: string | undefin
         abortRef.current = null;
       }
     },
-    [orgChartId, accessToken, providerId, sending, messages, t],
+    [orgChartId, accessToken, providerId, sending, messages, t, onWriteToolResult],
   );
 
   return { messages, sendMessage, sending, statusLabel, error, providers, activeProviderId };

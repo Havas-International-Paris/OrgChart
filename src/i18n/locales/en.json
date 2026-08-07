@@ -394,6 +394,7 @@
   "history": {
     "deleteEmployee": "Delete {{name}}",
     "addAssignment": "Add an assignment",
+    "updateAssignment": "Edit an assignment",
     "updateEtpSold": "Edit % sold",
     "updateEtpActual": "Edit % actual",
     "updateRemunerationModel": "Edit remuneration model",

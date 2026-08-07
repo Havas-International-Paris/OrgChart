@@ -572,6 +572,17 @@ const updateEmployee: ToolDefinition = {
     if (changes.job_title !== undefined) await ensureCatalogEntry(supabase, 'job_titles', changes.job_title);
     if (changes.department !== undefined) await ensureCatalogEntry(supabase, 'departments', changes.department);
 
+    // Captured before the write, mirroring useEmployees.ts's own
+    // updateEmployee (const before = employees.find(...)) — item 48 needs
+    // this so the frontend can build a real undo/redo pair out of this
+    // tool's result instead of only having the post-write row.
+    const { data: before, error: beforeError } = await supabase
+      .from('employees')
+      .select('first_name, last_name, job_title, department')
+      .eq('id', employeeId)
+      .single();
+    if (beforeError) throw beforeError;
+
     const { data, error } = await supabase
       .from('employees')
       .update(changes)
@@ -580,7 +591,7 @@ const updateEmployee: ToolDefinition = {
       .select()
       .single();
     if (error) throw error;
-    return { employee: data };
+    return { employee: data, before };
   },
 };
 
@@ -603,9 +614,12 @@ const setManager: ToolDefinition = {
     const isPrimary = args.isPrimary !== false;
 
     if (isPrimary) {
+      // manager_id read here BEFORE the update, not just `id` — item 48
+      // needs the previous manager to build an undo (reassign it back),
+      // which the update's own RETURNING (the row AFTER) can't provide.
       const { data: existingPrimary, error: findError } = await supabase
         .from('reporting_relationships')
-        .select('id')
+        .select('id, manager_id')
         .eq('org_chart_id', orgChartId)
         .eq('employee_id', employeeId)
         .eq('is_primary', true)
@@ -620,7 +634,7 @@ const setManager: ToolDefinition = {
           .select()
           .single();
         if (error) throw error;
-        return { relationship: data, action: 'reassigned' };
+        return { relationship: data, action: 'reassigned', previousManagerId: existingPrimary.manager_id };
       }
     }
 
@@ -678,9 +692,12 @@ const createAssignment: ToolDefinition = {
       clientMissionType,
     );
 
+    // Selects the full row, not just `id` — item 48 needs the pre-update
+    // etp_vendu/etp_reel/remuneration_model to build an undo, the same
+    // reasoning as update_employee's own `before` select above.
     const { data: existing, error: findExistingError } = await supabase
       .from('assignments')
-      .select('id')
+      .select('id, etp_vendu, etp_reel, remuneration_model')
       .eq('org_chart_id', orgChartId)
       .eq('employee_id', employeeId)
       .eq('client_mission_id', clientMissionId)
@@ -694,7 +711,12 @@ const createAssignment: ToolDefinition = {
       if (remunerationModel !== undefined) changes.remuneration_model = remunerationModel;
       const { data, error } = await supabase.from('assignments').update(changes).eq('id', existing.id).select().single();
       if (error) throw error;
-      return { assignment: data, action: 'updated', clientMissionCreated };
+      return {
+        assignment: data,
+        action: 'updated',
+        clientMissionCreated,
+        before: { etp_vendu: existing.etp_vendu, etp_reel: existing.etp_reel, remuneration_model: existing.remuneration_model },
+      };
     }
 
     const { data, error } = await supabase

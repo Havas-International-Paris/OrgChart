@@ -9,6 +9,9 @@ interface ChatPanelProps {
   orgChartId: string;
   accessToken: string | undefined;
   onClose: () => void;
+  // Backlog item 48 — forwarded straight to useChat; see that hook for why
+  // this component has no opinion on which tool names are writes.
+  onWriteToolResult?: (name: string, args: Record<string, unknown>, output: unknown) => void;
 }
 
 // Web Speech API locale tags, keyed by the app's own two-letter language
@@ -51,7 +54,7 @@ function VoiceModeIcon() {
 // Resizable side panel, opened/closed by ChatToggleButton.tsx — rendered as a
 // third section in AppShell.tsx's flex row, after its own divider, mirroring
 // the existing grid/chart split rather than a floating window or modal.
-export function ChatPanel({ orgChartId, accessToken, onClose }: ChatPanelProps) {
+export function ChatPanel({ orgChartId, accessToken, onClose, onWriteToolResult }: ChatPanelProps) {
   const { t, i18n } = useTranslation();
   const chatProviderId = useUiPreferencesStore((s) => s.chatProviderId);
   const setChatProviderId = useUiPreferencesStore((s) => s.setChatProviderId);
@@ -59,6 +62,7 @@ export function ChatPanel({ orgChartId, accessToken, onClose }: ChatPanelProps) 
     orgChartId,
     accessToken,
     chatProviderId,
+    onWriteToolResult,
   );
   // The dropdown's effective selection: the user's own explicit pick if
   // they've made one, else whichever provider the server would use by
