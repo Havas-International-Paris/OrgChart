@@ -1,5 +1,4 @@
-import { BaseEdge, getBezierPath, getSmoothStepPath, type Edge, type EdgeProps } from '@xyflow/react';
-import { ROUTE_CORNER_RADIUS, roundedPolylinePath, type Point } from './edgeRouting';
+import { BaseEdge, getBezierPath, getSmoothStepPath, ViewportPortal, type Edge, type EdgeProps } from '@xyflow/react';
 
 // Corner rounding on primary (orthogonal) edges. 0 gives the sharp right angles
 // this started as; React Flow's own smoothstep default is 5. 8 reads as
@@ -21,15 +20,13 @@ export interface ReportingEdgeData extends Record<string, unknown> {
   // links (a manager with many reports) can see at a glance which specific
   // manager/employee pair a given line connects, without clicking anything.
   onHoverChange: (hovering: boolean) => void;
-  // Item 36: intermediate bend points computed by edgeRouting.ts's
-  // routeAroundObstacles, precomputed in useChartNodes.ts's edges memo
-  // against the full (non-transient) layout — see that file for why. Never
-  // set on primary edges (geometrically safe by construction, see
-  // edgeRouting.ts's header note) and only set on a secondary edge when its
-  // direct bezier line would actually cross another card. Absent (not just
-  // empty) is the common case for a secondary edge — treated the same as
-  // `undefined` here, falls through to the plain bezier below.
-  bendPoints?: Point[];
+  // True when the line itself is hovered, OR either of its own two
+  // endpoint cards is hovered/pinned — narrower than the broader chain
+  // highlight (see useChartNodes.ts). Only ever set on secondary edges;
+  // primary edges never need the on-top reveal below (geometrically
+  // confined to the y-band between adjacent ranks, so they never pass
+  // behind an unrelated card).
+  isHoveredEdge?: boolean;
 }
 
 // Deleting a relationship is now a right-click menu (OrgChartView.tsx's
@@ -52,33 +49,43 @@ export function ReportingEdge({
   data,
 }: EdgeProps<Edge<ReportingEdgeData>>) {
   const isPrimary = data!.isPrimary;
-  const bendPoints = data!.bendPoints;
-  // Primary edges route orthogonally with softened corners; secondary/dotted
-  // ones keep the bezier curve EXCEPT when useChartNodes.ts found the direct
-  // curve would cross an unrelated card — in that case bendPoints carries a
-  // precomputed detour, rendered here as a rounded polyline through the
-  // live (possibly dragging) source/target points plus those fixed bends.
-  const path =
-    bendPoints && bendPoints.length > 0
-      ? roundedPolylinePath(
-          [{ x: sourceX, y: sourceY }, ...bendPoints, { x: targetX, y: targetY }],
-          ROUTE_CORNER_RADIUS,
-        )
-      : isPrimary
-        ? getSmoothStepPath({
-            sourceX,
-            sourceY,
-            sourcePosition,
-            targetX,
-            targetY,
-            targetPosition,
-            borderRadius: PRIMARY_CORNER_RADIUS,
-          })[0]
-        : getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition })[0];
+  // Primary edges route orthogonally with softened corners; secondary/
+  // dotted ones keep the plain bezier curve always — no obstacle-avoiding
+  // detour (an earlier version tried that and was reverted): a dotted line
+  // can pass behind an unrelated card, and the reveal-on-hover overlay
+  // below is how the user gets a clear, undistorted look at one specific
+  // link on demand instead.
+  const path = isPrimary
+    ? getSmoothStepPath({
+        sourceX,
+        sourceY,
+        sourcePosition,
+        targetX,
+        targetY,
+        targetPosition,
+        borderRadius: PRIMARY_CORNER_RADIUS,
+      })[0]
+    : getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition })[0];
 
   return (
     <>
       <BaseEdge id={id} path={path} style={style} markerEnd={markerEnd} />
+      {!isPrimary && data!.isHoveredEdge && (
+        // Draws an exact visual duplicate of this edge above every card,
+        // not just other edges — ViewportPortal is the one part of the
+        // pan/zoom-transformed viewport that renders AFTER the nodes layer
+        // in React Flow's own DOM (confirmed in the installed package's
+        // source; there is no per-edge zIndex that reaches across the
+        // edges/nodes layer boundary, only within the edges layer itself).
+        // pointerEvents: 'none' keeps all real interaction — hover,
+        // right-click, reconnect drag — on the original path below;
+        // this is a pure visual echo, never a second hit target.
+        <ViewportPortal>
+          <svg style={{ position: 'absolute', overflow: 'visible', pointerEvents: 'none' }}>
+            <path d={path} fill="none" style={style} />
+          </svg>
+        </ViewportPortal>
+      )}
       {/*
         Rendered AFTER BaseEdge, not before: BaseEdge always renders its own
         invisible "react-flow__edge-interaction" path (strokeWidth 20 by

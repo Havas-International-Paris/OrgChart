@@ -16,7 +16,6 @@ import {
   RANK_SEP,
   SIBLING_GAP,
 } from './layoutEngine';
-import { routeAroundObstacles, type Rect } from './edgeRouting';
 import { ROOT_GROUP_KEY } from './siblingOrder';
 import { computeReorder, findDisplacementTargets, type ChartGeometry } from './siblingReorderGeometry';
 import { useReportingChain } from './useReportingChain';
@@ -468,52 +467,24 @@ export function useChartNodes({
       };
     });
 
-    // Obstacle rectangles for edgeRouting.ts's routeAroundObstacles — every
-    // currently-visible card's own box, in the same top-left coordinate
-    // space layoutedNodeById already uses. Computed once per render of this
-    // memo (i.e. only when the layout/visible-set actually changes, same as
-    // everything else here), not per edge.
-    const obstacleRectById = new Map<string, Rect>();
-    for (const employee of finalVisibleEmployees) {
-      const base = layoutedNodeById.get(employee.id);
-      if (!base) continue;
-      obstacleRectById.set(employee.id, {
-        x: base.position.x,
-        y: base.position.y,
-        width: nodeWidth,
-        height: nodeHeight,
-      });
-    }
-
     const styledSecondaryEdges: Edge<ReportingEdgeData>[] = secondaryEdgeBase.map(({ relationship, ...e }) => {
       const state = edgeHighlight(e.source, e.target, relationship.id);
-      // A dotted line only ever needs a detour when its direct curve would
-      // cross an unrelated card — routeAroundObstacles returns null in the
-      // overwhelming common case, and that null just falls through to the
-      // plain bezier ReportingEdge.tsx already draws. Only OTHER cards count
-      // as obstacles: the edge's own two endpoints are excluded, using each
-      // node's bottom/top-center as its approximate connection point (exact
-      // handle offsets don't matter for deciding whether a distant,
-      // unrelated card sits in the way).
-      const sourceRect = obstacleRectById.get(e.source);
-      const targetRect = obstacleRectById.get(e.target);
-      const bendPoints =
-        sourceRect && targetRect
-          ? routeAroundObstacles(
-              { x: sourceRect.x + nodeWidth / 2, y: sourceRect.y + nodeHeight },
-              { x: targetRect.x + nodeWidth / 2, y: targetRect.y },
-              [...obstacleRectById.entries()]
-                .filter(([id]) => id !== e.source && id !== e.target)
-                .map(([, rect]) => rect),
-            )
-          : null;
+      // Narrower than `state === 'highlighted'`, which also fires from the
+      // full ancestor/descendant chain highlight (several hops away) — this
+      // is only true for the line itself or its own two endpoint cards, the
+      // trigger for the on-top reveal below (ReportingEdge.tsx's
+      // ViewportPortal overlay). A dotted edge can otherwise pass behind an
+      // unrelated card; this is how the user gets a clear look at exactly
+      // this one on demand instead of it always trying to dodge everything.
+      const isHoveredEdge =
+        relationship.id === hoveredEdgeId || activeEmployeeId === e.source || activeEmployeeId === e.target;
       return {
         ...e,
         type: 'reporting',
         sourceHandle: relationship.id,
         targetHandle: relationship.id,
         reconnectable: 'source' as const,
-        data: { ...edgeData(relationship), bendPoints: bendPoints ?? undefined },
+        data: { ...edgeData(relationship), isHoveredEdge },
         style:
           state === 'highlighted'
             ? { stroke: subordinateColor(e.target), strokeWidth: 2.5, strokeDasharray: '2 4' }
@@ -562,8 +533,6 @@ export function useChartNodes({
     hoveredRelationship,
     handleEdgeHoverChange,
     cardDensity,
-    nodeHeight,
-    nodeWidth,
   ]);
 
   // React Flow only renders a node's position from its OWN internal store
