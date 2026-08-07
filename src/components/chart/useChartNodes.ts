@@ -470,14 +470,14 @@ export function useChartNodes({
     const styledSecondaryEdges: Edge<ReportingEdgeData>[] = secondaryEdgeBase.map(({ relationship, ...e }) => {
       const state = edgeHighlight(e.source, e.target, relationship.id);
       // Narrower than `state === 'highlighted'`, which also fires from the
-      // full ancestor/descendant chain highlight (several hops away) — this
-      // is only true for the line itself or its own two endpoint cards, the
-      // trigger for the on-top reveal below (ReportingEdge.tsx's
-      // ViewportPortal overlay). A dotted edge can otherwise pass behind an
-      // unrelated card; this is how the user gets a clear look at exactly
-      // this one on demand instead of it always trying to dodge everything.
-      const isHoveredEdge =
-        relationship.id === hoveredEdgeId || activeEmployeeId === e.source || activeEmployeeId === e.target;
+      // full ancestor/descendant chain highlight (several hops away) and
+      // from hovering/selecting either endpoint card — this is only true
+      // for the line itself, the trigger for the on-top reveal below
+      // (ReportingEdge.tsx's ViewportPortal overlay). A dotted edge can
+      // otherwise pass behind an unrelated card; this is how the user gets
+      // a clear look at exactly this one on demand instead of it always
+      // trying to dodge everything.
+      const isHoveredEdge = relationship.id === hoveredEdgeId;
       return {
         ...e,
         type: 'reporting',

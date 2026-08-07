@@ -20,10 +20,10 @@ export interface ReportingEdgeData extends Record<string, unknown> {
   // links (a manager with many reports) can see at a glance which specific
   // manager/employee pair a given line connects, without clicking anything.
   onHoverChange: (hovering: boolean) => void;
-  // True when the line itself is hovered, OR either of its own two
-  // endpoint cards is hovered/pinned — narrower than the broader chain
-  // highlight (see useChartNodes.ts). Only ever set on secondary edges;
-  // primary edges never need the on-top reveal below (geometrically
+  // True only when the line itself is hovered — narrower than the broader
+  // chain highlight, which also fires from hovering/selecting either
+  // endpoint card (see useChartNodes.ts). Only ever set on secondary
+  // edges; primary edges never need the on-top reveal below (geometrically
   // confined to the y-band between adjacent ranks, so they never pass
   // behind an unrelated card).
   isHoveredEdge?: boolean;
