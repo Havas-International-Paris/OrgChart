@@ -174,12 +174,7 @@ export function AssignmentEditorModal({
             const isCommission = a.remuneration_model === 'commission';
             return (
               <div key={a.id} className="flex items-center gap-2 rounded px-2 py-1 hover:bg-slate-50">
-                <span className="flex-1 truncate text-sm text-slate-700">
-                  {cm?.name ?? '?'}{' '}
-                  <span className="text-xs text-slate-400">
-                    ({cm?.type === 'mission' ? 'mission' : 'client'})
-                  </span>
-                </span>
+                <span className="flex-1 truncate text-sm text-slate-700">{cm?.name ?? '?'}</span>
                 <div className="flex flex-col items-center">
                   <span className="text-[10px] text-slate-400">{t('modals.assignmentEditor.model')}</span>
                   <select
@@ -278,17 +273,6 @@ export function AssignmentEditorModal({
                 <option key={cm.id} value={cm.name} />
               ))}
             </datalist>
-          </div>
-          <div>
-            <label className="mb-1 block text-xs text-slate-500">{t('modals.assignmentEditor.type')}</label>
-            <select
-              value={newType}
-              onChange={(e) => setNewType(e.target.value as ClientMissionType)}
-              className="h-8 rounded border border-slate-300 px-2 text-sm"
-            >
-              <option value="client">{t('filters.client')}</option>
-              <option value="mission">{t('filters.mission')}</option>
-            </select>
           </div>
           <div>
             <label className="mb-1 block text-xs text-slate-500">{t('modals.assignmentEditor.modelLabel')}</label>

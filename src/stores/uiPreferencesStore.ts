@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware';
 
 export type GridDensity = 'compact' | 'comfortable';
 export type ChartCardDensity = 'compact' | 'detailed';
+export type ChartColorBy = 'department' | 'company';
 
 interface UiPreferencesState {
   gridDensity: GridDensity;
@@ -14,6 +15,11 @@ interface UiPreferencesState {
   // changes existing behavior for someone who's never touched the toggle.
   chartCardDensity: ChartCardDensity;
   setChartCardDensity: (density: ChartCardDensity) => void;
+  // Which dimension the chart's card borders/legend color by — the legend
+  // widget itself hosts the toggle (DepartmentLegend.tsx), not the chart's
+  // kebab menu. Default 'department' preserves existing behavior.
+  chartColorBy: ChartColorBy;
+  setChartColorBy: (colorBy: ChartColorBy) => void;
   // Left panel's width as a fraction of the grid/chart split — see AppShell.tsx.
   splitFraction: number;
   setSplitFraction: (fraction: number) => void;
@@ -45,6 +51,8 @@ export const useUiPreferencesStore = create<UiPreferencesState>()(
       setGridDensity: (density) => set({ gridDensity: density }),
       chartCardDensity: 'detailed',
       setChartCardDensity: (density) => set({ chartCardDensity: density }),
+      chartColorBy: 'department',
+      setChartColorBy: (colorBy) => set({ chartColorBy: colorBy }),
       splitFraction: 0.5,
       setSplitFraction: (fraction) => set({ splitFraction: fraction }),
       chatWidthFraction: 0.3,

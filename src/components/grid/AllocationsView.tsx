@@ -11,7 +11,6 @@ type GroupBy = 'client' | 'employee';
 interface RowInfo {
   id: string;
   counterpartLabel: string;
-  counterpartSublabel?: string;
   remunerationModel: Assignment['remuneration_model'];
   etpVendu: number | null;
   etpReel: number | null;
@@ -20,7 +19,6 @@ interface RowInfo {
 interface Group {
   key: string;
   label: string;
-  sublabel?: string;
   rows: RowInfo[];
   totalVendu: number;
   hasVendu: boolean;
@@ -70,12 +68,6 @@ export function AllocationsView() {
     for (const [key, rows] of buckets) {
       const label =
         groupBy === 'client' ? (clientMissionById.get(key)?.name ?? '?') : employeeName(employeeById.get(key));
-      const sublabel =
-        groupBy === 'client'
-          ? clientMissionById.get(key)?.type === 'mission'
-            ? 'mission'
-            : 'client'
-          : undefined;
 
       const rowInfos: RowInfo[] = rows.map((a) => {
         if (groupBy === 'client') {
@@ -91,7 +83,6 @@ export function AllocationsView() {
         return {
           id: a.id,
           counterpartLabel: cm?.name ?? '?',
-          counterpartSublabel: cm ? (cm.type === 'mission' ? 'mission' : 'client') : undefined,
           remunerationModel: a.remuneration_model,
           etpVendu: a.etp_vendu,
           etpReel: a.etp_reel,
@@ -104,7 +95,6 @@ export function AllocationsView() {
       result.push({
         key,
         label,
-        sublabel,
         rows: rowInfos.sort((a, b) => a.counterpartLabel.localeCompare(b.counterpartLabel)),
         totalVendu: venduKnown.reduce((sum, a) => sum + (a.etp_vendu ?? 0), 0),
         hasVendu: venduKnown.length > 0,
@@ -125,29 +115,43 @@ export function AllocationsView() {
     });
   }
 
+  const allCollapsed = groups.length > 0 && groups.every((g) => collapsed.has(g.key));
+
+  function toggleAllGroups() {
+    setCollapsed(allCollapsed ? new Set() : new Set(groups.map((g) => g.key)));
+  }
+
   const loading = assignmentsLoading || employeesLoading || clientsMissionsLoading;
 
   return (
     <div className="flex h-full flex-col gap-2">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold text-slate-700">{t('grid.allocations.title')}</h2>
-        <div className="flex overflow-hidden rounded border border-slate-300 text-xs">
+        <div className="flex items-center gap-2">
           <button
-            onClick={() => setGroupBy('client')}
-            className={`px-2.5 py-1 font-medium ${
-              groupBy === 'client' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-50'
-            }`}
+            onClick={toggleAllGroups}
+            className="rounded border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
           >
-            {t('grid.allocations.byClient')}
+            {allCollapsed ? t('grid.allocations.expandAll') : t('grid.allocations.collapseAll')}
           </button>
-          <button
-            onClick={() => setGroupBy('employee')}
-            className={`px-2.5 py-1 font-medium ${
-              groupBy === 'employee' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-50'
-            }`}
-          >
-            {t('grid.allocations.byEmployee')}
-          </button>
+          <div className="flex overflow-hidden rounded border border-slate-300 text-xs">
+            <button
+              onClick={() => setGroupBy('client')}
+              className={`px-2.5 py-1 font-medium ${
+                groupBy === 'client' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              {t('grid.allocations.byClient')}
+            </button>
+            <button
+              onClick={() => setGroupBy('employee')}
+              className={`px-2.5 py-1 font-medium ${
+                groupBy === 'employee' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              {t('grid.allocations.byEmployee')}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -172,30 +176,25 @@ export function AllocationsView() {
               <div key={group.key} className="border-b border-slate-100 last:border-0">
                 <button
                   onClick={() => toggleGroup(group.key)}
-                  className="flex w-full items-center gap-2 bg-slate-50 px-3 py-2 text-left hover:bg-slate-100"
+                  className={`w-full bg-slate-50 px-3 py-2 text-left hover:bg-slate-100 ${ROW_GRID}`}
                 >
-                  <span className="text-slate-400">{isCollapsed ? '▸' : '▾'}</span>
-                  <span className="text-sm font-semibold text-slate-800">{group.label}</span>
-                  {group.sublabel && <span className="text-xs text-slate-400">({group.sublabel})</span>}
-                  <span className="text-xs text-slate-400">· {group.rows.length}</span>
-                  <span className="ml-auto flex gap-4 text-xs">
-                    <span className="text-slate-500">
-                      {t('grid.allocations.sold')} : {group.hasVendu ? `${group.totalVendu}%` : '—'}
-                    </span>
-                    <span className="text-slate-400">
-                      {t('grid.allocations.actual')} : {group.hasReel ? `${group.totalReel}%` : '—'}
-                    </span>
+                  <span className="flex items-center gap-2 truncate">
+                    <span className="text-slate-400">{isCollapsed ? '▸' : '▾'}</span>
+                    <span className="truncate text-sm font-semibold text-slate-800">{group.label}</span>
+                    <span className="shrink-0 text-xs text-slate-400">· {group.rows.length}</span>
+                  </span>
+                  <span />
+                  <span className="text-right text-xs text-slate-500">
+                    {group.hasVendu ? `${group.totalVendu}%` : '—'}
+                  </span>
+                  <span className="text-right text-xs text-slate-400">
+                    {group.hasReel ? `${group.totalReel}%` : '—'}
                   </span>
                 </button>
                 {!isCollapsed &&
                   group.rows.map((row) => (
                     <div key={row.id} className={`border-t border-slate-100 px-3 py-1.5 pl-8 text-sm ${ROW_GRID}`}>
-                      <span className="truncate text-slate-700">
-                        {row.counterpartLabel}
-                        {row.counterpartSublabel && (
-                          <span className="ml-1 text-xs text-slate-400">({row.counterpartSublabel})</span>
-                        )}
-                      </span>
+                      <span className="truncate text-slate-700">{row.counterpartLabel}</span>
                       <span className="text-xs text-slate-400">{remunerationLabel(row.remunerationModel, t)}</span>
                       <span className="text-right text-xs text-slate-600">
                         {row.etpVendu === null ? '—' : `${row.etpVendu}%`}

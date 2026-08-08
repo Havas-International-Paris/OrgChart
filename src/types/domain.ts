@@ -5,6 +5,7 @@ export interface Employee {
   job_title: string | null;
   role_desc: string | null;
   department: string | null;
+  company: string | null;
   // Object path within the "employee-photos" Storage bucket, or null for
   // no photo (initials avatar shown instead). Set via updateEmployeePhoto,
   // deliberately not part of EmployeeInput's create/edit flow below.
@@ -42,7 +43,7 @@ export interface PhotoFrameValues {
 }
 
 export type EmployeeInput = Pick<Employee, 'first_name' | 'last_name'> &
-  Partial<Pick<Employee, 'job_title' | 'role_desc' | 'department'>>;
+  Partial<Pick<Employee, 'job_title' | 'role_desc' | 'department' | 'company'>>;
 
 export interface ReportingRelationship {
   id: string;
@@ -127,6 +128,13 @@ export interface JobTitle {
 }
 
 export interface Department {
+  id: string;
+  name: string;
+  color: string | null;
+  created_at: string;
+}
+
+export interface Company {
   id: string;
   name: string;
   color: string | null;

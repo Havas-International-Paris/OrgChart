@@ -32,16 +32,21 @@
   "leftPanel": {
     "tabs": {
       "employees": "Employees",
-      "clientsMissions": "Clients / Missions",
+      "clientsMissions": "Clients",
       "allocations": "Allocations",
       "jobTitles": "Job Titles",
       "departments": "Business Units",
+      "companies": "Companies",
       "promotionCandidates": "Promote employees"
     },
     "density": {
+      "label": "Density",
       "comfortable": "Comfortable",
       "compact": "Compact"
-    }
+    },
+    "optionsMenu": "Options",
+    "switchToConfig": "Catalog view",
+    "switchToMain": "Main view"
   },
   "searchBar": {
     "placeholder": "Search an employee…"
@@ -50,13 +55,13 @@
     "button": "Filters",
     "businessUnit": "Business Unit",
     "businessUnitHint": "Same filter as the chart's Business Unit legend at the bottom — selecting one updates the other.",
+    "company": "Company",
+    "companyHint": "Same filter as the chart's Company legend at the bottom — selecting one updates the other.",
     "jobTitle": "Job Title",
-    "clientMission": "Client / Mission",
+    "clientMission": "Clients",
     "timeSold": "Time sold",
     "timeActual": "Time actual",
-    "reset": "Reset",
-    "client": "Client",
-    "mission": "Mission"
+    "reset": "Reset"
   },
   "undoRedo": {
     "undo": "Undo",
@@ -124,10 +129,11 @@
         "last_name": "Last name",
         "job_title": "Job Title",
         "role_desc": "Role",
-        "department": "Business Unit"
+        "department": "Business Unit",
+        "company": "Company"
       },
       "managersHeader": "Managers",
-      "clientsMissionsHeader": "Clients / Missions",
+      "clientsMissionsHeader": "Clients",
       "editField": "Edit {{field}}",
       "editManagers": "Edit managers",
       "addManager": "+ Add a manager",
@@ -137,21 +143,14 @@
       "delete": "Delete"
     },
     "clientsMissions": {
-      "title": "Clients / Missions",
+      "title": "Clients",
       "add": "+ Add",
       "loading": "Loading…",
-      "empty": "No client / mission.",
-      "fields": { "name": "Name", "type": "Type" },
-      "type": { "client": "Client", "mission": "Mission" },
-      "employeesHeader": "Employees",
-      "totalActualHeader": "Total actual",
+      "empty": "No client.",
+      "fields": { "name": "Name" },
       "editName": "Edit name",
-      "editType": "Edit type",
-      "viewDetail": "View detail by employee",
-      "add2": "+ Add",
-      "sold": "sold",
       "delete": "Delete",
-      "deleteInUseError": "Cannot delete: this client/mission is used by at least one existing assignment."
+      "deleteInUseError": "Cannot delete: this client is used by at least one existing assignment."
     },
     "departments": {
       "title": "Business Units",
@@ -161,6 +160,17 @@
       "colorHeader": "Color",
       "nameHeader": "Business Unit",
       "editName": "Edit Business Unit",
+      "changeColor": "Change {{name}}'s color",
+      "delete": "Delete"
+    },
+    "companies": {
+      "title": "Companies",
+      "add": "+ Add",
+      "loading": "Loading…",
+      "empty": "No company.",
+      "colorHeader": "Color",
+      "nameHeader": "Company",
+      "editName": "Edit company",
       "changeColor": "Change {{name}}'s color",
       "delete": "Delete"
     },
@@ -175,17 +185,17 @@
     },
     "allocations": {
       "title": "Allocations",
+      "expandAll": "Expand all",
+      "collapseAll": "Collapse all",
       "byClient": "By client",
       "byEmployee": "By employee",
       "employeeHeader": "Employee",
-      "clientMissionHeader": "Client / Mission",
+      "clientMissionHeader": "Client",
       "model": "Model",
       "percentSold": "% sold",
       "percentActual": "% actual",
       "loading": "Loading…",
       "empty": "No assignment yet.",
-      "sold": "Sold",
-      "actual": "Actual",
       "commission": "Commission",
       "retainer": "Retainer"
     }
@@ -193,6 +203,10 @@
   "chart": {
     "emptyState": "No employees yet — add one in the spreadsheet.",
     "optionsMenu": "Chart options",
+    "legend": {
+      "businessUnit": "Business Unit",
+      "company": "Company"
+    },
     "expandAll": "Expand all",
     "switchToCompact": "Compact view",
     "switchToDetailed": "Detailed view",
@@ -225,7 +239,7 @@
       "functionalReports_one": "Incoming functional report ({{count}})",
       "functionalReports_other": "Incoming functional reports ({{count}})",
       "assignments": "Assignments",
-      "clientsMissions": "Clients / missions"
+      "clientsMissions": "Clients"
     },
     "contextMenu": {
       "newManager": "New manager",
@@ -247,7 +261,7 @@
   },
   "modals": {
     "assignmentEditor": {
-      "title": "Clients / missions for {{name}}",
+      "title": "Clients for {{name}}",
       "totalSold": "Total sold: {{value}} ETP",
       "totalActual": "Total actual: {{value}} ETP",
       "empty": "No assignment yet.",
@@ -255,9 +269,8 @@
       "sold": "sold",
       "actual": "actual",
       "delete": "Delete",
-      "clientOrMission": "Client or mission",
+      "clientOrMission": "Client",
       "namePlaceholder": "Name…",
-      "type": "Type",
       "modelLabel": "Model",
       "percentSold": "% sold",
       "percentActual": "% actual",
@@ -275,7 +288,7 @@
       "employee": "Employee",
       "namePlaceholder": "Name…",
       "remove": "Remove",
-      "notFound": "Employee not found (or already assigned to this client/mission)",
+      "notFound": "Employee not found (or already assigned to this client)",
       "invalidSold": "Invalid % sold",
       "invalidActual": "Invalid % actual",
       "add": "Add",
@@ -285,7 +298,11 @@
       "searchPlaceholder": "Search…",
       "empty": "No employee available.",
       "wouldCreateCycle": "Would create a reporting cycle",
-      "close": "Close"
+      "close": "Close",
+      "sortBy": "Sort by",
+      "sortFirstName": "First name",
+      "sortLastName": "Last name",
+      "sortJobTitle": "Job title"
     },
     "importFromRegistry": {
       "title": "Add from the central registry",
@@ -403,6 +420,10 @@
     "renameDepartment": "Rename business unit {{name}}",
     "changeDepartmentColor": "Change {{name}}'s color",
     "deleteDepartment": "Delete business unit {{name}}",
+    "createCompany": "Create company {{name}}",
+    "renameCompany": "Rename company {{name}}",
+    "changeCompanyColor": "Change {{name}}'s color",
+    "deleteCompany": "Delete company {{name}}",
     "updateManagers": "Edit managers",
     "addReportingLink": "Add a reporting link",
     "deleteReportingLink": "Delete a reporting link",
@@ -432,8 +453,7 @@
       "role": "Role",
       "primaryManager": "Primary manager",
       "secondaryManagers": "Secondary managers",
-      "clientMission": "Client / Mission",
-      "type": "Type",
+      "clientMission": "Client",
       "model": "Model",
       "percentSold": "% ETP sold",
       "percentActual": "% ETP actual",

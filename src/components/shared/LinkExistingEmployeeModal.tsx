@@ -20,10 +20,18 @@ export function LinkExistingEmployeeModal({
   const { t } = useTranslation();
   const [query, setQuery] = useState('');
   const [linkingId, setLinkingId] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<'first_name' | 'last_name' | 'job_title'>('first_name');
 
-  const filtered = candidates.filter((c) =>
-    `${c.first_name} ${c.last_name}`.toLowerCase().includes(query.toLowerCase()),
-  );
+  const normalizedQuery = query.toLowerCase();
+  const filtered = candidates
+    .filter((c) =>
+      `${c.first_name} ${c.last_name} ${c.job_title ?? ''}`.toLowerCase().includes(normalizedQuery),
+    )
+    .sort((a, b) => {
+      const aValue = (sortBy === 'job_title' ? a.job_title : a[sortBy]) ?? '';
+      const bValue = (sortBy === 'job_title' ? b.job_title : b[sortBy]) ?? '';
+      return aValue.localeCompare(bValue);
+    });
 
   async function handleLink(id: string) {
     setLinkingId(id);
@@ -45,8 +53,23 @@ export function LinkExistingEmployeeModal({
           onChange={(e) => setQuery(e.target.value)}
           placeholder={t('modals.linkExisting.searchPlaceholder')}
           autoFocus
-          className="mb-3 w-full rounded border border-slate-300 px-3 py-1.5 text-sm"
+          className="mb-2 w-full rounded border border-slate-300 px-3 py-1.5 text-sm"
         />
+        <div className="mb-3 flex items-center gap-2">
+          <label htmlFor="link-existing-sort" className="text-xs text-slate-500">
+            {t('modals.linkExisting.sortBy')}
+          </label>
+          <select
+            id="link-existing-sort"
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+            className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700"
+          >
+            <option value="first_name">{t('modals.linkExisting.sortFirstName')}</option>
+            <option value="last_name">{t('modals.linkExisting.sortLastName')}</option>
+            <option value="job_title">{t('modals.linkExisting.sortJobTitle')}</option>
+          </select>
+        </div>
         <div className="max-h-72 space-y-1 overflow-auto">
           {filtered.length === 0 && (
             <p className="px-2 py-1 text-sm text-slate-400">{t('modals.linkExisting.empty')}</p>

@@ -10,6 +10,7 @@ import { useAssignments } from '../../hooks/useAssignments';
 import { useClientsMissions } from '../../hooks/useClientsMissions';
 import { useJobTitles } from '../../hooks/useJobTitles';
 import { useDepartments } from '../../hooks/useDepartments';
+import { useCompanies } from '../../hooks/useCompanies';
 import { usePhotoActions } from '../../hooks/usePhotoActions';
 import { useEmployeeDeletion } from '../../hooks/useEmployeeDeletion';
 import { useSelectionStore } from '../../stores/selectionStore';
@@ -20,13 +21,14 @@ import { PhotoAvatar } from '../shared/PhotoAvatar';
 import { PhotoEditorModal } from '../shared/PhotoEditorModal';
 import { etpStatus } from '../../lib/etpStatus';
 import { departmentColorMap, NEUTRAL_DEPARTMENT_COLOR } from '../../lib/departmentColor';
+import { companyColorMap } from '../../lib/companyColor';
 import { buildEmployeesCsv, downloadCsv } from '../../lib/exportEmployeesCsv';
 import type { Employee, EmployeeInput } from '../../types/domain';
 import { EditableCell } from './EditableCell';
 import { useEditableRows } from './useEditableRows';
 import { compareValues, densityClasses, effectiveForSort, type FieldKind } from './editableGridLogic';
 
-const EDITABLE_FIELDS = ['first_name', 'last_name', 'job_title', 'role_desc', 'department'] as const;
+const EDITABLE_FIELDS = ['first_name', 'last_name', 'job_title', 'role_desc', 'company', 'department'] as const;
 type EditableField = (typeof EDITABLE_FIELDS)[number];
 
 const FIELD_KIND: Record<EditableField, FieldKind> = {
@@ -35,6 +37,7 @@ const FIELD_KIND: Record<EditableField, FieldKind> = {
   job_title: 'select',
   role_desc: 'text',
   department: 'select',
+  company: 'select',
 };
 
 // A name is what makes a draft worth persisting — a poste or Business Unit
@@ -50,6 +53,7 @@ function emptyDraft(orgChartId: string): Employee {
     job_title: null,
     role_desc: null,
     department: null,
+    company: null,
     photo_path: null,
     photo_zoom: 1,
     photo_pan_x: 0,
@@ -109,6 +113,7 @@ export function EmployeeGrid() {
   const { clientsMissions } = useClientsMissions();
   const { jobTitles } = useJobTitles();
   const { departments } = useDepartments();
+  const { companies } = useCompanies();
   const [editingManagersFor, setEditingManagersFor] = useState<Employee | null>(null);
 
   // Backlog item 58 — "Ajouter depuis la base centrale" picker. session.user.id
@@ -147,6 +152,7 @@ export function EmployeeGrid() {
     [clientsMissions],
   );
   const departmentColorByName = useMemo(() => departmentColorMap(departments), [departments]);
+  const companyColorByName = useMemo(() => companyColorMap(companies), [companies]);
 
   // null = filter inactive; otherwise employees with an assignment to at
   // least one selected client/mission (union across the selection).
@@ -174,6 +180,7 @@ export function EmployeeGrid() {
           job_title: draft.job_title ?? undefined,
           role_desc: draft.role_desc ?? undefined,
           department: draft.department ?? undefined,
+          company: draft.company ?? undefined,
         }),
       [createEmployee],
     ),
@@ -277,13 +284,23 @@ export function EmployeeGrid() {
         ? jobTitles.map((jt) => ({ value: jt.name, label: jt.name }))
         : field === 'department'
           ? departments.map((d) => ({ value: d.name, label: d.name }))
-          : undefined;
+          : field === 'company'
+            ? companies.map((c) => ({ value: c.name, label: c.name }))
+            : undefined;
     const display =
       field === 'department' && value ? (
         <span className="flex items-center gap-1.5">
           <span
             className="h-2 w-2 shrink-0 rounded-full"
             style={{ backgroundColor: departmentColorByName.get(value) }}
+          />
+          <span className="truncate">{value}</span>
+        </span>
+      ) : field === 'company' && value ? (
+        <span className="flex items-center gap-1.5">
+          <span
+            className="h-2 w-2 shrink-0 rounded-full"
+            style={{ backgroundColor: companyColorByName.get(value) }}
           />
           <span className="truncate">{value}</span>
         </span>

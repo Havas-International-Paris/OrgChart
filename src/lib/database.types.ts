@@ -17,6 +17,7 @@ export interface Database {
           job_title: string | null;
           role_desc: string | null;
           department: string | null;
+          company: string | null;
           photo_path: string | null;
           photo_zoom: number;
           photo_pan_x: number;
@@ -36,6 +37,7 @@ export interface Database {
           job_title?: string | null;
           role_desc?: string | null;
           department?: string | null;
+          company?: string | null;
           photo_path?: string | null;
           photo_zoom?: number;
           photo_pan_x?: number;
@@ -50,6 +52,7 @@ export interface Database {
           job_title?: string | null;
           role_desc?: string | null;
           department?: string | null;
+          company?: string | null;
           photo_path?: string | null;
           photo_zoom?: number;
           photo_pan_x?: number;
@@ -144,6 +147,24 @@ export interface Database {
         Relationships: [];
       };
       departments: {
+        Row: {
+          id: string;
+          name: string;
+          color: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          name: string;
+          color?: string | null;
+        };
+        Update: {
+          name?: string;
+          color?: string | null;
+        };
+        Relationships: [];
+      };
+      companies: {
         Row: {
           id: string;
           name: string;

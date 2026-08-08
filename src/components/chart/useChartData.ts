@@ -4,8 +4,10 @@ import { useReportingGraph } from '../../hooks/useReportingGraph';
 import { useAssignments } from '../../hooks/useAssignments';
 import { useJobTitles } from '../../hooks/useJobTitles';
 import { useDepartments } from '../../hooks/useDepartments';
+import { useCompanies } from '../../hooks/useCompanies';
 import { useClientsMissions } from '../../hooks/useClientsMissions';
 import { departmentColorMap } from '../../lib/departmentColor';
+import { companyColorMap } from '../../lib/companyColor';
 import { useSelectionStore } from '../../stores/selectionStore';
 
 // Every dataset the chart reads, plus the lookups derived from them. Split out
@@ -50,11 +52,13 @@ export function useChartData(orgChartId: string | null) {
 
   const { jobTitles } = useJobTitles();
   const { departments } = useDepartments();
+  const { companies } = useCompanies();
   const { clientsMissions } = useClientsMissions();
 
   const jobTitleNames = useMemo(() => jobTitles.map((jt) => jt.name), [jobTitles]);
   const departmentNames = useMemo(() => departments.map((d) => d.name), [departments]);
   const departmentColorByName = useMemo(() => departmentColorMap(departments), [departments]);
+  const companyColorByName = useMemo(() => companyColorMap(companies), [companies]);
   const clientMissionNameById = useMemo(
     () => new Map(clientsMissions.map((cm) => [cm.id, cm.name])),
     [clientsMissions],
@@ -81,6 +85,15 @@ export function useChartData(orgChartId: string | null) {
     for (const e of employees) {
       if (!e.department) continue;
       counts.set(e.department, (counts.get(e.department) ?? 0) + 1);
+    }
+    return counts;
+  }, [employees]);
+
+  const companyCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const e of employees) {
+      if (!e.company) continue;
+      counts.set(e.company, (counts.get(e.company) ?? 0) + 1);
     }
     return counts;
   }, [employees]);
@@ -127,10 +140,13 @@ export function useChartData(orgChartId: string | null) {
     restoreAssignment,
 
     departments,
+    companies,
     jobTitleNames,
     departmentNames,
     departmentColorByName,
     departmentCounts,
+    companyColorByName,
+    companyCounts,
     clientMissionNameById,
 
     employeeById,

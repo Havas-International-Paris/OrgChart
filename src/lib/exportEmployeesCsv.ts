@@ -11,7 +11,6 @@ function headers(): string[] {
     t('csv.headers.primaryManager'),
     t('csv.headers.secondaryManagers'),
     t('csv.headers.clientMission'),
-    t('csv.headers.type'),
     t('csv.headers.model'),
     t('csv.headers.percentSold'),
     t('csv.headers.percentActual'),
@@ -68,7 +67,7 @@ export function buildEmployeesCsv(
     ];
 
     if (assignments.length === 0) {
-      rows.push([...baseRow, '', '', '', '', '', totalVendu, totalReel]);
+      rows.push([...baseRow, '', '', '', '', totalVendu, totalReel]);
       continue;
     }
 
@@ -77,7 +76,6 @@ export function buildEmployeesCsv(
       rows.push([
         ...baseRow,
         cm?.name ?? '',
-        cm ? (cm.type === 'mission' ? i18n.t('filters.mission') : i18n.t('filters.client')) : '',
         a.remuneration_model === 'commission'
           ? 'Commission'
           : a.remuneration_model === 'retainer'

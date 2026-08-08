@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useDepartments } from '../../hooks/useDepartments';
+import { useCompanies } from '../../hooks/useCompanies';
 import { useJobTitles } from '../../hooks/useJobTitles';
 import { useClientsMissions } from '../../hooks/useClientsMissions';
 import { useEmployees } from '../../hooks/useEmployees';
@@ -8,6 +9,7 @@ import { useAssignments } from '../../hooks/useAssignments';
 import { useSelectionStore } from '../../stores/selectionStore';
 import { useActiveFilterCount } from '../../hooks/useActiveFilterCount';
 import { departmentColorMap } from '../../lib/departmentColor';
+import { companyColorMap } from '../../lib/companyColor';
 import { FilterDropdown, type FilterDropdownOption } from './FilterDropdown';
 import { RangeSlider } from './RangeSlider';
 
@@ -28,6 +30,7 @@ const ETP_BOUNDS = { min: 0, max: 150 };
 export function FiltersBar({ orgChartId }: FiltersBarProps) {
   const { t } = useTranslation();
   const { departments } = useDepartments();
+  const { companies } = useCompanies();
   const { jobTitles } = useJobTitles();
   const { clientsMissions } = useClientsMissions();
   const { employees } = useEmployees(orgChartId);
@@ -37,6 +40,8 @@ export function FiltersBar({ orgChartId }: FiltersBarProps) {
   const toggleClientMissionFilter = useSelectionStore((s) => s.toggleClientMissionFilter);
   const deptFilterNames = useSelectionStore((s) => s.deptFilterNames);
   const toggleDeptFilter = useSelectionStore((s) => s.toggleDeptFilter);
+  const companyFilterNames = useSelectionStore((s) => s.companyFilterNames);
+  const toggleCompanyFilter = useSelectionStore((s) => s.toggleCompanyFilter);
   const jobTitleFilterNames = useSelectionStore((s) => s.jobTitleFilterNames);
   const toggleJobTitleFilter = useSelectionStore((s) => s.toggleJobTitleFilter);
   const etpVenduRange = useSelectionStore((s) => s.etpVenduRange);
@@ -46,12 +51,22 @@ export function FiltersBar({ orgChartId }: FiltersBarProps) {
   const resetAllFilters = useSelectionStore((s) => s.resetAllFilters);
 
   const departmentColorByName = useMemo(() => departmentColorMap(departments), [departments]);
+  const companyColorByName = useMemo(() => companyColorMap(companies), [companies]);
 
   const employeeCountByDept = useMemo(() => {
     const counts = new Map<string, number>();
     for (const e of employees) {
       if (!e.department) continue;
       counts.set(e.department, (counts.get(e.department) ?? 0) + 1);
+    }
+    return counts;
+  }, [employees]);
+
+  const employeeCountByCompany = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const e of employees) {
+      if (!e.company) continue;
+      counts.set(e.company, (counts.get(e.company) ?? 0) + 1);
     }
     return counts;
   }, [employees]);
@@ -76,6 +91,17 @@ export function FiltersBar({ orgChartId }: FiltersBarProps) {
     [departments, employeeCountByDept, departmentColorByName],
   );
 
+  const companyOptions: FilterDropdownOption[] = useMemo(
+    () =>
+      companies.map((c) => ({
+        key: c.name,
+        label: c.name,
+        badge: String(employeeCountByCompany.get(c.name) ?? 0),
+        swatch: companyColorByName.get(c.name),
+      })),
+    [companies, employeeCountByCompany, companyColorByName],
+  );
+
   const jobTitleOptions: FilterDropdownOption[] = useMemo(
     () =>
       jobTitles.map((jt) => ({
@@ -91,7 +117,7 @@ export function FiltersBar({ orgChartId }: FiltersBarProps) {
       clientsMissions.map((cm) => ({
         key: cm.id,
         label: cm.name,
-        badge: `${cm.type === 'client' ? t('filters.client') : t('filters.mission')} · ${assignmentsOfClientMission(cm.id).length}`,
+        badge: `${assignmentsOfClientMission(cm.id).length}`,
       })),
     [clientsMissions, assignmentsOfClientMission],
   );
@@ -106,6 +132,13 @@ export function FiltersBar({ orgChartId }: FiltersBarProps) {
         options={deptOptions}
         selected={deptFilterNames}
         onToggle={toggleDeptFilter}
+      />
+      <FilterDropdown
+        title={t('filters.company')}
+        hint={t('filters.companyHint')}
+        options={companyOptions}
+        selected={companyFilterNames}
+        onToggle={toggleCompanyFilter}
       />
       <FilterDropdown
         title={t('filters.jobTitle')}

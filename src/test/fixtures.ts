@@ -17,6 +17,7 @@ export function emp(id: string, overrides: Partial<Employee> = {}): Employee {
     job_title: null,
     role_desc: null,
     department: null,
+    company: null,
     photo_path: null,
     photo_zoom: 1,
     photo_pan_x: 0,

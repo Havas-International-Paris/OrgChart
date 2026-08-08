@@ -108,10 +108,7 @@ export function ClientAssignmentsModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
       <div className="w-full max-w-2xl rounded-lg bg-white p-5 shadow-lg">
         <h2 className="mb-1 text-sm font-semibold text-slate-900">
-          {t('modals.clientAssignments.title', { name: clientMission.name })}{' '}
-          <span className="text-xs font-normal text-slate-400">
-            ({clientMission.type === 'mission' ? 'mission' : 'client'})
-          </span>
+          {t('modals.clientAssignments.title', { name: clientMission.name })}
         </h2>
         <p className="text-xs text-slate-500">
           {t('modals.clientAssignments.totalSold', { value: venduKnown.length > 0 ? `${totalVendu}%` : '—' })}

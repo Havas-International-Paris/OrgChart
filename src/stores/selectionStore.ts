@@ -9,7 +9,7 @@ interface EtpRange {
 // the other filter fields below. Matches RangeSlider.tsx's own bounds.
 const ETP_RANGE_BOUNDS: EtpRange = { min: 0, max: 150 };
 
-// The 5 filter dimensions that live inside the header's FiltersPanel — kept
+// The 6 filter dimensions that live inside the header's FiltersPanel — kept
 // as one object so `resetAllFilters` and `setCurrentOrgChartId`'s own reset
 // can't drift apart on what "default" means. Deliberately excludes
 // `searchQuery`: the search box lives outside the panel (always visible in
@@ -19,6 +19,7 @@ const ETP_RANGE_BOUNDS: EtpRange = { min: 0, max: 150 };
 const defaultFilterState = {
   clientMissionFilterIds: new Set<string>(),
   deptFilterNames: new Set<string>(),
+  companyFilterNames: new Set<string>(),
   jobTitleFilterNames: new Set<string>(),
   etpVenduRange: { ...ETP_RANGE_BOUNDS },
   etpReelRange: { ...ETP_RANGE_BOUNDS },
@@ -44,6 +45,11 @@ interface SelectionState {
   // the selection, same semantics as clientMissionFilterIds). Multi-select,
   // like every other set-membership filter in the header's FiltersPanel.
   deptFilterNames: Set<string>;
+  // Company filter — company NAMES currently selected, same semantics as
+  // deptFilterNames above but for the Company dimension (item: chart
+  // color-by toggle). Independent of deptFilterNames — both can be active
+  // at once, they're two separate filter dimensions, not mutually exclusive.
+  companyFilterNames: Set<string>;
   // Poste (job title) filter — job_title NAMES currently selected. Matched
   // by name string, not id: job_titles has no FK from employees.job_title
   // (a curated suggestion list enforced only at the UI layer), same
@@ -69,11 +75,13 @@ interface SelectionState {
   clearClientMissionFilter: () => void;
   toggleDeptFilter: (name: string) => void;
   clearDeptFilter: () => void;
+  toggleCompanyFilter: (name: string) => void;
+  clearCompanyFilter: () => void;
   toggleJobTitleFilter: (name: string) => void;
   clearJobTitleFilter: () => void;
   setEtpVenduRange: (range: EtpRange) => void;
   setEtpReelRange: (range: EtpRange) => void;
-  // Resets only the 5 FiltersPanel-owned dimensions above (not searchQuery,
+  // Resets only the 6 FiltersPanel-owned dimensions above (not searchQuery,
   // which lives outside the panel) — backs the panel's own "Réinitialiser"
   // button.
   resetAllFilters: () => void;
@@ -143,6 +151,16 @@ export const useSelectionStore = create<SelectionState>((set) => ({
     }),
 
   clearDeptFilter: () => set({ deptFilterNames: new Set() }),
+
+  toggleCompanyFilter: (name) =>
+    set((state) => {
+      const next = new Set(state.companyFilterNames);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return { companyFilterNames: next };
+    }),
+
+  clearCompanyFilter: () => set({ companyFilterNames: new Set() }),
 
   toggleJobTitleFilter: (name) =>
     set((state) => {

@@ -44,12 +44,16 @@ export function OrgChartView() {
   // FiltersPanel). Threaded into useChartNodes the same way each was added.
   const deptFilterNames = useSelectionStore((s) => s.deptFilterNames);
   const toggleDeptFilter = useSelectionStore((s) => s.toggleDeptFilter);
+  const companyFilterNames = useSelectionStore((s) => s.companyFilterNames);
+  const toggleCompanyFilter = useSelectionStore((s) => s.toggleCompanyFilter);
   const jobTitleFilterNames = useSelectionStore((s) => s.jobTitleFilterNames);
   const etpVenduRange = useSelectionStore((s) => s.etpVenduRange);
   const etpReelRange = useSelectionStore((s) => s.etpReelRange);
 
   const cardDensity = useUiPreferencesStore((s) => s.chartCardDensity);
   const setCardDensity = useUiPreferencesStore((s) => s.setChartCardDensity);
+  const chartColorBy = useUiPreferencesStore((s) => s.chartColorBy);
+  const setChartColorBy = useUiPreferencesStore((s) => s.setChartColorBy);
 
   const data = useChartData(currentOrgChartId);
   const visibility = useChartVisibility(data.employees, data.primaryEdges);
@@ -59,6 +63,7 @@ export function OrgChartView() {
     visibility,
     actions,
     deptFilterNames,
+    companyFilterNames,
     jobTitleFilterNames,
     etpVenduRange,
     etpReelRange,
@@ -145,11 +150,14 @@ export function OrgChartView() {
     <div className="relative h-full w-full">
       {showOverlays && (
         <DepartmentLegend
-          departments={data.departments}
-          colorByName={data.departmentColorByName}
-          counts={data.departmentCounts}
-          selectedNames={deptFilterNames}
-          onToggle={toggleDeptFilter}
+          items={chartColorBy === 'company' ? data.companies : data.departments}
+          colorByName={chartColorBy === 'company' ? data.companyColorByName : data.departmentColorByName}
+          counts={chartColorBy === 'company' ? data.companyCounts : data.departmentCounts}
+          selectedNames={chartColorBy === 'company' ? companyFilterNames : deptFilterNames}
+          onToggle={chartColorBy === 'company' ? toggleCompanyFilter : toggleDeptFilter}
+          hint={chartColorBy === 'company' ? t('filters.companyHint') : t('filters.businessUnitHint')}
+          colorBy={chartColorBy}
+          onColorByChange={setChartColorBy}
         />
       )}
       <ReactFlow

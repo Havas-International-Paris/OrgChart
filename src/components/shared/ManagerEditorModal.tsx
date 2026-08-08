@@ -28,8 +28,20 @@ export function ManagerEditorModal({
     () => currentManagers.find((r) => r.is_primary)?.manager_id ?? null,
   );
   const [saving, setSaving] = useState(false);
+  const [query, setQuery] = useState('');
+  const [sortBy, setSortBy] = useState<'first_name' | 'last_name' | 'job_title'>('first_name');
 
-  const candidates = allEmployees.filter((e) => e.id !== employee.id);
+  const normalizedQuery = query.toLowerCase();
+  const candidates = allEmployees
+    .filter((e) => e.id !== employee.id)
+    .filter((c) =>
+      `${c.first_name} ${c.last_name} ${c.job_title ?? ''}`.toLowerCase().includes(normalizedQuery),
+    )
+    .sort((a, b) => {
+      const aValue = (sortBy === 'job_title' ? a.job_title : a[sortBy]) ?? '';
+      const bValue = (sortBy === 'job_title' ? b.job_title : b[sortBy]) ?? '';
+      return aValue.localeCompare(bValue);
+    });
 
   function toggle(id: string) {
     setSelectedIds((prev) => {
@@ -71,7 +83,32 @@ export function ManagerEditorModal({
         <p className="mb-3 text-xs text-slate-500">
           {t('modals.managerEditor.description')}
         </p>
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={t('modals.linkExisting.searchPlaceholder')}
+          className="mb-2 w-full rounded border border-slate-300 px-3 py-1.5 text-sm"
+        />
+        <div className="mb-3 flex items-center gap-2">
+          <label htmlFor="manager-editor-sort" className="text-xs text-slate-500">
+            {t('modals.linkExisting.sortBy')}
+          </label>
+          <select
+            id="manager-editor-sort"
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+            className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700"
+          >
+            <option value="first_name">{t('modals.linkExisting.sortFirstName')}</option>
+            <option value="last_name">{t('modals.linkExisting.sortLastName')}</option>
+            <option value="job_title">{t('modals.linkExisting.sortJobTitle')}</option>
+          </select>
+        </div>
         <div className="max-h-72 space-y-1 overflow-auto">
+          {candidates.length === 0 && (
+            <p className="px-2 py-1 text-sm text-slate-400">{t('modals.linkExisting.empty')}</p>
+          )}
           {candidates.map((candidate) => {
             const checked = selectedIds.has(candidate.id);
             const cyclic = !checked && wouldCreateCycle(employee.id, candidate.id);

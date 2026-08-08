@@ -5,6 +5,7 @@ import type { ReportingRelationship } from '../../types/domain';
 import { useSelectionStore } from '../../stores/selectionStore';
 import { useUiPreferencesStore } from '../../stores/uiPreferencesStore';
 import { NEUTRAL_DEPARTMENT_COLOR } from '../../lib/departmentColor';
+import { NEUTRAL_COMPANY_COLOR } from '../../lib/companyColor';
 import {
   layoutWithElk,
   COMPACT_NODE_HEIGHT,
@@ -30,6 +31,7 @@ interface ChartNodesInput {
   visibility: ReturnType<typeof useChartVisibility>;
   actions: ChartActions;
   deptFilterNames: Set<string>;
+  companyFilterNames: Set<string>;
   jobTitleFilterNames: Set<string>;
   etpVenduRange: { min: number; max: number };
   etpReelRange: { min: number; max: number };
@@ -50,6 +52,7 @@ export function useChartNodes({
   visibility,
   actions,
   deptFilterNames,
+  companyFilterNames,
   jobTitleFilterNames,
   etpVenduRange,
   etpReelRange,
@@ -71,6 +74,7 @@ export function useChartNodes({
     jobTitleNames,
     departmentNames,
     departmentColorByName,
+    companyColorByName,
     matchingEmployeeIds,
     updateSiblingOrders,
   } = data;
@@ -89,6 +93,7 @@ export function useChartNodes({
   const toggleExpanded = useSelectionStore((s) => s.toggleExpanded);
   const toggleFocused = useSelectionStore((s) => s.toggleFocused);
   const cardDensity = useUiPreferencesStore((s) => s.chartCardDensity);
+  const chartColorBy = useUiPreferencesStore((s) => s.chartColorBy);
   const nodeHeight = cardDensity === 'compact' ? COMPACT_NODE_HEIGHT : NODE_HEIGHT;
   const nodeWidth = cardDensity === 'compact' ? COMPACT_NODE_WIDTH : NODE_WIDTH;
   const siblingGap = cardDensity === 'compact' ? COMPACT_SIBLING_GAP : SIBLING_GAP;
@@ -348,6 +353,8 @@ export function useChartNodes({
       const isDimmed =
         (deptFilterNames.size > 0 &&
           (employee.department === null || !deptFilterNames.has(employee.department))) ||
+        (companyFilterNames.size > 0 &&
+          (employee.company === null || !companyFilterNames.has(employee.company))) ||
         (jobTitleFilterNames.size > 0 &&
           (employee.job_title === null || !jobTitleFilterNames.has(employee.job_title))) ||
         (isVenduRangeActive &&
@@ -396,9 +403,14 @@ export function useChartNodes({
             focusHiddenCount,
             jobTitles: jobTitleNames,
             departmentNames,
-            departmentColor: employee.department
-              ? (departmentColorByName.get(employee.department) ?? null)
-              : null,
+            departmentColor:
+              chartColorBy === 'company'
+                ? employee.company
+                  ? (companyColorByName.get(employee.company) ?? null)
+                  : null
+                : employee.department
+                  ? (departmentColorByName.get(employee.department) ?? null)
+                  : null,
             onToggleExpand: toggleExpanded,
             onToggleFocus: toggleFocused,
             actions: nodeActions,
@@ -435,6 +447,10 @@ export function useChartNodes({
     // the point where the subordinate side changes. Mirrors EmployeeNode's
     // own `swatch` fallback exactly.
     const subordinateColor = (employeeId: string): string => {
+      if (chartColorBy === 'company') {
+        const company = employeeById.get(employeeId)?.company;
+        return (company ? companyColorByName.get(company) : null) ?? NEUTRAL_COMPANY_COLOR;
+      }
       const department = employeeById.get(employeeId)?.department;
       return (department ? departmentColorByName.get(department) : null) ?? NEUTRAL_DEPARTMENT_COLOR;
     };
@@ -522,6 +538,7 @@ export function useChartNodes({
     directReportsOf,
     clientMissionNameById,
     deptFilterNames,
+    companyFilterNames,
     jobTitleFilterNames,
     etpVenduRange,
     etpReelRange,
@@ -529,6 +546,8 @@ export function useChartNodes({
     jobTitleNames,
     departmentNames,
     departmentColorByName,
+    companyColorByName,
+    chartColorBy,
     hoveredEdgeId,
     hoveredRelationship,
     handleEdgeHoverChange,
