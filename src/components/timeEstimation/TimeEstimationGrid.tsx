@@ -222,6 +222,8 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
     deleteGroup,
     saveMonthOverrides,
     restoreMonthOverrides,
+    saveManualActuals,
+    restoreManualActuals,
     saveN1Total,
     deleteN1Total,
   } = useTimeEstimation();
@@ -319,7 +321,12 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
     }
 
     for (const li of map.values()) {
-      li.effectiveByMonth = li.actualByMonth.map((actual, i) => li.overrideByMonth[i] ?? actual);
+      // Past months (i < lastMonth) never consult overrideByMonth — a past
+      // month is entirely import/manual-edit-driven via time_actuals now,
+      // no separate "surcharge" table (see CLAUDE.md). Only a remaining/
+      // future month can still be a pure forecast with no actual yet, which
+      // is the one case time_forecast_months still legitimately covers.
+      li.effectiveByMonth = li.actualByMonth.map((actual, i) => (i < lastMonth ? actual : (li.overrideByMonth[i] ?? actual)));
       li.total = averageOverRange(li.effectiveByMonth);
       li.avgPast = averageOverRange(li.effectiveByMonth.slice(0, lastMonth));
       li.avgRemaining = averageOverRange(li.effectiveByMonth.slice(lastMonth, 12));
@@ -350,25 +357,52 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
   // with `value`, recomputes % total actual N from the resulting 12-month
   // array, persists both, and records an undo Command onto this screen's own
   // independent history store (useTimeEstimationHistoryStore — never the
-  // org-chart/grid screen's useHistoryStore, see CLAUDE.md). The pre-edit
-  // snapshot (each affected month's prior override, null meaning none, plus
-  // the prior time_forecasts.total_pct) is captured from `li`/`forecastOf`
-  // BEFORE the write, since that's the only place this state is available —
-  // useTimeEstimation.ts's mutations stay history-agnostic by design.
+  // org-chart/grid screen's useHistoryStore, see CLAUDE.md).
+  //
+  // "% total" fills all 12 months in one call, which can span both past and
+  // future — past months (<= lastMonth) write to time_actuals via
+  // saveManualActuals/restoreManualActuals, future months write to
+  // time_forecast_months via saveMonthOverrides/restoreMonthOverrides as
+  // before. Both halves are captured/applied together so one click undoes
+  // whichever combination actually ran.
   async function handleFill(li: LineItem, months: number[], value: number, label: string) {
     const newEffective = [...li.effectiveByMonth];
     months.forEach((m) => {
       newEffective[m - 1] = value;
     });
     const totalPct = averageOverRange(newEffective);
-    const priorEntries = months.map((m) => ({ month: m, pct: li.overrideByMonth[m - 1] }));
     const priorTotalPct = forecastOf(li.employeeId, li.clientMissionId, year)?.total_pct ?? null;
-    await saveMonthOverrides(li.employeeId, li.clientMissionId, year, months, value, totalPct);
-    useTimeEstimationHistoryStore.getState().push({
-      label,
-      undo: () => restoreMonthOverrides(li.employeeId, li.clientMissionId, year, priorEntries, priorTotalPct),
-      redo: () => saveMonthOverrides(li.employeeId, li.clientMissionId, year, months, value, totalPct),
-    });
+
+    const pastMonths = months.filter((m) => m <= lastMonth);
+    const futureMonths = months.filter((m) => m > lastMonth);
+    const priorOverrideEntries = futureMonths.map((m) => ({ month: m, pct: li.overrideByMonth[m - 1] }));
+    const priorActualRows = timeActuals.filter(
+      (a) =>
+        a.year === year &&
+        a.resolved_employee_id === li.employeeId &&
+        a.resolved_client_mission_id === li.clientMissionId &&
+        pastMonths.includes(a.month),
+    );
+    const employeeDisplayName = employeeName(employeeById.get(li.employeeId));
+    const clientDisplayName = clientMissionById.get(li.clientMissionId)?.name ?? '';
+
+    async function apply() {
+      await Promise.all([
+        futureMonths.length > 0 ? saveMonthOverrides(li.employeeId, li.clientMissionId, year, futureMonths, value, totalPct) : null,
+        pastMonths.length > 0
+          ? saveManualActuals(li.employeeId, li.clientMissionId, year, pastMonths, value, totalPct, employeeDisplayName, clientDisplayName)
+          : null,
+      ]);
+    }
+    async function undo() {
+      await Promise.all([
+        futureMonths.length > 0 ? restoreMonthOverrides(li.employeeId, li.clientMissionId, year, priorOverrideEntries, priorTotalPct) : null,
+        pastMonths.length > 0 ? restoreManualActuals(li.employeeId, li.clientMissionId, year, pastMonths, priorActualRows, priorTotalPct) : null,
+      ]);
+    }
+
+    await apply();
+    useTimeEstimationHistoryStore.getState().push({ label, undo, redo: apply });
   }
 
   async function handleEditN1Total(li: LineItem, value: number) {

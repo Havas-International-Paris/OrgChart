@@ -279,6 +279,145 @@ export function useTimeEstimation() {
     [applyMonthOverrides],
   );
 
+  // Manual edit of a PAST month — writes straight into time_actuals instead
+  // of time_forecast_months. No separate "surcharge" table/priority for past
+  // months anymore (see CLAUDE.md): a re-import always wins outright, and a
+  // hand correction here is just as authoritative as an import until the
+  // next one. Unlike applyMonthOverrides above, forward and undo are NOT
+  // the same function: the forward edit always collapses a month down to
+  // exactly one fresh row — time_actuals sums every matching row by design
+  // (several raw import names can resolve to the same employee), which is
+  // exactly wrong for "set this month to X" — while undo must restore
+  // whatever the exact prior row(s) were (zero, one, or several) under
+  // their original ids, which the forward edit has no way to reconstruct.
+  const saveManualActuals = useCallback(
+    async (
+      employeeId: string,
+      clientMissionId: string,
+      year: number,
+      months: number[],
+      value: number,
+      totalPct: number,
+      employeeDisplayName: string,
+      clientDisplayName: string,
+    ) => {
+      const now = new Date().toISOString();
+      setTimeActuals((prev) => [
+        ...prev.filter(
+          (a) =>
+            !(
+              a.resolved_employee_id === employeeId &&
+              a.resolved_client_mission_id === clientMissionId &&
+              a.year === year &&
+              months.includes(a.month)
+            ),
+        ),
+        ...months.map((month) => ({
+          id: `optimistic-${employeeId}-${clientMissionId}-${year}-${month}`,
+          batch_id: null,
+          year,
+          month,
+          raw_employee_name: employeeDisplayName,
+          raw_client_name: clientDisplayName,
+          raw_sous_dossier: null,
+          raw_group_annonceur: null,
+          raw_payroll_name: null,
+          raw_bu_name: null,
+          etp_pct: value,
+          resolved_employee_id: employeeId,
+          resolved_client_mission_id: clientMissionId,
+          created_at: now,
+          updated_at: now,
+        })),
+      ]);
+      setTimeForecasts((prev) => {
+        const idx = prev.findIndex((f) => f.employee_id === employeeId && f.client_mission_id === clientMissionId && f.year === year);
+        if (idx >= 0) return prev.map((f, i) => (i === idx ? { ...f, total_pct: totalPct, updated_at: now } : f));
+        return [
+          ...prev,
+          {
+            id: `optimistic-${employeeId}-${clientMissionId}-${year}`,
+            employee_id: employeeId,
+            client_mission_id: clientMissionId,
+            year,
+            total_pct: totalPct,
+            created_at: now,
+            updated_at: now,
+          },
+        ];
+      });
+
+      await timeEstimationService.deleteTimeActualsForMonths(employeeId, clientMissionId, year, months);
+      await timeEstimationService.insertManualTimeActuals(
+        months.map((month) => ({
+          employee_id: employeeId,
+          client_mission_id: clientMissionId,
+          year,
+          month,
+          pct: value,
+          employee_name: employeeDisplayName,
+          client_name: clientDisplayName,
+        })),
+      );
+      await timeEstimationService.upsertTimeForecast(employeeId, clientMissionId, year, totalPct);
+      await refresh();
+    },
+    [refresh],
+  );
+
+  // Undo body for saveManualActuals — the caller (TimeEstimationGrid.tsx)
+  // must have captured `priorRows` (via fetchTimeActualsForMonths) BEFORE
+  // the forward edit ran, since this function's own delete-then-restore
+  // can't reconstruct what was there beforehand.
+  const restoreManualActuals = useCallback(
+    async (
+      employeeId: string,
+      clientMissionId: string,
+      year: number,
+      months: number[],
+      priorRows: TimeActual[],
+      priorTotalPct: number | null,
+    ) => {
+      setTimeActuals((prev) => [
+        ...prev.filter(
+          (a) =>
+            !(
+              a.resolved_employee_id === employeeId &&
+              a.resolved_client_mission_id === clientMissionId &&
+              a.year === year &&
+              months.includes(a.month)
+            ),
+        ),
+        ...priorRows,
+      ]);
+      const now = new Date().toISOString();
+      setTimeForecasts((prev) => {
+        const idx = prev.findIndex((f) => f.employee_id === employeeId && f.client_mission_id === clientMissionId && f.year === year);
+        if (priorTotalPct == null) return idx >= 0 ? prev.filter((_, i) => i !== idx) : prev;
+        if (idx >= 0) return prev.map((f, i) => (i === idx ? { ...f, total_pct: priorTotalPct, updated_at: now } : f));
+        return [
+          ...prev,
+          {
+            id: `optimistic-${employeeId}-${clientMissionId}-${year}`,
+            employee_id: employeeId,
+            client_mission_id: clientMissionId,
+            year,
+            total_pct: priorTotalPct,
+            created_at: now,
+            updated_at: now,
+          },
+        ];
+      });
+
+      await timeEstimationService.deleteTimeActualsForMonths(employeeId, clientMissionId, year, months);
+      await timeEstimationService.restoreTimeActuals(priorRows);
+      if (priorTotalPct == null) await timeEstimationService.deleteTimeForecast(employeeId, clientMissionId, year);
+      else await timeEstimationService.upsertTimeForecast(employeeId, clientMissionId, year, priorTotalPct);
+      await refresh();
+    },
+    [refresh],
+  );
+
   // Direct single-value edit for "Total N-1" — unlike the monthly cascade
   // above, this figure has no covered range to fan out into: it's the
   // source-of-truth import value itself, so a click-to-edit just overwrites
@@ -378,6 +517,8 @@ export function useTimeEstimation() {
     groupOfMember,
     saveMonthOverrides,
     restoreMonthOverrides,
+    saveManualActuals,
+    restoreManualActuals,
     saveN1Total,
     deleteN1Total,
     createGroup,

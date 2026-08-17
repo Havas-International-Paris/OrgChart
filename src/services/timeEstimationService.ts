@@ -64,6 +64,112 @@ export async function upsertTimeActuals(rows: TimeActualUpsertRow[]): Promise<vo
   if (error) throw error;
 }
 
+// Every row (however many raw-name variants resolved to this pair) for one
+// (employee, client, year, month) — used both to build a manual edit's undo
+// snapshot and, immediately after, deleted wholesale so the manual value
+// replaces rather than adds to whatever was already there (time_actuals
+// sums every matching row by design, see upsertTimeActuals's own comment,
+// which is exactly wrong for a "set this month to X" manual edit).
+export async function fetchTimeActualsForMonths(
+  employeeId: string,
+  clientMissionId: string,
+  year: number,
+  months: number[],
+): Promise<TimeActual[]> {
+  if (months.length === 0) return [];
+  const { data, error } = await supabase
+    .from('time_actuals')
+    .select('*')
+    .eq('resolved_employee_id', employeeId)
+    .eq('resolved_client_mission_id', clientMissionId)
+    .eq('year', year)
+    .in('month', months);
+  if (error) throw error;
+  return data as TimeActual[];
+}
+
+// Manual-edit / import counterpart of deleteTimeForecastMonths — "nothing
+// to delete" is the common case (a month with no prior actuals at all), so
+// this deliberately does not assertRowsAffected.
+export async function deleteTimeActualsForMonths(
+  employeeId: string,
+  clientMissionId: string,
+  year: number,
+  months: number[],
+): Promise<void> {
+  if (months.length === 0) return;
+  const { error } = await supabase
+    .from('time_actuals')
+    .delete()
+    .eq('resolved_employee_id', employeeId)
+    .eq('resolved_client_mission_id', clientMissionId)
+    .eq('year', year)
+    .in('month', months);
+  if (error) throw error;
+}
+
+export interface ManualTimeActualRow {
+  employee_id: string;
+  client_mission_id: string;
+  year: number;
+  month: number;
+  pct: number;
+  employee_name: string;
+  client_name: string;
+}
+
+// A hand-typed past-month value in the grid — not tied to any import batch
+// (batch_id null, already `on delete set null`), raw_employee_name/
+// raw_client_name set to the real display names (not a placeholder) purely
+// so the row stays legible if ever inspected directly.
+export async function insertManualTimeActuals(rows: ManualTimeActualRow[]): Promise<void> {
+  if (rows.length === 0) return;
+  const { error } = await supabase.from('time_actuals').insert(
+    rows.map((r) => ({
+      batch_id: null,
+      year: r.year,
+      month: r.month,
+      raw_employee_name: r.employee_name,
+      raw_client_name: r.client_name,
+      raw_sous_dossier: null,
+      raw_group_annonceur: null,
+      raw_payroll_name: null,
+      raw_bu_name: null,
+      etp_pct: r.pct,
+      resolved_employee_id: r.employee_id,
+      resolved_client_mission_id: r.client_mission_id,
+    })),
+  );
+  if (error) throw error;
+}
+
+// Undo body for a manual past-month edit — re-inserts the exact rows
+// fetchTimeActualsForMonths captured before the edit, under their original
+// ids (this app's identity-stable-undo convention, see restoreAssignment/
+// restoreEmployee). Can be zero rows (nothing existed for that month before
+// the edit) or several (multiple raw-name variants had summed into it).
+export async function restoreTimeActuals(rows: TimeActual[]): Promise<void> {
+  if (rows.length === 0) return;
+  const { error } = await supabase.from('time_actuals').insert(
+    rows.map((r) => ({
+      id: r.id,
+      batch_id: r.batch_id,
+      year: r.year,
+      month: r.month,
+      raw_employee_name: r.raw_employee_name,
+      raw_client_name: r.raw_client_name,
+      raw_sous_dossier: r.raw_sous_dossier,
+      raw_group_annonceur: r.raw_group_annonceur,
+      raw_payroll_name: r.raw_payroll_name,
+      raw_bu_name: r.raw_bu_name,
+      etp_pct: r.etp_pct,
+      resolved_employee_id: r.resolved_employee_id,
+      resolved_client_mission_id: r.resolved_client_mission_id,
+    })),
+  );
+  if (error) throw error;
+}
+
 export async function fetchTimeEmployeeAliases(): Promise<TimeEmployeeAlias[]> {
   const { data, error } = await supabase.from('time_employee_aliases').select('*');
   if (error) throw error;

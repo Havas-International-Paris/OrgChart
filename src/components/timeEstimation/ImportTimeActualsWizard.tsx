@@ -553,14 +553,18 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
       // continuously across it, rather than resetting or sitting blank
       // during whichever part happens to run first.
 
-      // 1. N-1 annual totals — one row per (employee, client), no month.
+      // 1. N-1 annual totals — one row per (employee, client), no month. A
+      // null total on a real (employee, client) row means 0% that year, not
+      // "no data" — the row only exists at all because this pair genuinely
+      // appears in the file (isSubtotalRow/forward-fill already excluded
+      // anything else upstream in timeImportParsing.ts).
       const n1UpsertRows: Array<{ employee_id: string; client_mission_id: string; year: number; total_pct: number }> = [];
       if (importFields.n1) {
         for (const row of n1Rows) {
           const employeeId = row.employeeName ? employeeIds.get(row.employeeName) : null;
           const clientMissionId = row.annonceur ? clientIds.get(row.annonceur) : null;
-          if (!employeeId || !clientMissionId || row.n1TotalFraction == null) continue;
-          n1UpsertRows.push({ employee_id: employeeId, client_mission_id: clientMissionId, year: year - 1, total_pct: etpFractionToPct(row.n1TotalFraction) });
+          if (!employeeId || !clientMissionId) continue;
+          n1UpsertRows.push({ employee_id: employeeId, client_mission_id: clientMissionId, year: year - 1, total_pct: etpFractionToPct(row.n1TotalFraction ?? 0) });
         }
       }
 
@@ -577,8 +581,12 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
         affectedKeys.add(`${employeeId}::${clientMissionId}`);
         row.monthlyFractions.forEach((fraction, i) => {
           const month = i + 1;
-          if (fraction == null) return;
-          const pct = etpFractionToPct(fraction);
+          // A null cell on a real row means 0% that month (e.g. the person
+          // moved to a different client that month), not "no data" — same
+          // reasoning as the N-1 total above. Writing an explicit 0 instead
+          // of skipping the month is also what lets the override-clearing
+          // pass below actually reach every month being re-imported.
+          const pct = etpFractionToPct(fraction ?? 0);
           if (month <= cutoffMonth) {
             if (!importFields.actuals) return;
             actualUpsertRows.push({
