@@ -36,3 +36,8 @@ e2e/.auth/
 playwright-report/
 test-results/
 blob-report/
+
+# Local scratch space for manually testing things like the time-import
+# wizard — real extract data and other working files, kept on disk but
+# never committed. Put any such file in here instead of the repo root.
+/local-data/
