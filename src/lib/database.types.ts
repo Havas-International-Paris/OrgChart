@@ -246,6 +246,185 @@ export interface Database {
         };
         Relationships: [];
       };
+      time_import_batches: {
+        Row: {
+          id: string;
+          year: number;
+          filename: string;
+          row_count: number;
+          imported_at: string;
+          imported_by: string | null;
+        };
+        Insert: {
+          id?: string;
+          year: number;
+          filename: string;
+          row_count: number;
+          imported_by?: string | null;
+        };
+        Update: Record<string, never>;
+        Relationships: [];
+      };
+      time_actuals: {
+        Row: {
+          id: string;
+          batch_id: string | null;
+          year: number;
+          month: number;
+          raw_employee_name: string;
+          raw_client_name: string;
+          raw_sous_dossier: string | null;
+          raw_group_annonceur: string | null;
+          raw_payroll_name: string | null;
+          raw_bu_name: string | null;
+          etp_pct: number;
+          resolved_employee_id: string | null;
+          resolved_client_mission_id: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          batch_id?: string | null;
+          year: number;
+          month: number;
+          raw_employee_name: string;
+          raw_client_name: string;
+          raw_sous_dossier?: string | null;
+          raw_group_annonceur?: string | null;
+          raw_payroll_name?: string | null;
+          raw_bu_name?: string | null;
+          etp_pct: number;
+          resolved_employee_id?: string | null;
+          resolved_client_mission_id?: string | null;
+        };
+        Update: {
+          batch_id?: string | null;
+          etp_pct?: number;
+          resolved_employee_id?: string | null;
+          resolved_client_mission_id?: string | null;
+        };
+        Relationships: [];
+      };
+      time_employee_aliases: {
+        Row: {
+          id: string;
+          raw_name: string;
+          employee_id: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          raw_name: string;
+          employee_id?: string | null;
+        };
+        Update: {
+          employee_id?: string | null;
+        };
+        Relationships: [];
+      };
+      time_client_aliases: {
+        Row: {
+          id: string;
+          raw_name: string;
+          client_mission_id: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          raw_name: string;
+          client_mission_id?: string | null;
+        };
+        Update: {
+          client_mission_id?: string | null;
+        };
+        Relationships: [];
+      };
+      time_forecasts: {
+        Row: {
+          id: string;
+          employee_id: string;
+          client_mission_id: string;
+          year: number;
+          total_pct: number | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          employee_id: string;
+          client_mission_id: string;
+          year: number;
+          total_pct?: number | null;
+        };
+        Update: {
+          total_pct?: number | null;
+        };
+        Relationships: [];
+      };
+      time_forecast_months: {
+        Row: {
+          id: string;
+          employee_id: string;
+          client_mission_id: string;
+          year: number;
+          month: number;
+          pct: number;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          employee_id: string;
+          client_mission_id: string;
+          year: number;
+          month: number;
+          pct: number;
+        };
+        Update: {
+          pct?: number;
+        };
+        Relationships: [];
+      };
+      time_actual_n1_totals: {
+        Row: {
+          id: string;
+          employee_id: string;
+          client_mission_id: string;
+          year: number;
+          total_pct: number;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          employee_id: string;
+          client_mission_id: string;
+          year: number;
+          total_pct: number;
+        };
+        Update: {
+          total_pct?: number;
+        };
+        Relationships: [];
+      };
+      time_actual_groups: {
+        Row: {
+          id: string;
+          client_mission_id: string;
+          primary_employee_id: string;
+          member_employee_id: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          client_mission_id: string;
+          primary_employee_id: string;
+          member_employee_id: string;
+        };
+        Update: Record<string, never>;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {

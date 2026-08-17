@@ -1,0 +1,364 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { supabase } from '../lib/supabaseClient';
+import * as timeEstimationService from '../services/timeEstimationService';
+import type {
+  TimeActual,
+  TimeActualGroup,
+  TimeActualN1Total,
+  TimeClientAlias,
+  TimeEmployeeAlias,
+  TimeForecast,
+  TimeForecastMonth,
+  TimeImportBatch,
+} from '../types/domain';
+
+// Data + mutations for the "Estimation des temps" module — deliberately
+// thin, like useAssignments.ts: loads the module's tables in full (admin-only,
+// a few hundred rows at most) and lets TimeEstimationGrid build the
+// grouped/nested row structure itself, the same split AllocationsView keeps
+// between its data hooks and its own groupBy logic. Not chart-relative
+// (see useUserRoles.ts's identical reasoning). Mutations here never push to
+// any history store themselves — TimeEstimationGrid.tsx owns recording
+// Commands onto useTimeEstimationHistoryStore (its own independent history,
+// separate from the org-chart/grid screen's useHistoryStore) after calling
+// these, since it's the one holding the pre-edit snapshot a Command's undo
+// body needs. Drag-to-group and the import wizard's alias resolution stay
+// outside any undo history — deliberately out of scope.
+export function useTimeEstimation() {
+  const [timeActuals, setTimeActuals] = useState<TimeActual[]>([]);
+  const [timeForecasts, setTimeForecasts] = useState<TimeForecast[]>([]);
+  const [timeForecastMonths, setTimeForecastMonths] = useState<TimeForecastMonth[]>([]);
+  const [timeActualN1Totals, setTimeActualN1Totals] = useState<TimeActualN1Total[]>([]);
+  const [timeActualGroups, setTimeActualGroups] = useState<TimeActualGroup[]>([]);
+  const [timeImportBatches, setTimeImportBatches] = useState<TimeImportBatch[]>([]);
+  const [employeeAliases, setEmployeeAliases] = useState<TimeEmployeeAlias[]>([]);
+  const [clientAliases, setClientAliases] = useState<TimeClientAlias[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Stale-response guard — see useEmployees.ts for the full why. Short
+  // version: every mutation below both awaits its own explicit refresh()
+  // AND fires the realtime subscription's own refresh() (its writes hit
+  // tables this hook is subscribed to), so any single edit can have 2-3
+  // refresh() calls in flight at once; without this guard, whichever
+  // response happens to resolve LAST wins even if it was the one that
+  // started first (and so carries pre-edit data) — this is what made
+  // committed edits look "erratic": the optimistic value would flash
+  // correctly, then get clobbered by a late, stale fetch a moment later.
+  const latestRequestRef = useRef(0);
+
+  const refresh = useCallback(async () => {
+    const requestId = ++latestRequestRef.current;
+    try {
+      const [actuals, forecasts, forecastMonths, n1Totals, groups, batches, empAliases, cliAliases] = await Promise.all([
+        timeEstimationService.fetchTimeActuals(),
+        timeEstimationService.fetchTimeForecasts(),
+        timeEstimationService.fetchTimeForecastMonths(),
+        timeEstimationService.fetchTimeActualN1Totals(),
+        timeEstimationService.fetchTimeActualGroups(),
+        timeEstimationService.fetchTimeImportBatches(),
+        timeEstimationService.fetchTimeEmployeeAliases(),
+        timeEstimationService.fetchTimeClientAliases(),
+      ]);
+      if (requestId !== latestRequestRef.current) return;
+      setTimeActuals(actuals);
+      setTimeForecasts(forecasts);
+      setTimeForecastMonths(forecastMonths);
+      setTimeActualN1Totals(n1Totals);
+      setTimeActualGroups(groups);
+      setTimeImportBatches(batches);
+      setEmployeeAliases(empAliases);
+      setClientAliases(cliAliases);
+      setError(null);
+    } catch (err) {
+      if (requestId !== latestRequestRef.current) return;
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      if (requestId === latestRequestRef.current) setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    refresh();
+
+    const channel = supabase
+      .channel(`time-estimation-changes-${crypto.randomUUID()}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'time_actuals' }, () => refresh())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'time_forecasts' }, () => refresh())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'time_forecast_months' }, () => refresh())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'time_actual_n1_totals' }, () => refresh())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'time_actual_groups' }, () => refresh())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'time_import_batches' }, () => refresh())
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [refresh]);
+
+  const actualsOf = useCallback(
+    (employeeId: string, clientMissionId: string, year: number) =>
+      timeActuals.filter(
+        (a) => a.resolved_employee_id === employeeId && a.resolved_client_mission_id === clientMissionId && a.year === year,
+      ),
+    [timeActuals],
+  );
+
+  const forecastOf = useCallback(
+    (employeeId: string, clientMissionId: string, year: number) =>
+      timeForecasts.find((f) => f.employee_id === employeeId && f.client_mission_id === clientMissionId && f.year === year) ??
+      null,
+    [timeForecasts],
+  );
+
+  const groupsByPrimary = useCallback(
+    (clientMissionId: string, primaryEmployeeId: string) =>
+      timeActualGroups.filter((g) => g.client_mission_id === clientMissionId && g.primary_employee_id === primaryEmployeeId),
+    [timeActualGroups],
+  );
+
+  const groupOfMember = useCallback(
+    (clientMissionId: string, memberEmployeeId: string) =>
+      timeActualGroups.find((g) => g.client_mission_id === clientMissionId && g.member_employee_id === memberEmployeeId) ?? null,
+    [timeActualGroups],
+  );
+
+  const n1TotalOf = useCallback(
+    (employeeId: string, clientMissionId: string, year: number) =>
+      timeActualN1Totals.find((t) => t.employee_id === employeeId && t.client_mission_id === clientMissionId && t.year === year)
+        ?.total_pct ?? null,
+    [timeActualN1Totals],
+  );
+
+  const monthOverridesOf = useCallback(
+    (employeeId: string, clientMissionId: string, year: number) =>
+      timeForecastMonths.filter((m) => m.employee_id === employeeId && m.client_mission_id === clientMissionId && m.year === year),
+    [timeForecastMonths],
+  );
+
+  // Shared primitive behind every cell in the grid's 3-level cascade (a
+  // single month, "moyenne mois passés", "moyenne mois restants", or "%
+  // total actual N" — see CLAUDE.md), used both for the forward edit
+  // (saveMonthOverrides, below — every entry's pct/totalPct is always a
+  // number) and for undoing one (restoreMonthOverrides, below — a null
+  // pct/totalPct means DELETE that row rather than upsert a value, since a
+  // month/year that had no override before the edit being undone must go
+  // back to having none — deferring to the imported actual — not a copy of
+  // whatever the actual happened to equal at edit time).
+  //
+  // Updates local state optimistically before the writes resolve — the
+  // previous sequential-awaited-upserts-then-refresh() shape read as a
+  // visible lag on every edit (reported live). The writes still happen
+  // (parallelized via Promise.all) and refresh() still runs after, so the
+  // realtime subscription's own reconciliation is unaffected — this only
+  // changes how soon the UI reflects what was just typed.
+  const applyMonthOverrides = useCallback(
+    async (
+      employeeId: string,
+      clientMissionId: string,
+      year: number,
+      entries: Array<{ month: number; pct: number | null }>,
+      totalPct: number | null,
+    ) => {
+      const now = new Date().toISOString();
+      setTimeForecastMonths((prev) => {
+        let next = prev;
+        for (const { month, pct } of entries) {
+          const idx = next.findIndex(
+            (m) => m.employee_id === employeeId && m.client_mission_id === clientMissionId && m.year === year && m.month === month,
+          );
+          if (pct == null) {
+            if (idx >= 0) next = next.filter((_, i) => i !== idx);
+          } else if (idx >= 0) {
+            next = next.map((m, i) => (i === idx ? { ...m, pct, updated_at: now } : m));
+          } else {
+            next = [
+              ...next,
+              {
+                id: `optimistic-${employeeId}-${clientMissionId}-${year}-${month}`,
+                employee_id: employeeId,
+                client_mission_id: clientMissionId,
+                year,
+                month,
+                pct,
+                created_at: now,
+                updated_at: now,
+              },
+            ];
+          }
+        }
+        return next;
+      });
+      setTimeForecasts((prev) => {
+        const idx = prev.findIndex((f) => f.employee_id === employeeId && f.client_mission_id === clientMissionId && f.year === year);
+        if (totalPct == null) return idx >= 0 ? prev.filter((_, i) => i !== idx) : prev;
+        if (idx >= 0) return prev.map((f, i) => (i === idx ? { ...f, total_pct: totalPct, updated_at: now } : f));
+        return [
+          ...prev,
+          {
+            id: `optimistic-${employeeId}-${clientMissionId}-${year}`,
+            employee_id: employeeId,
+            client_mission_id: clientMissionId,
+            year,
+            total_pct: totalPct,
+            created_at: now,
+            updated_at: now,
+          },
+        ];
+      });
+
+      const toUpsert = entries.filter(
+        (e): e is { month: number; pct: number } => e.pct != null,
+      ).map((e) => ({ employee_id: employeeId, client_mission_id: clientMissionId, year, month: e.month, pct: e.pct }));
+      const toDeleteMonths = entries.filter((e) => e.pct == null).map((e) => e.month);
+
+      await Promise.all([
+        timeEstimationService.upsertTimeForecastMonths(toUpsert),
+        timeEstimationService.deleteTimeForecastMonths(employeeId, clientMissionId, year, toDeleteMonths),
+        totalPct == null
+          ? timeEstimationService.deleteTimeForecast(employeeId, clientMissionId, year)
+          : timeEstimationService.upsertTimeForecast(employeeId, clientMissionId, year, totalPct),
+      ]);
+      await refresh();
+    },
+    [refresh],
+  );
+
+  const saveMonthOverrides = useCallback(
+    async (employeeId: string, clientMissionId: string, year: number, months: number[], value: number, totalPct: number) => {
+      await applyMonthOverrides(
+        employeeId,
+        clientMissionId,
+        year,
+        months.map((month) => ({ month, pct: value })),
+        totalPct,
+      );
+    },
+    [applyMonthOverrides],
+  );
+
+  // Undo body for a month-cascade edit — replays each affected month's
+  // exact prior state (an override value, or null meaning no override
+  // existed) plus the prior time_forecasts.total_pct (or null if no row
+  // existed). The caller (TimeEstimationGrid.tsx) captures all of this
+  // before the forward edit runs.
+  const restoreMonthOverrides = useCallback(
+    async (
+      employeeId: string,
+      clientMissionId: string,
+      year: number,
+      entries: Array<{ month: number; pct: number | null }>,
+      totalPct: number | null,
+    ) => {
+      await applyMonthOverrides(employeeId, clientMissionId, year, entries, totalPct);
+    },
+    [applyMonthOverrides],
+  );
+
+  // Direct single-value edit for "Total N-1" — unlike the monthly cascade
+  // above, this figure has no covered range to fan out into: it's the
+  // source-of-truth import value itself, so a click-to-edit just overwrites
+  // it. Same optimistic-then-write shape as saveMonthOverrides so the cell
+  // updates immediately.
+  const saveN1Total = useCallback(
+    async (employeeId: string, clientMissionId: string, year: number, value: number) => {
+      const now = new Date().toISOString();
+      setTimeActualN1Totals((prev) => {
+        const idx = prev.findIndex((n) => n.employee_id === employeeId && n.client_mission_id === clientMissionId && n.year === year);
+        if (idx >= 0) {
+          const next = [...prev];
+          next[idx] = { ...next[idx], total_pct: value, updated_at: now };
+          return next;
+        }
+        return [
+          ...prev,
+          {
+            id: `optimistic-${employeeId}-${clientMissionId}-${year}`,
+            employee_id: employeeId,
+            client_mission_id: clientMissionId,
+            year,
+            total_pct: value,
+            created_at: now,
+            updated_at: now,
+          },
+        ];
+      });
+      await timeEstimationService.upsertTimeActualN1Totals([{ employee_id: employeeId, client_mission_id: clientMissionId, year, total_pct: value }]);
+      await refresh();
+    },
+    [refresh],
+  );
+
+  // Undo body for a "Total N-1" edit that CREATED the row (no prior value
+  // existed) — removes it entirely rather than upserting a stand-in.
+  const deleteN1Total = useCallback(
+    async (employeeId: string, clientMissionId: string, year: number) => {
+      setTimeActualN1Totals((prev) =>
+        prev.filter((n) => !(n.employee_id === employeeId && n.client_mission_id === clientMissionId && n.year === year)),
+      );
+      await timeEstimationService.deleteTimeActualN1Total(employeeId, clientMissionId, year);
+      await refresh();
+    },
+    [refresh],
+  );
+
+  const createGroup = useCallback(
+    async (clientMissionId: string, primaryEmployeeId: string, memberEmployeeId: string) => {
+      await timeEstimationService.createTimeActualGroup(clientMissionId, primaryEmployeeId, memberEmployeeId);
+      await refresh();
+    },
+    [refresh],
+  );
+
+  const deleteGroup = useCallback(
+    async (id: string) => {
+      await timeEstimationService.deleteTimeActualGroup(id);
+      await refresh();
+    },
+    [refresh],
+  );
+
+  const resolveEmployeeAlias = useCallback(
+    async (rawName: string, employeeId: string | null) => {
+      await timeEstimationService.upsertTimeEmployeeAlias(rawName, employeeId);
+      await refresh();
+    },
+    [refresh],
+  );
+
+  const resolveClientAlias = useCallback(
+    async (rawName: string, clientMissionId: string | null) => {
+      await timeEstimationService.upsertTimeClientAlias(rawName, clientMissionId);
+      await refresh();
+    },
+    [refresh],
+  );
+
+  return {
+    timeActuals,
+    timeForecasts,
+    timeForecastMonths,
+    timeActualN1Totals,
+    timeActualGroups,
+    timeImportBatches,
+    employeeAliases,
+    clientAliases,
+    loading,
+    error,
+    refresh,
+    actualsOf,
+    forecastOf,
+    n1TotalOf,
+    monthOverridesOf,
+    groupsByPrimary,
+    groupOfMember,
+    saveMonthOverrides,
+    restoreMonthOverrides,
+    saveN1Total,
+    deleteN1Total,
+    createGroup,
+    deleteGroup,
+    resolveEmployeeAlias,
+    resolveClientAlias,
+  };
+}

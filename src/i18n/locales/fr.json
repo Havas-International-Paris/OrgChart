@@ -27,7 +27,8 @@
     "account": "Compte",
     "language": "Langue",
     "accessManagement": "Gestion des accès",
-    "registryMenuItem": "Base centrale des salariés"
+    "registryMenuItem": "Base centrale des salariés",
+    "timeEstimation": "Estimation des temps"
   },
   "leftPanel": {
     "tabs": {
@@ -147,7 +148,9 @@
       "add": "+ Ajouter",
       "loading": "Chargement…",
       "empty": "Aucun client.",
-      "fields": { "name": "Nom" },
+      "fields": {
+        "name": "Nom"
+      },
       "editName": "Modifier le nom",
       "delete": "Supprimer",
       "deleteInUseError": "Impossible de supprimer : ce client est utilisé par au moins une affectation existante."
@@ -459,6 +462,92 @@
       "percentActual": "% ETP réel",
       "totalPercentSold": "Total % ETP vendu (employé)",
       "totalPercentActual": "Total % ETP réel (employé)"
+    }
+  },
+  "timeEstimation": {
+    "backToApp": "← Retour à l'application",
+    "importButton": "Importer",
+    "loadingRegistry": "Chargement du registre…",
+    "noRegistry": "Aucun registre central trouvé.",
+    "grid": {
+      "title": "Estimation des temps",
+      "expandAll": "Tout développer",
+      "collapseAll": "Tout replier",
+      "byClient": "Par client",
+      "byEmployee": "Par employé",
+      "employeeHeader": "Salarié",
+      "clientMissionHeader": "Client",
+      "vendu": "% vendu",
+      "prevu": "% prévu",
+      "totalN1": "Total N-1",
+      "total": "% total",
+      "trend": "Tendance",
+      "loading": "Chargement…",
+      "empty": "Aucune donnée pour le moment.",
+      "cumulSuffix": "(cumul)",
+      "ungroup": "Dissocier",
+      "avgPast": "Moy. mois passés",
+      "avgRemaining": "Moy. mois restants",
+      "confirmOverwrite": "Cette modification va écraser une valeur importée ou déduite d'un import. Continuer ?"
+    },
+    "history": {
+      "editMonth": "Modifier {{month}}",
+      "editAvgPast": "Modifier la moyenne des mois passés",
+      "editAvgRemaining": "Modifier la moyenne des mois restants",
+      "editTotal": "Modifier le % total",
+      "editN1Total": "Modifier le Total N-1",
+      "editVendu": "Modifier le % vendu",
+      "editPrevu": "Modifier le % prévu"
+    },
+    "wizard": {
+      "title": "Importer un extract de temps passé",
+      "yearLabel": "Année",
+      "fileLabel": "Fichier Excel",
+      "downloadTemplate": "Télécharger le template",
+      "parsing": "Analyse du fichier…",
+      "parseError": "Impossible de lire ce fichier. Vérifiez qu'il correspond au template attendu.",
+      "filterByClient": "Filtrer par client",
+      "selectAll": "Tout sélectionner",
+      "deselectAll": "Tout désélectionner",
+      "noMatchesForFilter": "Aucun élément ne correspond à ce filtre client",
+      "clientsToResolve": "Clients à rattacher",
+      "employeesToResolve": "Salariés à rattacher",
+      "choose": "Choisir…",
+      "createNew": "Créer « {{name}} »",
+      "acceptCreate": "Créer ce salarié",
+      "matchExisting": "Rattacher à un salarié existant…",
+      "suggestedMatches": "Correspondances suggérées",
+      "allEmployees": "Tous les employés",
+      "ignore": "Ignorer",
+      "andMore": "+{{count}} autres",
+      "close": "Fermer",
+      "closeDisabledHint": "Impossible de fermer pendant l'import en cours — attendez qu'il se termine.",
+      "confirmImport": "Importer",
+      "committing": "Import en cours…",
+      "committingProgress": "Import en cours… ({{done}}/{{total}})",
+      "importError": "Échec de l'import : {{message}}. Rien n'a été ignoré volontairement — vérifiez l'erreur et réessayez.",
+      "done": "{{actual}} lignes de réel importées, {{n1}} totaux N-1 importés, {{forecast}} mois de prévision mis à jour.",
+      "cutoffTitle": "Mois de coupure (passé / à venir)",
+      "cutoffDetected": "Mois détecté : {{month}} (confirmé par {{sample}} ligne(s) de recoupement avec Input N-1).",
+      "cutoffAmbiguous": "Aucun mois ne fait correspondre exactement les données de recoupement — choisissez le mois manuellement.",
+      "continueLabel": "Continuer",
+      "resolving": "Résolution en cours…",
+      "resolvingProgress": "Résolution en cours… ({{done}}/{{total}})",
+      "nothingToResolve": "Tous les noms ont été résolus automatiquement.",
+      "undecidedWarning_one": "{{count}} élément n'a pas été traité et sera ignoré",
+      "undecidedWarning_other": "{{count}} éléments n'ont pas été traités et seront ignorés",
+      "clearFilterToReview": "Réinitialiser le filtre pour les traiter",
+      "confirmSkipUndecided_one": "{{count}} élément sera ignoré car non traité. Continuer quand même ?",
+      "confirmSkipUndecided_other": "{{count}} éléments seront ignorés car non traités. Continuer quand même ?",
+      "importFieldsTitle": "Données à importer",
+      "importFieldN1": "Totaux N-1",
+      "importFieldActuals": "Temps réel (mois passés)",
+      "importFieldForecast": "Prévisionnel (mois à venir)",
+      "missingSheets": "Onglets « Input N-1 » et/ou « Input N » introuvables dans ce fichier.",
+      "missingColumns": "Colonnes attendues introuvables dans un des onglets (vérifiez qu'il correspond au template).",
+      "clientNamePlaceholder": "Nom du client",
+      "firstNamePlaceholder": "Prénom",
+      "lastNamePlaceholder": "Nom"
     }
   }
 }

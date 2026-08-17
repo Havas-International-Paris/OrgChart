@@ -17,6 +17,15 @@ interface FilterDropdownProps {
   options: FilterDropdownOption[];
   selected: Set<string>;
   onToggle: (key: string) => void;
+  // Optional "select all / deselect all" row above the option list — caller
+  // supplies both handlers AND both labels (kept translation-agnostic like
+  // every other string this component renders); only shows when all four
+  // are provided, so existing callers (FiltersBar's BU/Poste/Client-Mission)
+  // are unaffected without any change on their part.
+  onSelectAll?: () => void;
+  onDeselectAll?: () => void;
+  selectAllLabel?: string;
+  deselectAllLabel?: string;
 }
 
 // One reusable dropdown filter — Business Unit, Poste, and Client/Mission
@@ -28,7 +37,17 @@ interface FilterDropdownProps {
 // list doesn't affect Poste's own collapsed state. Same open/close/
 // outside-click pattern the old standalone ClientMissionFilter.tsx/
 // DepartmentFilter.tsx each used to own individually.
-export function FilterDropdown({ title, hint, options, selected, onToggle }: FilterDropdownProps) {
+export function FilterDropdown({
+  title,
+  hint,
+  options,
+  selected,
+  onToggle,
+  onSelectAll,
+  onDeselectAll,
+  selectAllLabel,
+  deselectAllLabel,
+}: FilterDropdownProps) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -60,6 +79,16 @@ export function FilterDropdown({ title, hint, options, selected, onToggle }: Fil
       </button>
       {open && (
         <div className="absolute left-0 top-full z-20 mt-1 max-h-80 w-64 overflow-auto rounded-md border border-slate-200 bg-white p-2 shadow-lg">
+          {onSelectAll && onDeselectAll && (
+            <div className="mb-1.5 flex items-center justify-between border-b border-slate-100 pb-1.5 text-xs">
+              <button type="button" onClick={onSelectAll} className="text-slate-500 hover:text-slate-800 hover:underline">
+                {selectAllLabel}
+              </button>
+              <button type="button" onClick={onDeselectAll} className="text-slate-500 hover:text-slate-800 hover:underline">
+                {deselectAllLabel}
+              </button>
+            </div>
+          )}
           {options.map((option) => {
             const checked = selected.has(option.key);
             return (

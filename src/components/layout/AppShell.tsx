@@ -12,6 +12,7 @@ import { useOrgCharts } from '../../hooks/useOrgCharts';
 import { useSelectionStore } from '../../stores/selectionStore';
 import { useUiPreferencesStore } from '../../stores/uiPreferencesStore';
 import { useHistoryStore } from '../../stores/historyStore';
+import { useTimeEstimationHistoryStore } from '../../stores/timeEstimationHistoryStore';
 import { buildChatCommand } from '../../lib/chatUndo';
 import { useUndoRedoShortcuts } from '../../lib/history/useUndoRedoShortcuts';
 import { LoginPage } from '../auth/LoginPage';
@@ -28,6 +29,7 @@ import { ErrorBoundary } from '../shared/ErrorBoundary';
 import { Toast } from '../shared/Toast';
 import { AccountMenu } from '../shared/AccountMenu';
 import { AccessManagementScreen } from '../access/AccessManagementScreen';
+import { TimeEstimationScreen } from '../timeEstimation/TimeEstimationScreen';
 import { ChatToggleButton } from '../chat/ChatToggleButton';
 import { ChatPanel } from '../chat/ChatPanel';
 
@@ -129,6 +131,7 @@ function AuthenticatedApp({
   const { t } = useTranslation();
   const { role, status: roleStatus } = useCurrentUserRole(userId);
   const [showAccessManagement, setShowAccessManagement] = useState(false);
+  const [showTimeEstimation, setShowTimeEstimation] = useState(false);
   const { registryOrgChart } = useRegistryOrgChart();
   const {
     orgCharts,
@@ -148,7 +151,13 @@ function AuthenticatedApp({
     resetHistory();
     setCurrentOrgChartId(id);
   };
-  useUndoRedoShortcuts();
+  // Disabled while Time Estimation is showing — that screen has its own
+  // fully independent history/shortcut (useTimeEstimationUndoRedoShortcuts,
+  // mounted from TimeEstimationScreen.tsx itself), so Cmd+Z on either screen
+  // can never act on the other's edits. Called unconditionally here (this
+  // is a hook, before the showTimeEstimation early return below), so
+  // `enabled` — not simply not calling it — is what gates the listener.
+  useUndoRedoShortcuts(!showTimeEstimation);
   const { employees, deleteEmployee, restoreEmployee, updateEmployee } = useEmployees(currentOrgChartId);
   const {
     assignmentsOf,
@@ -268,6 +277,22 @@ function AuthenticatedApp({
     );
   }
 
+  if (showTimeEstimation) {
+    return (
+      <div className="flex h-full flex-col">
+        <TimeEstimationScreen
+          onBack={() => {
+            // Leaving Time Estimation — its own independent history is
+            // reset to empty here, not on re-entry, so it can never be
+            // triggered from outside its own screen either way.
+            useTimeEstimationHistoryStore.getState().reset();
+            setShowTimeEstimation(false);
+          }}
+        />
+      </div>
+    );
+  }
+
   // Each waiting state says which one it is. They all used to read "Chargement…",
   // which made the hang above genuinely hard to place: the page gave no way to
   // tell "still checking the session" from "session fine, no chart to open".
@@ -323,15 +348,19 @@ function AuthenticatedApp({
 
   return (
     <div className="flex h-full flex-col">
-      {/* flex-wrap: design-critique finding — below ~1024px the fixed
-          single-row header squeezed the title down to a sliver, wrapping it
-          onto 3 lines instead of letting the button group drop to its own
-          row. Wrapping here just lets that happen cleanly; nothing about the
-          desktop layout changes since everything still fits on one row above
-          that width. */}
-      <header className="flex flex-wrap items-center justify-between gap-y-2 border-b border-slate-200 bg-white px-4 py-2">
-        <h1 className="text-sm font-semibold text-slate-900">{t('appShell.title')}</h1>
-        <div className="flex flex-wrap items-center gap-3">
+      {/* items-start (not items-center): the left cluster wraps internally
+          on its own (flex-wrap below) when it doesn't fit, growing the
+          header downward — the right cluster (Ask AI/Account) must NOT
+          follow it into that wrap. Two separate flex children, neither
+          flex-wrap-ing against the other, is what keeps Ask AI/Account
+          pinned to the header's top-right corner regardless of how much the
+          left side wraps — design-critique/user finding: previously both
+          clusters lived in one shared flex-wrap div, so when it wrapped
+          Ask AI/Account rode along onto a left-aligned second line instead
+          of staying at the right edge. */}
+      <header className="flex items-start justify-between gap-x-3 gap-y-2 border-b border-slate-200 bg-white px-4 py-2">
+        <div className="flex flex-1 flex-wrap items-center gap-3">
+          <h1 className="text-sm font-semibold text-slate-900">{t('appShell.title')}</h1>
           <select
             value={currentOrgChartId}
             onChange={(e) => switchOrgChart(e.target.value)}
@@ -381,9 +410,11 @@ function AuthenticatedApp({
               history to show, regardless of which panel the user is
               looking at. */}
           <UndoRedoButtons />
-          {/* Divider: isolates Ask AI as its own standalone feature/cluster,
-              distinct from the chart-editing tools before it. */}
-          <div className="h-5 w-px shrink-0 bg-slate-200" />
+        </div>
+        {/* Ask AI + account menu: a standalone, non-wrapping cluster —
+            always the header's top-right corner, independent of the left
+            cluster's own wrapping above. */}
+        <div className="flex shrink-0 items-center gap-3">
           <ChatToggleButton open={chatOpen} onToggle={() => setChatOpen((o) => !o)} />
           {/* Divider, then the account/profile button: EN/FR and Sign out
               used to be two separate top-level controls at the end of the
@@ -400,6 +431,13 @@ function AuthenticatedApp({
             role={role}
             onOpenAccessManagement={() => setShowAccessManagement(true)}
             onOpenRegistry={registryOrgChart ? () => switchOrgChart(registryOrgChart.id) : null}
+            onOpenTimeEstimation={() => {
+              // Leaving the org-chart/grid screen — its own history is
+              // reset to empty here (Time Estimation's own is reset
+              // symmetrically on its own onBack, above).
+              useHistoryStore.getState().reset();
+              setShowTimeEstimation(true);
+            }}
           />
         </div>
       </header>

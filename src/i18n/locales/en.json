@@ -27,7 +27,8 @@
     "account": "Account",
     "language": "Language",
     "accessManagement": "Access management",
-    "registryMenuItem": "Central employee registry"
+    "registryMenuItem": "Central employee registry",
+    "timeEstimation": "Time estimation"
   },
   "leftPanel": {
     "tabs": {
@@ -147,7 +148,9 @@
       "add": "+ Add",
       "loading": "Loading…",
       "empty": "No client.",
-      "fields": { "name": "Name" },
+      "fields": {
+        "name": "Name"
+      },
       "editName": "Edit name",
       "delete": "Delete",
       "deleteInUseError": "Cannot delete: this client is used by at least one existing assignment."
@@ -459,6 +462,92 @@
       "percentActual": "% ETP actual",
       "totalPercentSold": "Total % ETP sold (employee)",
       "totalPercentActual": "Total % ETP actual (employee)"
+    }
+  },
+  "timeEstimation": {
+    "backToApp": "← Back to app",
+    "importButton": "Import",
+    "loadingRegistry": "Loading registry…",
+    "noRegistry": "No central registry found.",
+    "grid": {
+      "title": "Time estimation",
+      "expandAll": "Expand all",
+      "collapseAll": "Collapse all",
+      "byClient": "By client",
+      "byEmployee": "By employee",
+      "employeeHeader": "Employee",
+      "clientMissionHeader": "Client",
+      "vendu": "% sold",
+      "prevu": "% expected",
+      "totalN1": "Total N-1",
+      "total": "% total",
+      "trend": "Trend",
+      "loading": "Loading…",
+      "empty": "No data yet.",
+      "cumulSuffix": "(rolled up)",
+      "ungroup": "Ungroup",
+      "avgPast": "Avg. past months",
+      "avgRemaining": "Avg. remaining months",
+      "confirmOverwrite": "This change will overwrite a value imported or derived from an import. Continue?"
+    },
+    "history": {
+      "editMonth": "Edit {{month}}",
+      "editAvgPast": "Edit avg. past months",
+      "editAvgRemaining": "Edit avg. remaining months",
+      "editTotal": "Edit % total",
+      "editN1Total": "Edit Total N-1",
+      "editVendu": "Edit % sold",
+      "editPrevu": "Edit % expected"
+    },
+    "wizard": {
+      "title": "Import a time-tracking extract",
+      "yearLabel": "Year",
+      "fileLabel": "Excel file",
+      "downloadTemplate": "Download template",
+      "parsing": "Parsing file…",
+      "parseError": "Couldn't read this file. Check it matches the expected template.",
+      "filterByClient": "Filter by client",
+      "selectAll": "Select all",
+      "deselectAll": "Deselect all",
+      "noMatchesForFilter": "No items match this client filter",
+      "clientsToResolve": "Clients to match",
+      "employeesToResolve": "Employees to match",
+      "choose": "Choose…",
+      "createNew": "Create \"{{name}}\"",
+      "acceptCreate": "Create this employee",
+      "matchExisting": "Match an existing employee…",
+      "suggestedMatches": "Suggested matches",
+      "allEmployees": "All employees",
+      "ignore": "Ignore",
+      "andMore": "+{{count}} more",
+      "close": "Close",
+      "closeDisabledHint": "Can't close while the import is in progress — wait for it to finish.",
+      "confirmImport": "Import",
+      "committing": "Importing…",
+      "committingProgress": "Importing… ({{done}}/{{total}})",
+      "importError": "Import failed: {{message}}. Nothing was skipped on purpose — check the error and try again.",
+      "done": "{{actual}} actual rows imported, {{n1}} N-1 totals imported, {{forecast}} forecast months updated.",
+      "cutoffTitle": "Cutoff month (past / upcoming)",
+      "cutoffDetected": "Detected month: {{month}} (confirmed by {{sample}} cross-check row(s) against Input N-1).",
+      "cutoffAmbiguous": "No month exactly matches the cross-check data — choose the month manually.",
+      "continueLabel": "Continue",
+      "resolving": "Resolving…",
+      "resolvingProgress": "Resolving… ({{done}}/{{total}})",
+      "nothingToResolve": "Every name was resolved automatically.",
+      "undecidedWarning_one": "{{count}} item hasn't been reviewed and will be skipped",
+      "undecidedWarning_other": "{{count}} items haven't been reviewed and will be skipped",
+      "clearFilterToReview": "Clear filter to review them",
+      "confirmSkipUndecided_one": "{{count}} item will be skipped because it wasn't reviewed. Continue anyway?",
+      "confirmSkipUndecided_other": "{{count}} items will be skipped because they weren't reviewed. Continue anyway?",
+      "importFieldsTitle": "Data to import",
+      "importFieldN1": "N-1 totals",
+      "importFieldActuals": "Actual time (past months)",
+      "importFieldForecast": "Forecast (upcoming months)",
+      "missingSheets": "Could not find the \"Input N-1\" and/or \"Input N\" tabs in this file.",
+      "missingColumns": "Expected columns not found in one of the tabs (check it matches the template).",
+      "clientNamePlaceholder": "Client name",
+      "firstNamePlaceholder": "First name",
+      "lastNamePlaceholder": "Last name"
     }
   }
 }

@@ -154,3 +154,119 @@ export interface UserRole {
   created_at: string;
   updated_at: string;
 }
+
+// "Estimation des temps" module (admin-only) — see CLAUDE.md/plan for the
+// full design. All five tables below are global, scoped in practice to the
+// registry org chart's own employees (enforced application-side, not by a
+// DB constraint — see 0021_time_estimation.sql).
+
+export interface TimeImportBatch {
+  id: string;
+  year: number;
+  filename: string;
+  row_count: number;
+  imported_at: string;
+  imported_by: string | null;
+}
+
+// One row per (raw employee name x raw client name x month) found in an
+// imported extract. resolved_* are filled in during import review (or by a
+// prior alias, see TimeEmployeeAlias/TimeClientAlias) — null means "not yet
+// resolved", not "resolved to nothing" (that's what an alias with a null
+// target means instead).
+export interface TimeActual {
+  id: string;
+  batch_id: string | null;
+  year: number;
+  month: number;
+  raw_employee_name: string;
+  raw_client_name: string;
+  raw_sous_dossier: string | null;
+  raw_group_annonceur: string | null;
+  raw_payroll_name: string | null;
+  raw_bu_name: string | null;
+  etp_pct: number;
+  resolved_employee_id: string | null;
+  resolved_client_mission_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// employee_id/client_mission_id null = "ignore this raw name forever" (e.g.
+// an external contractor never tracked in the registry) — distinct from no
+// alias row existing at all, which means "never reviewed yet".
+export interface TimeEmployeeAlias {
+  id: string;
+  raw_name: string;
+  employee_id: string | null;
+  created_at: string;
+}
+
+export interface TimeClientAlias {
+  id: string;
+  raw_name: string;
+  client_mission_id: string | null;
+  created_at: string;
+}
+
+// total_pct is derived (see timeEstimationMath.averageOverRange applied to
+// the year's 12 effective monthly values) but STORED rather than computed
+// purely client-side, since it's meant to be reused outside this module
+// later — kept in sync by the app on every write that affects it. The
+// month-by-month figures themselves live in TimeForecastMonth, not here.
+export interface TimeForecast {
+  id: string;
+  employee_id: string;
+  client_mission_id: string;
+  year: number;
+  total_pct: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// A manual override for one month of `year`, for one (employee, client) —
+// applies to a past month (correcting/replacing the imported actual) or a
+// future one (a forecast) identically; see CLAUDE.md for why this is a
+// single mechanism rather than two. A month's EFFECTIVE value used
+// everywhere in the grid (cells, section averages, % total, trend) is
+// `override ?? sum(resolved time_actuals for that month)` — never written
+// back into time_actuals itself, since several raw imported rows can
+// resolve to the same (employee, client, month).
+export interface TimeForecastMonth {
+  id: string;
+  employee_id: string;
+  client_mission_id: string;
+  year: number;
+  month: number;
+  pct: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// Revision 2: the import source's N-1 tab ("Input N-1", shape of the real
+// "Evol Etps" Havas export) only ever provides ONE annual total per
+// (employee, client) — never a monthly breakdown — so it can't live in
+// time_actuals (month not null, built for genuinely monthly data). This is
+// the dedicated home for that single figure; `Total actual N-1` in the
+// grid reads it directly.
+export interface TimeActualN1Total {
+  id: string;
+  employee_id: string;
+  client_mission_id: string;
+  year: number;
+  total_pct: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// "Drag a non-sold employee's row onto a sold employee's row" grouping,
+// scoped per client_mission — see CLAUDE.md for the full explanation of
+// why. A member_employee_id can only ever belong to one group per
+// client_mission_id (DB unique constraint).
+export interface TimeActualGroup {
+  id: string;
+  client_mission_id: string;
+  primary_employee_id: string;
+  member_employee_id: string;
+  created_at: string;
+}

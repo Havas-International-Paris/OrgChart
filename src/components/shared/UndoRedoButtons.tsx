@@ -1,5 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { useHistoryStore } from '../../stores/historyStore';
+import type { HistoryStoreHook } from '../../stores/createHistoryStore';
+import type { HistoryCommand } from '../../lib/history/types';
 
 function UndoIcon() {
   return (
@@ -21,13 +23,22 @@ function RedoIcon() {
 // still fires alongside these for a "what just happened" message) — this is
 // the primary, always-visible way to see whether there's anything to undo/
 // redo and to trigger it, rendered once each beside the grid's "+ Ajouter"
-// and beside the chart's zoom controls.
-export function UndoRedoButtons({ className }: { className?: string }) {
+// and beside the chart's zoom controls. `useStore` defaults to the main
+// org-chart/grid history — TimeEstimationScreen.tsx renders a second
+// instance pointed at useTimeEstimationHistoryStore instead, so each screen
+// shows and controls only its own independent history.
+export function UndoRedoButtons<C extends HistoryCommand = HistoryCommand>({
+  className,
+  useStore = useHistoryStore as unknown as HistoryStoreHook<C>,
+}: {
+  className?: string;
+  useStore?: HistoryStoreHook<C>;
+}) {
   const { t } = useTranslation();
-  const canUndo = useHistoryStore((s) => s.undoStack.length > 0);
-  const canRedo = useHistoryStore((s) => s.redoStack.length > 0);
-  const undo = useHistoryStore((s) => s.undo);
-  const redo = useHistoryStore((s) => s.redo);
+  const canUndo = useStore((s) => s.undoStack.length > 0);
+  const canRedo = useStore((s) => s.redoStack.length > 0);
+  const undo = useStore((s) => s.undo);
+  const redo = useStore((s) => s.redo);
 
   return (
     <div

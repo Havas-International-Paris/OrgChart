@@ -15,6 +15,10 @@ interface AccountMenuProps {
   // the registry. null if the registry chart itself hasn't loaded yet
   // (hides the item rather than disabling it, same convention as above).
   onOpenRegistry: (() => void) | null;
+  // "Estimation des temps" module — admin-only, full-screen (same shape as
+  // onOpenAccessManagement above), reads/writes the registry's own
+  // employees/assignments plus the time_* tables (see 0021_time_estimation.sql).
+  onOpenTimeEstimation: () => void;
 }
 
 function initialOf(email: string | undefined): string {
@@ -31,7 +35,7 @@ function initialOf(email: string | undefined): string {
 // per-user color here (no department to key off), so it uses the app's own
 // "primary" dark (bg-slate-900), matching Ask AI's active state and
 // LanguageSwitcher's own active segment.
-export function AccountMenu({ email, onSignOut, role, onOpenAccessManagement, onOpenRegistry }: AccountMenuProps) {
+export function AccountMenu({ email, onSignOut, role, onOpenAccessManagement, onOpenRegistry, onOpenTimeEstimation }: AccountMenuProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -104,6 +108,18 @@ export function AccountMenu({ email, onSignOut, role, onOpenAccessManagement, on
               className="block w-full px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
             >
               {t('appShell.registryMenuItem')}
+            </button>
+          )}
+          {role === 'admin' && (
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                onOpenTimeEstimation();
+              }}
+              className="block w-full px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+            >
+              {t('appShell.timeEstimation')}
             </button>
           )}
           <div className="my-1 border-t border-slate-100" />
