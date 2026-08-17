@@ -602,6 +602,31 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
         });
       }
 
+      // Manual per-month overrides (time_forecast_months) take visual
+      // priority over time_actuals for ANY month, past or future
+      // (effectiveByMonth = override ?? actual, see TimeEstimationGrid.tsx)
+      // — deliberately, so a hand correction sticks. But re-importing "Temps
+      // réel (mois passés)" writes only to time_actuals, a different table,
+      // so an existing override on one of the exact months being
+      // re-imported would otherwise keep shadowing the fresh value forever.
+      // The user wants a checked category to always win outright on
+      // re-import, so clear any override on exactly the past months
+      // actually present in this file, grouped one delete per (employee,
+      // client) pair covering all of that pair's affected months at once.
+      const pastOverridesToClear = new Map<string, { employeeId: string; clientMissionId: string; months: number[] }>();
+      if (importFields.actuals) {
+        for (const row of actualUpsertRows) {
+          const key = `${row.resolved_employee_id}::${row.resolved_client_mission_id}`;
+          let entry = pastOverridesToClear.get(key);
+          if (!entry) {
+            entry = { employeeId: row.resolved_employee_id!, clientMissionId: row.resolved_client_mission_id!, months: [] };
+            pastOverridesToClear.set(key, entry);
+          }
+          entry.months.push(row.month);
+        }
+      }
+      const overrideClearJobs = Array.from(pastOverridesToClear.values());
+
       // Recompute the stored time_forecasts.total_pct for every affected
       // (employee, client) so it can never drift out of sync with what was
       // just imported — same override-aware rule TimeEstimationGrid.tsx
@@ -621,7 +646,7 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
       const actualChunks = chunkArray(actualUpsertRows, CHUNK_SIZE);
       const forecastChunks = chunkArray(forecastUpsertRows, CHUNK_SIZE);
 
-      const commitTotal = n1Chunks.length + actualChunks.length + forecastChunks.length + toRecompute.length;
+      const commitTotal = n1Chunks.length + actualChunks.length + forecastChunks.length + overrideClearJobs.length + toRecompute.length;
       let commitDone = 0;
       setProgress(commitTotal > 0 ? { done: 0, total: commitTotal } : null);
       const bumpCommit = () => {
@@ -640,6 +665,10 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
         }),
         ...forecastChunks.map(async (rows) => {
           await timeEstimationService.upsertTimeForecastMonths(rows);
+          bumpCommit();
+        }),
+        ...overrideClearJobs.map(async (job) => {
+          await timeEstimationService.clearTimeForecastMonthOverridesIfAny(job.employeeId, job.clientMissionId, year, job.months);
           bumpCommit();
         }),
       ]);

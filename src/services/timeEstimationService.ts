@@ -179,6 +179,32 @@ export async function deleteTimeForecastMonths(
   assertRowsAffected(data, error);
 }
 
+// Import-only variant of the above — deliberately does NOT assertRowsAffected,
+// since "zero rows deleted" is the expected, common case here (most
+// employee/client/month combinations in a real import were never manually
+// overridden). Used by ImportTimeActualsWizard to clear any stale manual
+// override on exactly the past months it's (re)importing, so a fresh
+// import of "Temps réel" always wins visually instead of being shadowed
+// forever by an old override (effectiveByMonth = override ?? actual, see
+// TimeEstimationGrid.tsx) that a re-import of time_actuals alone can never
+// touch, since it lives in this separate table.
+export async function clearTimeForecastMonthOverridesIfAny(
+  employeeId: string,
+  clientMissionId: string,
+  year: number,
+  months: number[],
+): Promise<void> {
+  if (months.length === 0) return;
+  const { error } = await supabase
+    .from('time_forecast_months')
+    .delete()
+    .eq('employee_id', employeeId)
+    .eq('client_mission_id', clientMissionId)
+    .eq('year', year)
+    .in('month', months);
+  if (error) throw error;
+}
+
 export async function fetchTimeActualN1Totals(): Promise<TimeActualN1Total[]> {
   const { data, error } = await supabase.from('time_actual_n1_totals').select('*');
   if (error) throw error;
