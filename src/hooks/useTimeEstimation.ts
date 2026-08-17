@@ -78,23 +78,47 @@ export function useTimeEstimation() {
     }
   }, []);
 
+  // Debounced, unlike every other hook's realtime handler in this app —
+  // deliberately, because this is the one place a single user action can
+  // change thousands of rows at once (ImportTimeActualsWizard's bulk
+  // upserts). Postgres's logical replication fires one postgres_changes
+  // event PER CHANGED ROW, not per statement, so an import writing a few
+  // thousand rows was firing a few thousand *unconditional* refresh() calls
+  // — each its own 8-query Promise.all — which is what actually made the
+  // "Importing…" phase look hung: the writes themselves finished quickly,
+  // but the browser was left grinding through a self-inflicted queue of
+  // redundant refetches for minutes afterward. Coalescing a burst of events
+  // into one refresh after a short quiet window fixes that without changing
+  // correctness — every mutator below still calls refresh() directly and
+  // immediately after its own write, same as before; only the realtime-
+  // triggered path is debounced.
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const debouncedRefresh = useCallback(() => {
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    debounceTimerRef.current = setTimeout(() => {
+      debounceTimerRef.current = null;
+      refresh();
+    }, 500);
+  }, [refresh]);
+
   useEffect(() => {
     refresh();
 
     const channel = supabase
       .channel(`time-estimation-changes-${crypto.randomUUID()}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'time_actuals' }, () => refresh())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'time_forecasts' }, () => refresh())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'time_forecast_months' }, () => refresh())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'time_actual_n1_totals' }, () => refresh())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'time_actual_groups' }, () => refresh())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'time_import_batches' }, () => refresh())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'time_actuals' }, () => debouncedRefresh())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'time_forecasts' }, () => debouncedRefresh())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'time_forecast_months' }, () => debouncedRefresh())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'time_actual_n1_totals' }, () => debouncedRefresh())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'time_actual_groups' }, () => debouncedRefresh())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'time_import_batches' }, () => debouncedRefresh())
       .subscribe();
 
     return () => {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
       supabase.removeChannel(channel);
     };
-  }, [refresh]);
+  }, [refresh, debouncedRefresh]);
 
   const actualsOf = useCallback(
     (employeeId: string, clientMissionId: string, year: number) =>
