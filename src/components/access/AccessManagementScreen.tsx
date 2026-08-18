@@ -53,6 +53,24 @@ function PendingRow({
   );
 }
 
+function RefusedRow({ email, onReapprove }: { email: string; onReapprove: () => void }) {
+  const { t } = useTranslation();
+  return (
+    <tr className="border-b border-slate-100">
+      <td className="px-3 py-2 text-sm text-slate-700">{email}</td>
+      <td className="px-3 py-2 text-right">
+        <button
+          type="button"
+          onClick={onReapprove}
+          className="rounded border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+        >
+          {t('access.reapprove')}
+        </button>
+      </td>
+    </tr>
+  );
+}
+
 function ActiveRow({
   email,
   role,
@@ -93,6 +111,7 @@ export function AccessManagementScreen({ onBack }: { onBack: () => void }) {
   const { userRoles, loading, approveUser, changeUserRole, refuseUser } = useUserRoles();
 
   const pending = userRoles.filter((u) => u.status === 'pending');
+  const refused = userRoles.filter((u) => u.status === 'refused');
   const active = userRoles.filter((u) => u.status === 'active');
 
   return (
@@ -125,6 +144,27 @@ export function AccessManagementScreen({ onBack }: { onBack: () => void }) {
                       email={u.email}
                       onApprove={(role) => approveUser(u.user_id, role)}
                       onRefuse={() => refuseUser(u.user_id)}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </section>
+
+          <section className="mb-8">
+            <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+              {t('access.refusedRequests')}
+            </h2>
+            {refused.length === 0 ? (
+              <p className="text-sm text-slate-400">{t('access.noRefusedRequests')}</p>
+            ) : (
+              <table className="w-full max-w-2xl border-collapse">
+                <tbody>
+                  {refused.map((u) => (
+                    <RefusedRow
+                      key={u.user_id}
+                      email={u.email}
+                      onReapprove={() => approveUser(u.user_id, 'lecteur')}
                     />
                   ))}
                 </tbody>

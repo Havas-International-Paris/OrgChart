@@ -53,6 +53,9 @@ export interface ReportingRelationship {
   org_chart_id: string;
   created_at: string;
   updated_at: string;
+  // Added in 0025 — nullable, existing rows predate this migration.
+  created_by: string | null;
+  updated_by: string | null;
 }
 
 // Backlog item 53 Phase B. 'private' (default): only the owner
@@ -116,6 +119,9 @@ export interface Assignment {
   org_chart_id: string;
   created_at: string;
   updated_at: string;
+  // Added in 0025 — nullable, existing rows predate this migration.
+  created_by: string | null;
+  updated_by: string | null;
 }
 
 export type AssignmentInput = Pick<Assignment, 'employee_id' | 'client_mission_id'> &
@@ -144,7 +150,11 @@ export interface Company {
 // Foundation for backlog item 53 — global roles only, no per-chart
 // visibility/sharing yet (see CLAUDE.md/backlog for what's deferred).
 export type UserRoleName = 'admin' | 'editeur' | 'lecteur';
-export type UserRoleStatus = 'pending' | 'active';
+// 'refused' added in 0025 — refuseUser() now marks the row instead of
+// deleting it, so a re-signup with the same email stays banned (the
+// on_auth_user_created trigger's on-conflict-do-nothing keeps the refused
+// row in place). Re-approving flips it back to 'active'.
+export type UserRoleStatus = 'pending' | 'active' | 'refused';
 
 export interface UserRole {
   user_id: string;

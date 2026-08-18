@@ -155,6 +155,19 @@ export async function chatHandler(req: IncomingMessage, res: ServerResponse): Pr
     sendJsonError(res, 401, 'Invalid or expired session.');
     return;
   }
+  // Backlog item 61 — a pending/refused user has a valid Supabase session
+  // but no active role row (status != 'active'); RLS would block every
+  // tool's DB reads/writes anyway, but the LLM call itself still costs
+  // tokens. Reject early with 403 to prevent that abuse path.
+  const { data: roleRow } = await supabase
+    .from('user_roles')
+    .select('status')
+    .eq('user_id', userData.user.id)
+    .maybeSingle();
+  if (!roleRow || roleRow.status !== 'active') {
+    sendJsonError(res, 403, 'Account not approved.');
+    return;
+  }
 
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',

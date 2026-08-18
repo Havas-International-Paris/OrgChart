@@ -31,11 +31,17 @@ export async function changeUserRole(userId: string, role: UserRoleName): Promis
   assertRowsAffected(data, error);
 }
 
-// Deletes the pending row rather than setting some "rejected" status — a
-// refused signup simply never gets a user_roles row again, so is_active_user()
-// stays false for them permanently (same as CLAUDE.md's spec: no role/table
-// mutation possible from the client without one).
+// Marks the row status='refused' rather than deleting it (0025 added the
+// 'refused' value to the check constraint). Keeping the row in place means
+// a re-signup with the same email stays banned: the on_auth_user_created
+// trigger's on-conflict-do-nothing leaves the refused row alone, so
+// is_active_user() keeps returning false for that email forever. An admin
+// can re-approve via approveUser() if the decision is ever reversed.
 export async function refuseUser(userId: string): Promise<void> {
-  const { data, error } = await supabase.from('user_roles').delete().eq('user_id', userId).select();
+  const { data, error } = await supabase
+    .from('user_roles')
+    .update({ status: 'refused' })
+    .eq('user_id', userId)
+    .select();
   assertRowsAffected(data, error);
 }

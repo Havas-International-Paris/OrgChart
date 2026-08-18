@@ -71,6 +71,8 @@ export interface Database {
           org_chart_id: string;
           created_at: string;
           updated_at: string;
+          created_by: string | null;
+          updated_by: string | null;
         };
         Insert: {
           id?: string;
@@ -114,6 +116,8 @@ export interface Database {
           org_chart_id: string;
           created_at: string;
           updated_at: string;
+          created_by: string | null;
+          updated_by: string | null;
         };
         Insert: {
           id?: string;

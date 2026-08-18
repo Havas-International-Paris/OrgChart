@@ -31,6 +31,6 @@ export function useAuth() {
     // whether this project's Auth settings require email confirmation
     // before a session comes back.
     signUp: (email: string, password: string) => supabase.auth.signUp({ email, password }),
-    signOut: () => supabase.auth.signOut(),
+    signOut: () => supabase.auth.signOut({ scope: 'global' }),
   };
 }

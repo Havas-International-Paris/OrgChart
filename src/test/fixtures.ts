@@ -44,6 +44,8 @@ export function manages(managerId: string, employeeId: string, isPrimary = true)
     org_chart_id: ORG,
     created_at: TS,
     updated_at: TS,
+    created_by: null,
+    updated_by: null,
   };
 }
 
