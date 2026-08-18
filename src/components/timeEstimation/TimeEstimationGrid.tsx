@@ -82,22 +82,45 @@ function lineItemMetrics(li: LineItem): Record<string, number | null> {
 // navigation (a button in the tab order, not the field itself). Native
 // number-input spin arrows removed and content auto-selected on focus, per
 // user feedback, so tabbing/typing across a row works like a spreadsheet.
+// - grey: already-imported/computed data (n1Total, vendu/prevu's own resting
+//   look before pink was added, past-range cells, totals).
+// - pink: % vendu/% prévu only — a manually-entered field an import never
+//   writes to at all (assignments.etp_vendu is a separate table from every
+//   time_* import target), so it reads as "safe to edit, permanently" rather
+//   than tied to any particular edit.
+// - greenDirect / greenDerived: the cell the user just typed a value into
+//   this session, and every OTHER cell that changed as a mechanical side
+//   effect of that one action (a recomputed average/total, or a month
+//   filled by an average/total cascade) — greenDerived is the lighter of
+//   the two. Session-local only (EditedCellsProvider-style plain state in
+//   TimeEstimationGrid, not persisted), since there's no schema field that
+//   could distinguish "the exact cell typed into" from "a cell a cascade
+//   fill happened to also touch" — see markEdited below.
+type CellTint = 'grey' | 'pink' | 'greenDirect' | 'greenDerived';
+
+const TINT_BG: Record<CellTint, string> = {
+  grey: 'bg-slate-100',
+  pink: 'bg-rose-50',
+  greenDirect: 'bg-emerald-100',
+  greenDerived: 'bg-emerald-50',
+};
+const TINT_TEXT: Record<CellTint, string> = {
+  grey: 'text-slate-600',
+  pink: 'text-rose-700',
+  greenDirect: 'text-emerald-800',
+  greenDerived: 'text-emerald-700',
+};
+
 function CascadeCell({
   value,
-  grey,
-  pink,
+  tint,
   disabled,
   needsConfirm,
   confirmMessage,
   onCommit,
 }: {
   value: number | null;
-  grey?: boolean;
-  // % vendu/% prévu only — a manually-entered field that an import never
-  // writes to (assignments.etp_vendu is a separate table from every time_*
-  // import target), tinted distinctly so it reads as "safe to edit, never
-  // overwritten by a re-import" at a glance, unlike every other grey cell.
-  pink?: boolean;
+  tint?: CellTint;
   disabled?: boolean;
   needsConfirm?: boolean;
   confirmMessage?: string;
@@ -128,9 +151,7 @@ function CascadeCell({
 
   if (disabled) {
     return (
-      <span className={`block rounded px-1 text-right text-xs tabular-nums text-slate-400 ${pink ? 'bg-rose-50' : grey ? 'bg-slate-100' : ''}`}>
-        {fmt(value)}
-      </span>
+      <span className={`block rounded px-1 text-right text-xs tabular-nums text-slate-400 ${tint ? TINT_BG[tint] : ''}`}>{fmt(value)}</span>
     );
   }
 
@@ -153,7 +174,7 @@ function CascadeCell({
   }
 
   return (
-    <div className={`relative rounded ${pink ? 'bg-rose-50' : grey ? 'bg-slate-100' : ''}`}>
+    <div className={`relative rounded ${tint ? TINT_BG[tint] : ''}`}>
       <input
         ref={inputRef}
         // type="text" (not "number"): a number input silently normalizes its
@@ -197,7 +218,7 @@ function CascadeCell({
             e.preventDefault();
           }
         }}
-        className={`w-full rounded bg-transparent px-1 py-0.5 pr-3.5 text-right text-xs tabular-nums outline-none focus:ring-1 focus:ring-inset focus:ring-slate-400 ${pink ? 'text-rose-700' : grey ? 'text-slate-600' : 'text-slate-700'}`}
+        className={`w-full rounded bg-transparent px-1 py-0.5 pr-3.5 text-right text-xs tabular-nums outline-none focus:ring-1 focus:ring-inset focus:ring-slate-400 ${tint ? TINT_TEXT[tint] : 'text-slate-700'}`}
       />
       <span className="pointer-events-none absolute right-1 top-1/2 -translate-y-1/2 text-xs text-slate-400">%</span>
     </div>
@@ -234,6 +255,26 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
   const [collapsedCumul, setCollapsedCumul] = useState<Set<string>>(new Set());
   const [dragEmployeeId, setDragEmployeeId] = useState<string | null>(null);
   const [dropTargetKey, setDropTargetKey] = useState<string | null>(null);
+
+  // Session-local "you edited this" trail for the green highlight below —
+  // deliberately not persisted (no schema field distinguishes "the exact
+  // cell typed into" from "a cell a cascade fill also touched", and this
+  // resets naturally with the rest of the screen's state on leaving it, same
+  // lifecycle as useTimeEstimationHistoryStore). Keyed
+  // `${employeeId}::${clientMissionId}::${field}`, field one of n1Total,
+  // total, avgPast, avgRemaining, or `m${monthIndex0}`.
+  const [editedCells, setEditedCells] = useState<Map<string, 'direct' | 'derived'>>(new Map());
+
+  function editedCellKey(employeeId: string, clientMissionId: string, field: string): string {
+    return `${employeeId}::${clientMissionId}::${field}`;
+  }
+
+  function editedTint(li: LineItem, field: string): CellTint | undefined {
+    const kind = editedCells.get(editedCellKey(li.employeeId, li.clientMissionId, field));
+    if (kind === 'direct') return 'greenDirect';
+    if (kind === 'derived') return 'greenDerived';
+    return undefined;
+  }
 
   const employeeById = useMemo(() => new Map(employees.map((e) => [e.id, e])), [employees]);
   const clientMissionById = useMemo(() => new Map(clientsMissions.map((cm) => [cm.id, cm])), [clientsMissions]);
@@ -365,7 +406,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
   // time_forecast_months via saveMonthOverrides/restoreMonthOverrides as
   // before. Both halves are captured/applied together so one click undoes
   // whichever combination actually ran.
-  async function handleFill(li: LineItem, months: number[], value: number, label: string) {
+  async function handleFill(li: LineItem, months: number[], value: number, label: string, sourceField: string) {
     const newEffective = [...li.effectiveByMonth];
     months.forEach((m) => {
       newEffective[m - 1] = value;
@@ -385,6 +426,28 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
     );
     const employeeDisplayName = employeeName(employeeById.get(li.employeeId));
     const clientDisplayName = clientMissionById.get(li.clientMissionId)?.name ?? '';
+    const priorEditedCells = editedCells;
+
+    // The cell the user actually typed into (sourceField) turns
+    // greenDirect; every other cell this one action also changed — the
+    // recomputed total, whichever average(s) cover the touched months, and
+    // any OTHER month swept up by an average/total cascade — turns
+    // greenDerived.
+    function markEdited() {
+      setEditedCells((prev) => {
+        const next = new Map(prev);
+        const key = (field: string) => editedCellKey(li.employeeId, li.clientMissionId, field);
+        next.set(key(sourceField), 'direct');
+        if (sourceField !== 'total') next.set(key('total'), 'derived');
+        if (sourceField !== 'avgPast' && pastMonths.length > 0) next.set(key('avgPast'), 'derived');
+        if (sourceField !== 'avgRemaining' && futureMonths.length > 0) next.set(key('avgRemaining'), 'derived');
+        months.forEach((m) => {
+          const field = `m${m - 1}`;
+          if (field !== sourceField) next.set(key(field), 'derived');
+        });
+        return next;
+      });
+    }
 
     async function apply() {
       await Promise.all([
@@ -393,12 +456,14 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
           ? saveManualActuals(li.employeeId, li.clientMissionId, year, pastMonths, value, totalPct, employeeDisplayName, clientDisplayName)
           : null,
       ]);
+      markEdited();
     }
     async function undo() {
       await Promise.all([
         futureMonths.length > 0 ? restoreMonthOverrides(li.employeeId, li.clientMissionId, year, priorOverrideEntries, priorTotalPct) : null,
         pastMonths.length > 0 ? restoreManualActuals(li.employeeId, li.clientMissionId, year, pastMonths, priorActualRows, priorTotalPct) : null,
       ]);
+      setEditedCells(priorEditedCells);
     }
 
     await apply();
@@ -407,15 +472,19 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
 
   async function handleEditN1Total(li: LineItem, value: number) {
     const priorValue = li.n1Total;
-    await saveN1Total(li.employeeId, li.clientMissionId, year - 1, value);
-    useTimeEstimationHistoryStore.getState().push({
-      label: t('timeEstimation.history.editN1Total'),
-      undo: () =>
-        priorValue == null
-          ? deleteN1Total(li.employeeId, li.clientMissionId, year - 1)
-          : saveN1Total(li.employeeId, li.clientMissionId, year - 1, priorValue),
-      redo: () => saveN1Total(li.employeeId, li.clientMissionId, year - 1, value),
-    });
+    const priorEditedCells = editedCells;
+    const key = editedCellKey(li.employeeId, li.clientMissionId, 'n1Total');
+    async function apply() {
+      await saveN1Total(li.employeeId, li.clientMissionId, year - 1, value);
+      setEditedCells((prev) => new Map(prev).set(key, 'direct'));
+    }
+    async function undo() {
+      if (priorValue == null) await deleteN1Total(li.employeeId, li.clientMissionId, year - 1);
+      else await saveN1Total(li.employeeId, li.clientMissionId, year - 1, priorValue);
+      setEditedCells(priorEditedCells);
+    }
+    await apply();
+    useTimeEstimationHistoryStore.getState().push({ label: t('timeEstimation.history.editN1Total'), undo, redo: apply });
   }
 
   // "% vendu"/"% prévu" both read/write the same assignments.etp_vendu
@@ -524,40 +593,56 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
     return (
       <>
         {labelSlot}
-        <CascadeCell value={li.n1Total} grey disabled={cumulDisabled} onCommit={(v) => handleEditN1Total(li, v)} />
-        <CascadeCell value={li.vendu} pink disabled={cumulDisabled} onCommit={(v) => handleEditVendu(li, v)} />
-        <CascadeCell value={li.prevu} pink disabled={cumulDisabled} onCommit={(v) => handleEditPrevu(li, v)} />
+        <CascadeCell
+          value={li.n1Total}
+          tint={editedTint(li, 'n1Total') ?? 'grey'}
+          disabled={cumulDisabled}
+          onCommit={(v) => handleEditN1Total(li, v)}
+        />
+        <CascadeCell value={li.vendu} tint="pink" disabled={cumulDisabled} onCommit={(v) => handleEditVendu(li, v)} />
+        <CascadeCell value={li.prevu} tint="pink" disabled={cumulDisabled} onCommit={(v) => handleEditPrevu(li, v)} />
         <CascadeCell
           value={li.total}
-          grey
+          tint={editedTint(li, 'total') ?? 'grey'}
           disabled={cumulDisabled}
           needsConfirm
           confirmMessage={confirmMessage}
-          onCommit={(v) => handleFill(li, Array.from({ length: 12 }, (_, i) => i + 1), v, t('timeEstimation.history.editTotal'))}
+          onCommit={(v) =>
+            handleFill(li, Array.from({ length: 12 }, (_, i) => i + 1), v, t('timeEstimation.history.editTotal'), 'total')
+          }
         />
         <CascadeCell
           value={lastMonth > 0 ? li.avgPast : null}
-          grey
+          tint={editedTint(li, 'avgPast') ?? 'grey'}
           disabled={cumulDisabled || lastMonth === 0}
           needsConfirm
           confirmMessage={confirmMessage}
           onCommit={(v) =>
-            handleFill(li, Array.from({ length: lastMonth }, (_, i) => i + 1), v, t('timeEstimation.history.editAvgPast'))
+            handleFill(
+              li,
+              Array.from({ length: lastMonth }, (_, i) => i + 1),
+              v,
+              t('timeEstimation.history.editAvgPast'),
+              'avgPast',
+            )
           }
         />
         {li.effectiveByMonth.slice(0, lastMonth).map((v, i) => (
           <CascadeCell
             key={i}
             value={v}
-            grey
+            tint={editedTint(li, `m${i}`) ?? 'grey'}
             disabled={cumulDisabled}
             needsConfirm
             confirmMessage={confirmMessage}
-            onCommit={(newValue) => handleFill(li, [i + 1], newValue, t('timeEstimation.history.editMonth', { month: monthLabel(i) }))}
+            onCommit={(newValue) =>
+              handleFill(li, [i + 1], newValue, t('timeEstimation.history.editMonth', { month: monthLabel(i) }), `m${i}`)
+            }
           />
         ))}
         <CascadeCell
           value={lastMonth < 12 ? li.avgRemaining : null}
+          tint={editedTint(li, 'avgRemaining')}
           disabled={cumulDisabled || lastMonth === 12}
           onCommit={(v) =>
             handleFill(
@@ -565,6 +650,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
               Array.from({ length: 12 - lastMonth }, (_, i) => lastMonth + i + 1),
               v,
               t('timeEstimation.history.editAvgRemaining'),
+              'avgRemaining',
             )
           }
         />
@@ -572,9 +658,16 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
           <CascadeCell
             key={i}
             value={v}
+            tint={editedTint(li, `m${lastMonth + i}`)}
             disabled={cumulDisabled}
             onCommit={(newValue) =>
-              handleFill(li, [lastMonth + i + 1], newValue, t('timeEstimation.history.editMonth', { month: monthLabel(lastMonth + i) }))
+              handleFill(
+                li,
+                [lastMonth + i + 1],
+                newValue,
+                t('timeEstimation.history.editMonth', { month: monthLabel(lastMonth + i) }),
+                `m${lastMonth + i}`,
+              )
             }
           />
         ))}
