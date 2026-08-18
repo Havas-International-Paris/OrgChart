@@ -11,6 +11,31 @@ import type {
   TimeImportBatch,
 } from '../types/domain';
 
+// PostgREST caps an unbounded `select('*')` at this project's configured
+// max-rows (1000 by default) and truncates silently — no error, just fewer
+// rows than actually exist, typically missing whichever rows happen to sort
+// last. Hit for real once time_actuals crossed 1000 rows: newly-imported
+// data for the current year disappeared from the grid (which reads this
+// hook's full in-memory array) while older rows kept displaying fine, with
+// nothing in the UI or console hinting at why. Every table here grows with
+// every import — some (time_actuals) already crossed that line, the rest
+// will eventually — so every "fetch the whole table" call pages through
+// `.range()` instead of trusting a single request to return everything.
+async function fetchAllRows<T>(table: string): Promise<T[]> {
+  const pageSize = 1000;
+  const rows: T[] = [];
+  let offset = 0;
+  for (;;) {
+    const { data, error } = await supabase.from(table).select('*').range(offset, offset + pageSize - 1);
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    rows.push(...(data as T[]));
+    if (data.length < pageSize) break;
+    offset += pageSize;
+  }
+  return rows;
+}
+
 export async function fetchTimeImportBatches(): Promise<TimeImportBatch[]> {
   const { data, error } = await supabase.from('time_import_batches').select('*').order('imported_at', { ascending: false });
   if (error) throw error;
@@ -33,9 +58,7 @@ export async function createTimeImportBatch(
 }
 
 export async function fetchTimeActuals(): Promise<TimeActual[]> {
-  const { data, error } = await supabase.from('time_actuals').select('*');
-  if (error) throw error;
-  return data as TimeActual[];
+  return fetchAllRows<TimeActual>('time_actuals');
 }
 
 // Keyed on (raw_employee_name, raw_client_name, year, month) — a re-import
@@ -245,9 +268,7 @@ export async function deleteTimeForecast(employeeId: string, clientMissionId: st
 }
 
 export async function fetchTimeForecastMonths(): Promise<TimeForecastMonth[]> {
-  const { data, error } = await supabase.from('time_forecast_months').select('*');
-  if (error) throw error;
-  return data as TimeForecastMonth[];
+  return fetchAllRows<TimeForecastMonth>('time_forecast_months');
 }
 
 // Upserts one manual override per (employee, client, year, month) — used
@@ -286,9 +307,7 @@ export async function deleteTimeForecastMonths(
 }
 
 export async function fetchTimeActualN1Totals(): Promise<TimeActualN1Total[]> {
-  const { data, error } = await supabase.from('time_actual_n1_totals').select('*');
-  if (error) throw error;
-  return data as TimeActualN1Total[];
+  return fetchAllRows<TimeActualN1Total>('time_actual_n1_totals');
 }
 
 // One row per (employee, client) from Input N-1's "ETPs 2025" column — a
