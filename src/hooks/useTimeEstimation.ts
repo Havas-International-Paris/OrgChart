@@ -10,6 +10,7 @@ import type {
   TimeForecast,
   TimeForecastMonth,
   TimeImportBatch,
+  TimeManualEditMarker,
 } from '../types/domain';
 
 // Data + mutations for the "Estimation des temps" module — deliberately
@@ -33,6 +34,7 @@ export function useTimeEstimation() {
   const [timeImportBatches, setTimeImportBatches] = useState<TimeImportBatch[]>([]);
   const [employeeAliases, setEmployeeAliases] = useState<TimeEmployeeAlias[]>([]);
   const [clientAliases, setClientAliases] = useState<TimeClientAlias[]>([]);
+  const [timeManualEditMarkers, setTimeManualEditMarkers] = useState<TimeManualEditMarker[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -50,7 +52,7 @@ export function useTimeEstimation() {
   const refresh = useCallback(async () => {
     const requestId = ++latestRequestRef.current;
     try {
-      const [actuals, forecasts, forecastMonths, n1Totals, groups, batches, empAliases, cliAliases] = await Promise.all([
+      const [actuals, forecasts, forecastMonths, n1Totals, groups, batches, empAliases, cliAliases, editMarkers] = await Promise.all([
         timeEstimationService.fetchTimeActuals(),
         timeEstimationService.fetchTimeForecasts(),
         timeEstimationService.fetchTimeForecastMonths(),
@@ -59,6 +61,7 @@ export function useTimeEstimation() {
         timeEstimationService.fetchTimeImportBatches(),
         timeEstimationService.fetchTimeEmployeeAliases(),
         timeEstimationService.fetchTimeClientAliases(),
+        timeEstimationService.fetchTimeManualEditMarkers(),
       ]);
       if (requestId !== latestRequestRef.current) return;
       setTimeActuals(actuals);
@@ -69,6 +72,7 @@ export function useTimeEstimation() {
       setTimeImportBatches(batches);
       setEmployeeAliases(empAliases);
       setClientAliases(cliAliases);
+      setTimeManualEditMarkers(editMarkers);
       setError(null);
     } catch (err) {
       if (requestId !== latestRequestRef.current) return;
@@ -112,6 +116,7 @@ export function useTimeEstimation() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'time_actual_n1_totals' }, () => debouncedRefresh())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'time_actual_groups' }, () => debouncedRefresh())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'time_import_batches' }, () => debouncedRefresh())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'time_manual_edit_markers' }, () => debouncedRefresh())
       .subscribe();
 
     return () => {
@@ -465,6 +470,41 @@ export function useTimeEstimation() {
     [refresh],
   );
 
+  // Records that `field` (n1Total | total | avgPast | avgRemaining | m0..m11)
+  // was the exact cell directly edited for (employeeId, clientMissionId,
+  // year) — see the migration's own comment for why only direct edits are
+  // persisted, never derived ones. Idempotent (upsert on the table's own
+  // unique constraint), so calling it again for an already-marked field is
+  // a safe no-op.
+  const saveEditMarker = useCallback(
+    async (employeeId: string, clientMissionId: string, year: number, field: string) => {
+      const now = new Date().toISOString();
+      setTimeManualEditMarkers((prev) => {
+        if (prev.some((m) => m.employee_id === employeeId && m.client_mission_id === clientMissionId && m.year === year && m.field === field)) {
+          return prev;
+        }
+        return [
+          ...prev,
+          { id: `optimistic-${employeeId}-${clientMissionId}-${year}-${field}`, employee_id: employeeId, client_mission_id: clientMissionId, year, field, edited_at: now },
+        ];
+      });
+      await timeEstimationService.upsertTimeManualEditMarker(employeeId, clientMissionId, year, field);
+      await refresh();
+    },
+    [refresh],
+  );
+
+  const clearEditMarker = useCallback(
+    async (employeeId: string, clientMissionId: string, year: number, field: string) => {
+      setTimeManualEditMarkers((prev) =>
+        prev.filter((m) => !(m.employee_id === employeeId && m.client_mission_id === clientMissionId && m.year === year && m.field === field)),
+      );
+      await timeEstimationService.deleteTimeManualEditMarker(employeeId, clientMissionId, year, field);
+      await refresh();
+    },
+    [refresh],
+  );
+
   const createGroup = useCallback(
     async (clientMissionId: string, primaryEmployeeId: string, memberEmployeeId: string) => {
       await timeEstimationService.createTimeActualGroup(clientMissionId, primaryEmployeeId, memberEmployeeId);
@@ -506,6 +546,7 @@ export function useTimeEstimation() {
     timeImportBatches,
     employeeAliases,
     clientAliases,
+    timeManualEditMarkers,
     loading,
     error,
     refresh,
@@ -521,6 +562,8 @@ export function useTimeEstimation() {
     restoreManualActuals,
     saveN1Total,
     deleteN1Total,
+    saveEditMarker,
+    clearEditMarker,
     createGroup,
     deleteGroup,
     resolveEmployeeAlias,

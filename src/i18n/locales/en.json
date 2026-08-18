@@ -505,6 +505,7 @@
       "fileLabel": "Excel file",
       "downloadTemplate": "Download template",
       "parsing": "Parsing file…",
+      "loadingReferenceData": "Loading reference data…",
       "parseError": "Couldn't read this file. Check it matches the expected template.",
       "filterByClient": "Filter by client",
       "selectAll": "Select all",

@@ -425,6 +425,25 @@ export interface Database {
         Update: Record<string, never>;
         Relationships: [];
       };
+      time_manual_edit_markers: {
+        Row: {
+          id: string;
+          employee_id: string;
+          client_mission_id: string;
+          year: number;
+          field: string;
+          edited_at: string;
+        };
+        Insert: {
+          id?: string;
+          employee_id: string;
+          client_mission_id: string;
+          year: number;
+          field: string;
+        };
+        Update: Record<string, never>;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {

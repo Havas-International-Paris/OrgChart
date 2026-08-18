@@ -235,6 +235,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
     timeActuals,
     timeForecastMonths,
     timeActualN1Totals,
+    timeManualEditMarkers,
     loading: estimationLoading,
     forecastOf,
     groupsByPrimary,
@@ -247,6 +248,8 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
     restoreManualActuals,
     saveN1Total,
     deleteN1Total,
+    saveEditMarker,
+    clearEditMarker,
   } = useTimeEstimation();
 
   const [year] = useState(() => new Date().getFullYear());
@@ -255,26 +258,6 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
   const [collapsedCumul, setCollapsedCumul] = useState<Set<string>>(new Set());
   const [dragEmployeeId, setDragEmployeeId] = useState<string | null>(null);
   const [dropTargetKey, setDropTargetKey] = useState<string | null>(null);
-
-  // Session-local "you edited this" trail for the green highlight below —
-  // deliberately not persisted (no schema field distinguishes "the exact
-  // cell typed into" from "a cell a cascade fill also touched", and this
-  // resets naturally with the rest of the screen's state on leaving it, same
-  // lifecycle as useTimeEstimationHistoryStore). Keyed
-  // `${employeeId}::${clientMissionId}::${field}`, field one of n1Total,
-  // total, avgPast, avgRemaining, or `m${monthIndex0}`.
-  const [editedCells, setEditedCells] = useState<Map<string, 'direct' | 'derived'>>(new Map());
-
-  function editedCellKey(employeeId: string, clientMissionId: string, field: string): string {
-    return `${employeeId}::${clientMissionId}::${field}`;
-  }
-
-  function editedTint(li: LineItem, field: string): CellTint | undefined {
-    const kind = editedCells.get(editedCellKey(li.employeeId, li.clientMissionId, field));
-    if (kind === 'direct') return 'greenDirect';
-    if (kind === 'derived') return 'greenDerived';
-    return undefined;
-  }
 
   const employeeById = useMemo(() => new Map(employees.map((e) => [e.id, e])), [employees]);
   const clientMissionById = useMemo(() => new Map(clientsMissions.map((cm) => [cm.id, cm])), [clientsMissions]);
@@ -289,6 +272,55 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
         .reduce((max, a) => Math.max(max, a.month), 0),
     [timeActuals, year],
   );
+
+  // Persisted "you edited this" highlight — derived, not stored, mutated
+  // state: the DB only ever records DIRECT edits (see the migration's own
+  // comment), so every DERIVED cell (a recomputed average/total, or a month
+  // a cascade fill also touched) is expanded here at render time from
+  // whichever fields are directly marked, the same way it used to be
+  // computed by hand inside handleFill before this became persisted. Direct
+  // always wins if a field is somehow both (setTint below is a no-op once a
+  // key is already greenDirect).
+  const editedTints = useMemo(() => {
+    const directByPair = new Map<string, Set<string>>();
+    for (const m of timeManualEditMarkers) {
+      if (m.year !== year) continue;
+      const pairKey = `${m.employee_id}::${m.client_mission_id}`;
+      if (!directByPair.has(pairKey)) directByPair.set(pairKey, new Set());
+      directByPair.get(pairKey)!.add(m.field);
+    }
+    const tints = new Map<string, CellTint>();
+    const setTint = (pairKey: string, field: string, tint: CellTint) => {
+      const key = `${pairKey}::${field}`;
+      if (tints.get(key) === 'greenDirect') return;
+      tints.set(key, tint);
+    };
+    for (const [pairKey, directFields] of directByPair) {
+      for (const field of directFields) setTint(pairKey, field, 'greenDirect');
+      for (const field of directFields) {
+        if (field === 'total') {
+          for (let i = 0; i < 12; i += 1) setTint(pairKey, `m${i}`, 'greenDerived');
+          setTint(pairKey, 'avgPast', 'greenDerived');
+          setTint(pairKey, 'avgRemaining', 'greenDerived');
+        } else if (field === 'avgPast') {
+          for (let i = 0; i < lastMonth; i += 1) setTint(pairKey, `m${i}`, 'greenDerived');
+          setTint(pairKey, 'total', 'greenDerived');
+        } else if (field === 'avgRemaining') {
+          for (let i = lastMonth; i < 12; i += 1) setTint(pairKey, `m${i}`, 'greenDerived');
+          setTint(pairKey, 'total', 'greenDerived');
+        } else if (/^m\d+$/.test(field)) {
+          const monthIndex = Number(field.slice(1));
+          setTint(pairKey, 'total', 'greenDerived');
+          setTint(pairKey, monthIndex < lastMonth ? 'avgPast' : 'avgRemaining', 'greenDerived');
+        }
+      }
+    }
+    return tints;
+  }, [timeManualEditMarkers, year, lastMonth]);
+
+  function editedTint(li: LineItem, field: string): CellTint | undefined {
+    return editedTints.get(`${li.employeeId}::${li.clientMissionId}::${field}`);
+  }
 
   const monthLabel = useMemo(() => {
     const locale = i18n.language === 'fr' ? 'fr-FR' : 'en-US';
@@ -426,28 +458,15 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
     );
     const employeeDisplayName = employeeName(employeeById.get(li.employeeId));
     const clientDisplayName = clientMissionById.get(li.clientMissionId)?.name ?? '';
-    const priorEditedCells = editedCells;
-
-    // The cell the user actually typed into (sourceField) turns
-    // greenDirect; every other cell this one action also changed — the
-    // recomputed total, whichever average(s) cover the touched months, and
-    // any OTHER month swept up by an average/total cascade — turns
-    // greenDerived.
-    function markEdited() {
-      setEditedCells((prev) => {
-        const next = new Map(prev);
-        const key = (field: string) => editedCellKey(li.employeeId, li.clientMissionId, field);
-        next.set(key(sourceField), 'direct');
-        if (sourceField !== 'total') next.set(key('total'), 'derived');
-        if (sourceField !== 'avgPast' && pastMonths.length > 0) next.set(key('avgPast'), 'derived');
-        if (sourceField !== 'avgRemaining' && futureMonths.length > 0) next.set(key('avgRemaining'), 'derived');
-        months.forEach((m) => {
-          const field = `m${m - 1}`;
-          if (field !== sourceField) next.set(key(field), 'derived');
-        });
-        return next;
-      });
-    }
+    // Whether sourceField was ALREADY a direct edit before this one — if so,
+    // undoing this edit must leave it marked (it's still manually-sourced,
+    // just from an earlier edit); only clear it if this edit was what
+    // created the marker in the first place. The DERIVED side of the
+    // highlight needs no such bookkeeping at all — it's recomputed purely
+    // from whichever direct markers exist after the write, see editedTints.
+    const hadPriorDirectMarker = timeManualEditMarkers.some(
+      (m) => m.employee_id === li.employeeId && m.client_mission_id === li.clientMissionId && m.year === year && m.field === sourceField,
+    );
 
     async function apply() {
       await Promise.all([
@@ -456,14 +475,14 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
           ? saveManualActuals(li.employeeId, li.clientMissionId, year, pastMonths, value, totalPct, employeeDisplayName, clientDisplayName)
           : null,
       ]);
-      markEdited();
+      await saveEditMarker(li.employeeId, li.clientMissionId, year, sourceField);
     }
     async function undo() {
       await Promise.all([
         futureMonths.length > 0 ? restoreMonthOverrides(li.employeeId, li.clientMissionId, year, priorOverrideEntries, priorTotalPct) : null,
         pastMonths.length > 0 ? restoreManualActuals(li.employeeId, li.clientMissionId, year, pastMonths, priorActualRows, priorTotalPct) : null,
       ]);
-      setEditedCells(priorEditedCells);
+      if (!hadPriorDirectMarker) await clearEditMarker(li.employeeId, li.clientMissionId, year, sourceField);
     }
 
     await apply();
@@ -472,16 +491,17 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
 
   async function handleEditN1Total(li: LineItem, value: number) {
     const priorValue = li.n1Total;
-    const priorEditedCells = editedCells;
-    const key = editedCellKey(li.employeeId, li.clientMissionId, 'n1Total');
+    const hadPriorDirectMarker = timeManualEditMarkers.some(
+      (m) => m.employee_id === li.employeeId && m.client_mission_id === li.clientMissionId && m.year === year && m.field === 'n1Total',
+    );
     async function apply() {
       await saveN1Total(li.employeeId, li.clientMissionId, year - 1, value);
-      setEditedCells((prev) => new Map(prev).set(key, 'direct'));
+      await saveEditMarker(li.employeeId, li.clientMissionId, year, 'n1Total');
     }
     async function undo() {
       if (priorValue == null) await deleteN1Total(li.employeeId, li.clientMissionId, year - 1);
       else await saveN1Total(li.employeeId, li.clientMissionId, year - 1, priorValue);
-      setEditedCells(priorEditedCells);
+      if (!hadPriorDirectMarker) await clearEditMarker(li.employeeId, li.clientMissionId, year, 'n1Total');
     }
     await apply();
     useTimeEstimationHistoryStore.getState().push({ label: t('timeEstimation.history.editN1Total'), undo, redo: apply });

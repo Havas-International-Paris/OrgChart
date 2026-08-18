@@ -259,6 +259,18 @@ export interface TimeActualN1Total {
   updated_at: string;
 }
 
+// Which single cell the user directly typed into — see the migration's own
+// comment (0024_time_manual_edit_markers.sql) for why only "direct" edits
+// are persisted, never "derived" ones.
+export interface TimeManualEditMarker {
+  id: string;
+  employee_id: string;
+  client_mission_id: string;
+  year: number;
+  field: string;
+  edited_at: string;
+}
+
 // "Drag a non-sold employee's row onto a sold employee's row" grouping,
 // scoped per client_mission — see CLAUDE.md for the full explanation of
 // why. A member_employee_id can only ever belong to one group per

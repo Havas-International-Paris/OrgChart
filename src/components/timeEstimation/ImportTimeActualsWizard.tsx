@@ -215,14 +215,26 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
   // (unfiltered, per CLAUDE.md), so a create here is picked up automatically
   // by every mounted consumer, including this wizard's own — no manual
   // refresh() to call (neither hook exposes one).
-  const { employees: registryEmployees } = useEmployees(registryOrgChartId);
-  const { clientsMissions, findOrCreate: findOrCreateClientMission } = useClientsMissions();
+  const { employees: registryEmployees, loading: employeesLoading } = useEmployees(registryOrgChartId);
+  const { clientsMissions, findOrCreate: findOrCreateClientMission, loading: clientsMissionsLoading } = useClientsMissions();
   const {
     employeeAliases,
     clientAliases,
     timeForecasts,
+    timeManualEditMarkers,
+    loading: estimationLoading,
     refresh: refreshEstimation,
   } = useTimeEstimation();
+
+  // handleFileSelected resolves every raw name against registryEmployees/
+  // clientsMissions/employeeAliases/clientAliases — nothing stopped a file
+  // from being picked while those were still in flight, so a fast "open the
+  // wizard, immediately pick a file" click could run resolution against
+  // near-empty arrays: no aliases match, no client pre-selects, and
+  // previously-known names fall through to "needs review" as if new. Hit
+  // for real once fetchTimeActuals started paginating (multiple sequential
+  // requests past 1000 rows), which widened this race's window.
+  const referenceDataLoading = employeesLoading || clientsMissionsLoading || estimationLoading;
 
   const [year, setYear] = useState(() => new Date().getFullYear());
   const [file, setFile] = useState<File | null>(null);
@@ -620,6 +632,37 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
         (forecast) => forecast.year === year && affectedKeys.has(`${forecast.employee_id}::${forecast.client_mission_id}`),
       );
 
+      // A re-import always wins outright, so any "manually edited" marker
+      // (TimeEstimationGrid.tsx's green highlight) on a field this import is
+      // about to overwrite must be cleared — otherwise a stale marker would
+      // keep implying "this is a manual value" for data that's no longer
+      // manual. Computed entirely against markers already loaded via
+      // useTimeEstimation() (no extra fetch), then cleared in ONE bulk
+      // delete below — same "compute locally, one network call" shape as
+      // the chunked writes, to avoid reintroducing the per-pair N+1
+      // regression that was just removed from this same function.
+      const touchedFieldsByPair = new Map<string, Set<string>>();
+      const touchField = (employeeId: string, clientMissionId: string, field: string) => {
+        const key = `${employeeId}::${clientMissionId}`;
+        if (!touchedFieldsByPair.has(key)) touchedFieldsByPair.set(key, new Set());
+        touchedFieldsByPair.get(key)!.add(field);
+      };
+      for (const row of n1UpsertRows) touchField(row.employee_id, row.client_mission_id, 'n1Total');
+      for (const row of actualUpsertRows) {
+        if (!row.resolved_employee_id || !row.resolved_client_mission_id) continue;
+        touchField(row.resolved_employee_id, row.resolved_client_mission_id, `m${row.month - 1}`);
+        touchField(row.resolved_employee_id, row.resolved_client_mission_id, 'avgPast');
+        touchField(row.resolved_employee_id, row.resolved_client_mission_id, 'total');
+      }
+      for (const row of forecastUpsertRows) {
+        touchField(row.employee_id, row.client_mission_id, `m${row.month - 1}`);
+        touchField(row.employee_id, row.client_mission_id, 'avgRemaining');
+        touchField(row.employee_id, row.client_mission_id, 'total');
+      }
+      const markerIdsToClear = timeManualEditMarkers
+        .filter((m) => m.year === year && touchedFieldsByPair.get(`${m.employee_id}::${m.client_mission_id}`)?.has(m.field))
+        .map((m) => m.id);
+
       // Each big array is split into chunks so a many-thousand-row extract
       // becomes several parallel requests instead of one opaque, unbounded
       // call the progress counter can't see inside of — this is what was
@@ -629,7 +672,8 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
       const actualChunks = chunkArray(actualUpsertRows, CHUNK_SIZE);
       const forecastChunks = chunkArray(forecastUpsertRows, CHUNK_SIZE);
 
-      const commitTotal = n1Chunks.length + actualChunks.length + forecastChunks.length + toRecompute.length;
+      const commitTotal =
+        n1Chunks.length + actualChunks.length + forecastChunks.length + toRecompute.length + (markerIdsToClear.length > 0 ? 1 : 0);
       let commitDone = 0;
       setProgress(commitTotal > 0 ? { done: 0, total: commitTotal } : null);
       const bumpCommit = () => {
@@ -638,6 +682,9 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
       };
 
       await Promise.all([
+        markerIdsToClear.length > 0
+          ? timeEstimationService.deleteTimeManualEditMarkersByIds(markerIdsToClear).then(() => bumpCommit())
+          : null,
         ...n1Chunks.map(async (rows) => {
           await timeEstimationService.upsertTimeActualN1Totals(rows);
           bumpCommit();
@@ -740,11 +787,12 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
                     <input
                       type="file"
                       accept=".xlsx,.xls"
+                      disabled={referenceDataLoading}
                       onChange={(e) => {
                         const f = e.target.files?.[0];
                         if (f) handleFileSelected(f);
                       }}
-                      className="text-sm"
+                      className="text-sm disabled:opacity-50"
                     />
                   </div>
                   <button
@@ -755,6 +803,10 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
                     {t('timeEstimation.wizard.downloadTemplate')}
                   </button>
                 </div>
+              )}
+
+              {step === 'select' && referenceDataLoading && (
+                <p className="mt-3 text-sm text-slate-400">{t('timeEstimation.wizard.loadingReferenceData')}</p>
               )}
 
               {parsing && <p className="mt-3 text-sm text-slate-400">{t('timeEstimation.wizard.parsing')}</p>}

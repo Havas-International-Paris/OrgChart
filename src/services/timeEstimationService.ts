@@ -9,6 +9,7 @@ import type {
   TimeForecast,
   TimeForecastMonth,
   TimeImportBatch,
+  TimeManualEditMarker,
 } from '../types/domain';
 
 // PostgREST caps an unbounded `select('*')` at this project's configured
@@ -359,4 +360,54 @@ export async function createTimeActualGroup(
 export async function deleteTimeActualGroup(id: string): Promise<void> {
   const { data, error } = await supabase.from('time_actual_groups').delete().eq('id', id).select();
   assertRowsAffected(data, error);
+}
+
+export async function fetchTimeManualEditMarkers(): Promise<TimeManualEditMarker[]> {
+  return fetchAllRows<TimeManualEditMarker>('time_manual_edit_markers');
+}
+
+// Records that this exact field was the one the user directly typed into —
+// see the migration's comment for why only "direct" edits are persisted.
+export async function upsertTimeManualEditMarker(
+  employeeId: string,
+  clientMissionId: string,
+  year: number,
+  field: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from('time_manual_edit_markers')
+    .upsert({ employee_id: employeeId, client_mission_id: clientMissionId, year, field }, { onConflict: 'employee_id,client_mission_id,year,field' });
+  if (error) throw error;
+}
+
+// "Nothing to delete" is a normal outcome (undoing an edit that wasn't
+// itself marked direct, or clearing markers for a pair/field an import
+// touches that was never manually edited) — deliberately no
+// assertRowsAffected, same reasoning as the import-time clear functions
+// above.
+export async function deleteTimeManualEditMarker(
+  employeeId: string,
+  clientMissionId: string,
+  year: number,
+  field: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from('time_manual_edit_markers')
+    .delete()
+    .eq('employee_id', employeeId)
+    .eq('client_mission_id', clientMissionId)
+    .eq('year', year)
+    .eq('field', field);
+  if (error) throw error;
+}
+
+// One bulk delete by id — used both by ImportTimeActualsWizard (clearing
+// every marker a re-import is about to overwrite, computed client-side
+// against the already-loaded timeManualEditMarkers so this is a single
+// round trip regardless of how many pairs/fields are affected) and
+// available for any other bulk-clear need.
+export async function deleteTimeManualEditMarkersByIds(ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  const { error } = await supabase.from('time_manual_edit_markers').delete().in('id', ids);
+  if (error) throw error;
 }
