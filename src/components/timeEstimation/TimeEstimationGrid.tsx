@@ -69,12 +69,12 @@ function lineItemMetrics(li: LineItem): Record<string, number | null> {
 }
 
 // One cell in the 3-level cascade (a single month, a section average, or
-// the year total) — all editable, some visually grey. `needsConfirm` gates
-// a window.confirm() before committing, for any edit that would overwrite a
-// value derived from an import (a past month, "moyenne mois passés", or
-// "% total actual N" — see CLAUDE.md). `disabled` is used on a "cumul" row
-// (a drag-grouped aggregate across several employees), which has no single
-// well-defined write target.
+// the year total) — all editable, some visually grey. No confirmation
+// prompt before committing an edit that overwrites imported/derived data —
+// there used to be one, but the green highlight below now gives that same
+// "this value came from a manual edit" signal visually, making a modal
+// redundant. `disabled` is used on a "cumul" row (a drag-grouped aggregate
+// across several employees), which has no single well-defined write target.
 //
 // Always a real <input> (no click-to-arm step) — the grid used to render a
 // button that only became an input once clicked, which meant every edit
@@ -88,14 +88,14 @@ function lineItemMetrics(li: LineItem): Record<string, number | null> {
 //   writes to at all (assignments.etp_vendu is a separate table from every
 //   time_* import target), so it reads as "safe to edit, permanently" rather
 //   than tied to any particular edit.
-// - greenDirect / greenDerived: the cell the user just typed a value into
-//   this session, and every OTHER cell that changed as a mechanical side
-//   effect of that one action (a recomputed average/total, or a month
-//   filled by an average/total cascade) — greenDerived is the lighter of
-//   the two. Session-local only (EditedCellsProvider-style plain state in
-//   TimeEstimationGrid, not persisted), since there's no schema field that
-//   could distinguish "the exact cell typed into" from "a cell a cascade
-//   fill happened to also touch" — see markEdited below.
+// - greenDirect / greenDerived: the exact cell the user typed a value into,
+//   and every OTHER cell that changed as a mechanical side effect of that
+//   one action (a recomputed average/total, or a month filled by an
+//   average/total cascade) — greenDerived is the lighter of the two.
+//   Persisted in time_manual_edit_markers (direct edits only; derived is
+//   recomputed at render time from those — see editedTints below), cleared
+//   automatically by ImportTimeActualsWizard whenever a re-import overwrites
+//   the field it describes.
 type CellTint = 'grey' | 'pink' | 'greenDirect' | 'greenDerived';
 
 const TINT_BG: Record<CellTint, string> = {
@@ -115,15 +115,11 @@ function CascadeCell({
   value,
   tint,
   disabled,
-  needsConfirm,
-  confirmMessage,
   onCommit,
 }: {
   value: number | null;
   tint?: CellTint;
   disabled?: boolean;
-  needsConfirm?: boolean;
-  confirmMessage?: string;
   onCommit: (value: number) => void | Promise<void>;
 }) {
   const [draft, setDraft] = useState(roundedInputValue(value));
@@ -163,10 +159,6 @@ function CascadeCell({
     }
     const parsed = Number(trimmed);
     if (!Number.isFinite(parsed) || parsed === value) {
-      setDraft(roundedInputValue(value));
-      return;
-    }
-    if (needsConfirm && !window.confirm(confirmMessage ?? '')) {
       setDraft(roundedInputValue(value));
       return;
     }
@@ -366,8 +358,19 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
       const li = getOrCreate(a.employee_id, a.client_mission_id);
       li.assignmentId = a.id;
       li.remunerationModel = a.remuneration_model;
-      if (a.remuneration_model === 'commission') li.prevu = a.etp_vendu;
-      else li.vendu = a.etp_vendu;
+      // Vendu/prévu are mutually exclusive by construction (one shared
+      // column, one model flag) — once an assignment exists at all, the
+      // side that doesn't apply shows an explicit 0% rather than a blank
+      // dash, so the two read as "you're committed to one or the other,"
+      // not "nothing entered yet" (which stays blank/dash for a row with
+      // no assignment at all — see getOrCreate's own defaults).
+      if (a.remuneration_model === 'commission') {
+        li.prevu = a.etp_vendu;
+        li.vendu = 0;
+      } else {
+        li.vendu = a.etp_vendu;
+        li.prevu = 0;
+      }
     }
 
     for (const row of timeActuals) {
@@ -595,16 +598,36 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
     }
   }
 
+  // A prévu value entered by hand always means the "Commission" model —
+  // mirrors handleEditVendu's own needsModelFix exactly (just the other
+  // direction). Without this, editing "% prévu" on an assignment that was
+  // still sitting at retainer silently wrote into the shared etp_vendu
+  // column without ever flipping the model, so the value surfaced as "%
+  // vendu" instead and "% prévu" itself stayed blank on the next render —
+  // confirmed as the actual cause of "% expected doesn't persist" reports.
   async function handleEditPrevu(li: LineItem, value: number) {
     const label = t('timeEstimation.history.editPrevu');
     if (li.assignmentId) {
       const priorValue = li.prevu;
+      const priorModel = li.remunerationModel;
       const assignmentId = li.assignmentId;
-      await withSuppressedRecording(() => updateAssignmentEtpVendu(assignmentId, value));
+      const needsModelFix = priorModel !== 'commission';
+      await withSuppressedRecording(async () => {
+        await updateAssignmentEtpVendu(assignmentId, value);
+        if (needsModelFix) await updateAssignmentRemuneration(assignmentId, 'commission', false);
+      });
       useTimeEstimationHistoryStore.getState().push({
         label,
-        undo: () => withSuppressedRecording(() => updateAssignmentEtpVendu(assignmentId, priorValue)),
-        redo: () => withSuppressedRecording(() => updateAssignmentEtpVendu(assignmentId, value)),
+        undo: () =>
+          withSuppressedRecording(async () => {
+            await updateAssignmentEtpVendu(assignmentId, priorValue);
+            if (needsModelFix) await updateAssignmentRemuneration(assignmentId, priorModel, false);
+          }),
+        redo: () =>
+          withSuppressedRecording(async () => {
+            await updateAssignmentEtpVendu(assignmentId, value);
+            if (needsModelFix) await updateAssignmentRemuneration(assignmentId, 'commission', false);
+          }),
       });
     } else {
       const created = await withSuppressedRecording(() =>
@@ -639,7 +662,6 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
     `100px`;
 
   const loading = estimationLoading;
-  const confirmMessage = t('timeEstimation.grid.confirmOverwrite');
 
   function renderRowCells(li: LineItem, cumulDisabled: boolean, labelSlot: React.ReactNode) {
     const points = li.effectiveByMonth.map((v, i) => ({ key: `m${i}`, value: v }));
@@ -658,8 +680,6 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
           value={li.total}
           tint={editedTint(li, 'total') ?? 'grey'}
           disabled={cumulDisabled}
-          needsConfirm
-          confirmMessage={confirmMessage}
           onCommit={(v) =>
             handleFill(li, Array.from({ length: 12 }, (_, i) => i + 1), v, t('timeEstimation.history.editTotal'), 'total')
           }
@@ -668,8 +688,6 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
           value={lastMonth > 0 ? li.avgPast : null}
           tint={editedTint(li, 'avgPast') ?? 'grey'}
           disabled={cumulDisabled || lastMonth === 0}
-          needsConfirm
-          confirmMessage={confirmMessage}
           onCommit={(v) =>
             handleFill(
               li,
@@ -686,8 +704,6 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
             value={v}
             tint={editedTint(li, `m${i}`) ?? 'grey'}
             disabled={cumulDisabled}
-            needsConfirm
-            confirmMessage={confirmMessage}
             onCommit={(newValue) =>
               handleFill(li, [i + 1], newValue, t('timeEstimation.history.editMonth', { month: monthLabel(i) }), `m${i}`)
             }

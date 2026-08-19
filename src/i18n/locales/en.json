@@ -490,8 +490,7 @@
       "cumulSuffix": "(rolled up)",
       "ungroup": "Ungroup",
       "avgPast": "Avg. past months",
-      "avgRemaining": "Avg. remaining months",
-      "confirmOverwrite": "This change will overwrite a value imported or derived from an import. Continue?"
+      "avgRemaining": "Avg. remaining months"
     },
     "history": {
       "editMonth": "Edit {{month}}",

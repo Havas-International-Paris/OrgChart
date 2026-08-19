@@ -1,0 +1,13 @@
+-- chk_commission_no_vendu (0007_remuneration_model.sql) forbade a
+-- 'commission'-model assignment from ever having etp_vendu set — but the
+-- "Estimation des temps" module's "% prévu" cell (TimeEstimationGrid.tsx's
+-- handleEditPrevu) deliberately stores its value in that exact column for
+-- commission rows, per this app's own documented design (CLAUDE.md: "%
+-- vendu"/"% prévu" both read/write the same assignments.etp_vendu column,
+-- bucketed into one column or the other by remuneration_model). The
+-- constraint predates that feature and was never updated to match it —
+-- every commission-model row in production has etp_vendu = null, with no
+-- exception, confirming every "% prévu" write has always been silently
+-- rejected. Dropping the constraint outright rather than routing around it,
+-- since the column's dual-purpose role is the actual intended design.
+alter table public.assignments drop constraint chk_commission_no_vendu;

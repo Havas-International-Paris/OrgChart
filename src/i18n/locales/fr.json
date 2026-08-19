@@ -490,8 +490,7 @@
       "cumulSuffix": "(cumul)",
       "ungroup": "Dissocier",
       "avgPast": "Moy. mois passés",
-      "avgRemaining": "Moy. mois restants",
-      "confirmOverwrite": "Cette modification va écraser une valeur importée ou déduite d'un import. Continuer ?"
+      "avgRemaining": "Moy. mois restants"
     },
     "history": {
       "editMonth": "Modifier {{month}}",

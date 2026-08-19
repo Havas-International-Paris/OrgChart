@@ -718,6 +718,31 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
         .filter((m) => m.year === year && touchedFieldsByPair.get(`${m.employee_id}::${m.client_mission_id}`)?.has(m.field))
         .map((m) => m.id);
 
+      // A pair whose "% total" was directly set by hand (one edit filling
+      // all 12 months uniformly) is about to lose that marker above,
+      // because "total" is always touched whenever any actuals/forecast
+      // data changes. But on a genuinely PARTIAL reimport — only actuals,
+      // or only forecast, never both — the untouched side's months still
+      // hold exactly what the user set; only "total"'s own value actually
+      // changed (it's a blend of both sides). Promote the untouched side's
+      // own average field to a fresh direct marker before "total" is
+      // cleared, so TimeEstimationGrid's editedTints picks it — and every
+      // month it covers — back up as manually-sourced instead of losing
+      // its color for no reason. Irrelevant when neither or both
+      // categories are checked: nothing to preserve either way.
+      const markersToPromote: Array<{ employeeId: string; clientMissionId: string; field: string }> = [];
+      if (importFields.actuals !== importFields.forecast) {
+        const untouchedField = importFields.actuals ? 'avgRemaining' : 'avgPast';
+        const pairsWithDirectTotal = new Set(
+          timeManualEditMarkers.filter((m) => m.year === year && m.field === 'total').map((m) => `${m.employee_id}::${m.client_mission_id}`),
+        );
+        for (const pairKey of touchedFieldsByPair.keys()) {
+          if (!pairsWithDirectTotal.has(pairKey)) continue;
+          const [employeeId, clientMissionId] = pairKey.split('::');
+          markersToPromote.push({ employeeId, clientMissionId, field: untouchedField });
+        }
+      }
+
       // upsertTimeActuals's onConflict is (raw_employee_name, raw_client_name,
       // year, month) — a manually-entered row (raw name = the real display
       // name) or a row from an earlier import with a differently-spelled raw
@@ -757,7 +782,8 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
         forecastChunks.length +
         clearActualsChunks.length +
         toRecompute.length +
-        (markerIdsToClear.length > 0 ? 1 : 0);
+        (markerIdsToClear.length > 0 ? 1 : 0) +
+        markersToPromote.length;
       let commitDone = 0;
       setProgress(commitTotal > 0 ? { done: 0, total: commitTotal } : null);
       const bumpCommit = () => {
@@ -781,6 +807,10 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
         markerIdsToClear.length > 0
           ? timeEstimationService.deleteTimeManualEditMarkersByIds(markerIdsToClear).then(() => bumpCommit())
           : null,
+        ...markersToPromote.map(async (m) => {
+          await timeEstimationService.upsertTimeManualEditMarker(m.employeeId, m.clientMissionId, year, m.field);
+          bumpCommit();
+        }),
         ...n1Chunks.map(async (rows) => {
           await timeEstimationService.upsertTimeActualN1Totals(rows);
           bumpCommit();
