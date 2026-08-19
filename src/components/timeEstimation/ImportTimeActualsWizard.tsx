@@ -622,6 +622,61 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
         });
       }
 
+      // A pair present in only ONE of the two sheets is still confirmed to
+      // be in scope for this import (it's mentioned somewhere in the file),
+      // so its total absence from the OTHER sheet is the file's own way of
+      // saying "0% there" — not "no opinion," which is what leaving it
+      // completely untouched would otherwise imply. This is the coarser,
+      // whole-row counterpart of the null-cell-within-a-row → 0 rule above.
+      // Deliberately scoped to pairs the file actually mentions: a pair
+      // absent from BOTH sheets is never touched, so a genuinely partial/
+      // filtered extract (one Business Unit's own file, say) can never zero
+      // out a pair that simply isn't its concern.
+      const n1PairKeys = new Set(n1Rows.filter((r) => r.employeeName && r.annonceur).map((r) => `${r.employeeName}::${r.annonceur}`));
+      const nPairKeys = new Set(nRows.filter((r) => r.employeeName && r.annonceur).map((r) => `${r.employeeName}::${r.annonceur}`));
+
+      if (importFields.n1) {
+        for (const key of nPairKeys) {
+          if (n1PairKeys.has(key)) continue;
+          const [rawEmployeeName, rawAnnonceur] = key.split('::');
+          const employeeId = employeeIds.get(rawEmployeeName);
+          const clientMissionId = clientIds.get(rawAnnonceur);
+          if (!employeeId || !clientMissionId) continue;
+          n1UpsertRows.push({ employee_id: employeeId, client_mission_id: clientMissionId, year: year - 1, total_pct: 0 });
+        }
+      }
+
+      for (const key of n1PairKeys) {
+        if (nPairKeys.has(key)) continue;
+        const [rawEmployeeName, rawAnnonceur] = key.split('::');
+        const employeeId = employeeIds.get(rawEmployeeName);
+        const clientMissionId = clientIds.get(rawAnnonceur);
+        if (!employeeId || !clientMissionId) continue;
+        affectedKeys.add(`${employeeId}::${clientMissionId}`);
+        for (let month = 1; month <= 12; month += 1) {
+          if (month <= cutoffMonth) {
+            if (!importFields.actuals) continue;
+            actualUpsertRows.push({
+              batch_id: batch.id,
+              year,
+              month,
+              raw_employee_name: rawEmployeeName,
+              raw_client_name: rawAnnonceur,
+              raw_sous_dossier: null,
+              raw_group_annonceur: null,
+              raw_payroll_name: null,
+              raw_bu_name: null,
+              etp_pct: 0,
+              resolved_employee_id: employeeId,
+              resolved_client_mission_id: clientMissionId,
+            });
+          } else {
+            if (!importFields.forecast) continue;
+            forecastUpsertRows.push({ employee_id: employeeId, client_mission_id: clientMissionId, year, month, pct: 0 });
+          }
+        }
+      }
+
       // Recompute the stored time_forecasts.total_pct for every affected
       // (employee, client) so it can never drift out of sync with what was
       // just imported — same override-aware rule TimeEstimationGrid.tsx
