@@ -663,6 +663,30 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
         .filter((m) => m.year === year && touchedFieldsByPair.get(`${m.employee_id}::${m.client_mission_id}`)?.has(m.field))
         .map((m) => m.id);
 
+      // upsertTimeActuals's onConflict is (raw_employee_name, raw_client_name,
+      // year, month) — a manually-entered row (raw name = the real display
+      // name) or a row from an earlier import with a differently-spelled raw
+      // name essentially never collides with THIS file's own raw name, so the
+      // upsert below would just add a second row alongside it instead of
+      // replacing it — and the grid sums every matching row per resolved
+      // identity, so that silently double-counts. Deleting by resolved
+      // identity first (any raw name) is what makes "Temps réel" actually
+      // win outright on re-import, matching every other checked category —
+      // one .or() call per chunk of pairs, not one delete per pair (see
+      // deleteTimeActualsForPairsInMonths's own comment).
+      const actualsPairKeys = new Set(
+        actualUpsertRows
+          .filter((row) => row.resolved_employee_id && row.resolved_client_mission_id)
+          .map((row) => `${row.resolved_employee_id}::${row.resolved_client_mission_id}`),
+      );
+      const actualsPairs = Array.from(actualsPairKeys, (key) => {
+        const [employeeId, clientMissionId] = key.split('::');
+        return { employeeId, clientMissionId };
+      });
+      const actualsMonthsRange = Array.from({ length: cutoffMonth }, (_, i) => i + 1);
+      const PAIR_CHUNK_SIZE = 25;
+      const clearActualsChunks = chunkArray(actualsPairs, PAIR_CHUNK_SIZE);
+
       // Each big array is split into chunks so a many-thousand-row extract
       // becomes several parallel requests instead of one opaque, unbounded
       // call the progress counter can't see inside of — this is what was
@@ -673,13 +697,30 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
       const forecastChunks = chunkArray(forecastUpsertRows, CHUNK_SIZE);
 
       const commitTotal =
-        n1Chunks.length + actualChunks.length + forecastChunks.length + toRecompute.length + (markerIdsToClear.length > 0 ? 1 : 0);
+        n1Chunks.length +
+        actualChunks.length +
+        forecastChunks.length +
+        clearActualsChunks.length +
+        toRecompute.length +
+        (markerIdsToClear.length > 0 ? 1 : 0);
       let commitDone = 0;
       setProgress(commitTotal > 0 ? { done: 0, total: commitTotal } : null);
       const bumpCommit = () => {
         commitDone += 1;
         flushSync(() => setProgress({ done: commitDone, total: commitTotal }));
       };
+
+      // The stale-actuals clear must land before the fresh actuals upsert —
+      // otherwise a manually-entered row with the same raw name the import
+      // happens to reuse could get deleted right after being (re)written.
+      // Every other write here targets a disjoint set of rows/tables, so
+      // only this one pairing has a real ordering dependency.
+      await Promise.all(
+        clearActualsChunks.map(async (pairs) => {
+          await timeEstimationService.deleteTimeActualsForPairsInMonths(pairs, year, actualsMonthsRange);
+          bumpCommit();
+        }),
+      );
 
       await Promise.all([
         markerIdsToClear.length > 0

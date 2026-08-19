@@ -458,31 +458,59 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
     );
     const employeeDisplayName = employeeName(employeeById.get(li.employeeId));
     const clientDisplayName = clientMissionById.get(li.clientMissionId)?.name ?? '';
+
+    // Every OTHER field this fill overwrites the value of — the recomputed
+    // total, whichever average(s) cover the touched months, and any other
+    // month a total/average fill swept along with it. If one of THOSE
+    // fields already carried its own direct marker from an earlier, separate
+    // edit, that marker is now stale: the value it used to explain has just
+    // been overwritten by THIS edit, so the field must fall back to
+    // derived (or nothing) rather than keep reading as "you directly typed
+    // this," which was the exact desync the user reported. Captured before
+    // the write so undo can restore precisely the markers this edit clears.
+    const affectedFields = new Set<string>();
+    if (sourceField !== 'total') affectedFields.add('total');
+    if (sourceField !== 'avgPast' && pastMonths.length > 0) affectedFields.add('avgPast');
+    if (sourceField !== 'avgRemaining' && futureMonths.length > 0) affectedFields.add('avgRemaining');
+    months.forEach((m) => {
+      const f = `m${m - 1}`;
+      if (f !== sourceField) affectedFields.add(f);
+    });
+    const isDirectMarker = (field: string) =>
+      timeManualEditMarkers.some(
+        (m) => m.employee_id === li.employeeId && m.client_mission_id === li.clientMissionId && m.year === year && m.field === field,
+      );
+    const staleDirectFields = Array.from(affectedFields).filter(isDirectMarker);
     // Whether sourceField was ALREADY a direct edit before this one — if so,
     // undoing this edit must leave it marked (it's still manually-sourced,
     // just from an earlier edit); only clear it if this edit was what
-    // created the marker in the first place. The DERIVED side of the
-    // highlight needs no such bookkeeping at all — it's recomputed purely
-    // from whichever direct markers exist after the write, see editedTints.
-    const hadPriorDirectMarker = timeManualEditMarkers.some(
-      (m) => m.employee_id === li.employeeId && m.client_mission_id === li.clientMissionId && m.year === year && m.field === sourceField,
-    );
+    // created the marker in the first place.
+    const hadPriorDirectMarker = isDirectMarker(sourceField);
 
     async function apply() {
+      // Value writes and marker writes run in the SAME Promise.all —
+      // previously the marker save happened strictly after the value
+      // writes resolved, which on a slow connection left a visible window
+      // where the number had updated but the color hadn't (or vice versa).
+      // Both still each do their own optimistic local update before their
+      // own network round trip, so running them together makes those two
+      // optimistic updates land together too.
       await Promise.all([
         futureMonths.length > 0 ? saveMonthOverrides(li.employeeId, li.clientMissionId, year, futureMonths, value, totalPct) : null,
         pastMonths.length > 0
           ? saveManualActuals(li.employeeId, li.clientMissionId, year, pastMonths, value, totalPct, employeeDisplayName, clientDisplayName)
           : null,
+        saveEditMarker(li.employeeId, li.clientMissionId, year, sourceField),
+        ...staleDirectFields.map((f) => clearEditMarker(li.employeeId, li.clientMissionId, year, f)),
       ]);
-      await saveEditMarker(li.employeeId, li.clientMissionId, year, sourceField);
     }
     async function undo() {
       await Promise.all([
         futureMonths.length > 0 ? restoreMonthOverrides(li.employeeId, li.clientMissionId, year, priorOverrideEntries, priorTotalPct) : null,
         pastMonths.length > 0 ? restoreManualActuals(li.employeeId, li.clientMissionId, year, pastMonths, priorActualRows, priorTotalPct) : null,
+        hadPriorDirectMarker ? null : clearEditMarker(li.employeeId, li.clientMissionId, year, sourceField),
+        ...staleDirectFields.map((f) => saveEditMarker(li.employeeId, li.clientMissionId, year, f)),
       ]);
-      if (!hadPriorDirectMarker) await clearEditMarker(li.employeeId, li.clientMissionId, year, sourceField);
     }
 
     await apply();
@@ -495,13 +523,18 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
       (m) => m.employee_id === li.employeeId && m.client_mission_id === li.clientMissionId && m.year === year && m.field === 'n1Total',
     );
     async function apply() {
-      await saveN1Total(li.employeeId, li.clientMissionId, year - 1, value);
-      await saveEditMarker(li.employeeId, li.clientMissionId, year, 'n1Total');
+      await Promise.all([
+        saveN1Total(li.employeeId, li.clientMissionId, year - 1, value),
+        saveEditMarker(li.employeeId, li.clientMissionId, year, 'n1Total'),
+      ]);
     }
     async function undo() {
-      if (priorValue == null) await deleteN1Total(li.employeeId, li.clientMissionId, year - 1);
-      else await saveN1Total(li.employeeId, li.clientMissionId, year - 1, priorValue);
-      if (!hadPriorDirectMarker) await clearEditMarker(li.employeeId, li.clientMissionId, year, 'n1Total');
+      await Promise.all([
+        priorValue == null
+          ? deleteN1Total(li.employeeId, li.clientMissionId, year - 1)
+          : saveN1Total(li.employeeId, li.clientMissionId, year - 1, priorValue),
+        hadPriorDirectMarker ? null : clearEditMarker(li.employeeId, li.clientMissionId, year, 'n1Total'),
+      ]);
     }
     await apply();
     useTimeEstimationHistoryStore.getState().push({ label: t('timeEstimation.history.editN1Total'), undo, redo: apply });

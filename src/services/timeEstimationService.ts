@@ -132,6 +132,40 @@ export async function deleteTimeActualsForMonths(
   if (error) throw error;
 }
 
+// Import-time counterpart of the above, for many (employee, client) pairs
+// at once sharing the same months range. upsertTimeActuals's own onConflict
+// is (raw_employee_name, raw_client_name, year, month) — deliberately, so
+// several differently-spelled raw imports resolving to the same employee
+// can each contribute their own summed row (see that function's comment).
+// But that means a row a manual edit inserted (raw name = the real display
+// name, e.g. "Abdoul Illadjil") or a PRIOR import wrote (raw name = however
+// THAT file's file spelled it) essentially never collides with a fresh
+// import's own raw name — so upsert alone just adds a second row alongside
+// it instead of replacing it, and the grid, which sums every matching row
+// per resolved identity, silently double-counts. Deleting by RESOLVED
+// identity first — regardless of whatever raw name got the row there —
+// is what actually guarantees a checked "Temps réel" category re-import
+// wins outright, matching every other category.
+//
+// One `.or()` call per chunk of pairs (not one delete per pair) to avoid
+// reintroducing the per-pair round-trip cost already removed once from
+// this same import flow — a pair contributes one `and(...)` clause, and
+// months are identical across every pair in a single import (the whole
+// past range up to the same cutoff month), so the shared `.in('month', …)`
+// stays outside the OR entirely.
+export async function deleteTimeActualsForPairsInMonths(
+  pairs: Array<{ employeeId: string; clientMissionId: string }>,
+  year: number,
+  months: number[],
+): Promise<void> {
+  if (pairs.length === 0 || months.length === 0) return;
+  const orFilter = pairs
+    .map((p) => `and(resolved_employee_id.eq.${p.employeeId},resolved_client_mission_id.eq.${p.clientMissionId})`)
+    .join(',');
+  const { error } = await supabase.from('time_actuals').delete().eq('year', year).in('month', months).or(orFilter);
+  if (error) throw error;
+}
+
 export interface ManualTimeActualRow {
   employee_id: string;
   client_mission_id: string;
