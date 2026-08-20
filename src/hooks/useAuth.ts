@@ -32,5 +32,12 @@ export function useAuth() {
     // before a session comes back.
     signUp: (email: string, password: string) => supabase.auth.signUp({ email, password }),
     signOut: () => supabase.auth.signOut({ scope: 'global' }),
+    // Backlog item 61 Phase 3 — password reset flow. redirectTo brings the
+    // user back to the app root after they click the email link; Supabase
+    // appends #access_token=...&type=recovery to the hash, which LoginPage
+    // detects manually (detectSessionInUrl is false, see supabaseClient.ts).
+    resetPasswordForEmail: (email: string) =>
+      supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin }),
+    updatePassword: (password: string) => supabase.auth.updateUser({ password }),
   };
 }

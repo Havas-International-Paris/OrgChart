@@ -362,6 +362,18 @@
       "backToSignIn": "Back to sign in",
       "pendingMessage": "Your request has been sent. An administrator must approve your access before you can sign in."
     },
+    "reset": {
+      "forgotPassword": "Forgot password?",
+      "email": "Email",
+      "submit": "Send reset link",
+      "sending": "Sending…",
+      "sentMessage": "If an account exists for this email, a reset link has been sent.",
+      "newPassword": "New password",
+      "confirm": "Reset password",
+      "updating": "Updating…",
+      "success": "Password updated. You can now sign in.",
+      "backToSignIn": "Back to sign in"
+    },
     "setupNotice": {
       "title": "Supabase configuration required",
       "intro": "No Supabase project is linked to this application yet. To continue:",

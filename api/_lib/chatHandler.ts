@@ -3,6 +3,32 @@ import { supabaseForUser } from './chatTools.js';
 import { PROVIDER_ORDER, PROVIDER_REGISTRY, type ProviderId, type ProviderMeta } from './llm/providerRegistry.js';
 import type { IncomingChatMessage } from './llm/types.js';
 
+// Backlog item 61 Phase 3 — in-memory per-user rate limit for /api/chat.
+// Vercel Functions are serverless: each instance has its own memory, so this
+// is NOT a distributed limit. For a low-traffic internal tool the goal is
+// preventing accidental abuse (a user spamming the chat), not defending
+// against a determined attacker. A distributed limit would need Vercel KV or
+// Upstash Redis — out of scope here. 20 requests per minute per user is
+// generous enough for normal conversational use (a human rarely sends more
+// than 5-10 messages/minute) while capping a runaway client.
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_MAX_REQUESTS = 20;
+const rateLimitMap = new Map<string, { count: number; windowStart: number }>();
+
+function checkRateLimit(userId: string): { allowed: boolean; retryAfterMs: number } {
+  const now = Date.now();
+  const entry = rateLimitMap.get(userId);
+  if (!entry || now >= entry.windowStart + RATE_LIMIT_WINDOW_MS) {
+    rateLimitMap.set(userId, { count: 1, windowStart: now });
+    return { allowed: true, retryAfterMs: 0 };
+  }
+  if (entry.count >= RATE_LIMIT_MAX_REQUESTS) {
+    return { allowed: false, retryAfterMs: entry.windowStart + RATE_LIMIT_WINDOW_MS - now };
+  }
+  entry.count++;
+  return { allowed: true, retryAfterMs: 0 };
+}
+
 interface ChatRequestBody {
   orgChartId?: string;
   messages?: IncomingChatMessage[];
@@ -166,6 +192,18 @@ export async function chatHandler(req: IncomingMessage, res: ServerResponse): Pr
     .maybeSingle();
   if (!roleRow || roleRow.status !== 'active') {
     sendJsonError(res, 403, 'Account not approved.');
+    return;
+  }
+
+  // Rate limit per user — checked after auth (we need the user id) but
+  // before the LLM call (the expensive part).
+  const { allowed, retryAfterMs } = checkRateLimit(userData.user.id);
+  if (!allowed) {
+    res.writeHead(429, {
+      'Content-Type': 'application/json',
+      'Retry-After': String(Math.ceil(retryAfterMs / 1000)),
+    });
+    res.end(JSON.stringify({ error: 'Rate limit exceeded. Please slow down.' }));
     return;
   }
 

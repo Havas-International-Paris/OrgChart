@@ -362,6 +362,18 @@
       "backToSignIn": "Retour à la connexion",
       "pendingMessage": "Votre demande a été envoyée. Un administrateur doit valider votre accès avant que vous puissiez vous connecter."
     },
+    "reset": {
+      "forgotPassword": "Mot de passe oublié ?",
+      "email": "Email",
+      "submit": "Envoyer le lien de réinitialisation",
+      "sending": "Envoi…",
+      "sentMessage": "Si un compte existe pour cette adresse, un email de réinitialisation a été envoyé.",
+      "newPassword": "Nouveau mot de passe",
+      "confirm": "Réinitialiser le mot de passe",
+      "updating": "Mise à jour…",
+      "success": "Mot de passe mis à jour. Vous pouvez vous connecter.",
+      "backToSignIn": "Retour à la connexion"
+    },
     "setupNotice": {
       "title": "Configuration Supabase requise",
       "intro": "Aucun projet Supabase n'est encore relié à cette application. Pour continuer :",
