@@ -122,11 +122,13 @@ export interface Assignment {
   // Added in 0025 — nullable, existing rows predate this migration.
   created_by: string | null;
   updated_by: string | null;
-  // Added in 0026 — "% sold N+1"/"% expected N+1" on the Time Estimation
-  // grid, independent of the current year's etp_vendu/remuneration_model
-  // (see that migration's own comment for why they're separate columns).
+  // Added in 0026, reworked in 0027 — "% sold N+1"/"% expected N+1" on the
+  // Time Estimation grid, using the SAME shared-column-plus-model-flag
+  // mechanism as etp_vendu/remuneration_model above, but with its own
+  // independent flag so editing next year's forecast can never retroactively
+  // change the current year's own remuneration_model classification.
   etp_vendu_next_year: number | null;
-  etp_expected_next_year: number | null;
+  remuneration_model_next_year: RemunerationModel | null;
 }
 
 export type AssignmentInput = Pick<Assignment, 'employee_id' | 'client_mission_id'> &

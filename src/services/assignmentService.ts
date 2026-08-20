@@ -51,22 +51,30 @@ export async function updateAssignmentEtpReel(id: string, etpReel: number | null
   assertRowsAffected(data, error);
 }
 
-// "% sold N+1" / "% expected N+1" (Time Estimation grid) — independent
-// columns from the current year's etp_vendu, so both are always written
-// together: the app enforces mutual exclusivity itself (setting one always
-// zeroes the other in the same call) rather than a DB constraint, since a
-// constraint would have to duplicate that same app-level bucketing rule to
-// stay correct — see 0026_assignment_next_year_forecast.sql.
-export async function updateAssignmentNextYear(
-  id: string,
-  etpVenduNextYear: number | null,
-  etpExpectedNextYear: number | null,
-): Promise<void> {
+// "% sold N+1" / "% expected N+1" (Time Estimation grid) — mirrors
+// updateAssignmentEtpVendu/updateAssignmentRemuneration exactly, one shared
+// column bucketed by its own remuneration_model_next_year flag, kept
+// independent of the current year's own remuneration_model — see
+// 0027_next_year_remuneration_model.sql.
+export async function updateAssignmentEtpVenduNextYear(id: string, etpVenduNextYear: number | null): Promise<void> {
   const { data, error } = await supabase
     .from('assignments')
-    .update({ etp_vendu_next_year: etpVenduNextYear, etp_expected_next_year: etpExpectedNextYear })
+    .update({ etp_vendu_next_year: etpVenduNextYear })
     .eq('id', id)
     .select();
+  assertRowsAffected(data, error);
+}
+
+export async function updateAssignmentRemunerationNextYear(
+  id: string,
+  remunerationModelNextYear: RemunerationModel | null,
+  clearVendu: boolean,
+): Promise<void> {
+  const patch: { remuneration_model_next_year: RemunerationModel | null; etp_vendu_next_year?: null } = {
+    remuneration_model_next_year: remunerationModelNextYear,
+  };
+  if (clearVendu) patch.etp_vendu_next_year = null;
+  const { data, error } = await supabase.from('assignments').update(patch).eq('id', id).select();
   assertRowsAffected(data, error);
 }
 
@@ -104,7 +112,7 @@ export async function restoreAssignment(row: Assignment): Promise<Assignment> {
       remuneration_model: row.remuneration_model,
       org_chart_id: row.org_chart_id,
       etp_vendu_next_year: row.etp_vendu_next_year,
-      etp_expected_next_year: row.etp_expected_next_year,
+      remuneration_model_next_year: row.remuneration_model_next_year,
     })
     .select()
     .single();

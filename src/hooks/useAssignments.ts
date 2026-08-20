@@ -153,19 +153,44 @@ export function useAssignments(orgChartId: string | null) {
     [assignments, refresh, orgChartId, t],
   );
 
-  const updateAssignmentNextYear = useCallback(
-    async (id: string, etpVenduNextYear: number | null, etpExpectedNextYear: number | null) => {
+  const updateAssignmentEtpVenduNextYear = useCallback(
+    async (id: string, etpVenduNextYear: number | null) => {
       const before = assignments.find((a) => a.id === id);
-      await assignmentService.updateAssignmentNextYear(id, etpVenduNextYear, etpExpectedNextYear);
+      await assignmentService.updateAssignmentEtpVenduNextYear(id, etpVenduNextYear);
       await refresh();
       if (before && orgChartId) {
-        const oldVendu = before.etp_vendu_next_year;
-        const oldExpected = before.etp_expected_next_year;
+        const oldEtpVenduNextYear = before.etp_vendu_next_year;
         useHistoryStore.getState().push({
-          label: t('history.updateNextYearForecast'),
+          label: t('history.updateEtpSoldNextYear'),
           orgChartId,
-          undo: async () => { await updateAssignmentNextYear(id, oldVendu, oldExpected); },
-          redo: async () => { await updateAssignmentNextYear(id, etpVenduNextYear, etpExpectedNextYear); },
+          undo: async () => { await updateAssignmentEtpVenduNextYear(id, oldEtpVenduNextYear); },
+          redo: async () => { await updateAssignmentEtpVenduNextYear(id, etpVenduNextYear); },
+        });
+      }
+    },
+    [assignments, refresh, orgChartId, t],
+  );
+
+  const updateAssignmentRemunerationNextYear = useCallback(
+    async (id: string, remunerationModelNextYear: RemunerationModel | null, clearVendu: boolean) => {
+      const before = assignments.find((a) => a.id === id);
+      await assignmentService.updateAssignmentRemunerationNextYear(id, remunerationModelNextYear, clearVendu);
+      await refresh();
+      if (before && orgChartId) {
+        const oldModel = before.remuneration_model_next_year;
+        const oldEtpVenduNextYear = before.etp_vendu_next_year;
+        useHistoryStore.getState().push({
+          label: t('history.updateRemunerationModelNextYear'),
+          orgChartId,
+          undo: async () => {
+            await assignmentService.updateAssignmentRemunerationNextYear(id, oldModel, false);
+            if (oldEtpVenduNextYear !== null) await assignmentService.updateAssignmentEtpVenduNextYear(id, oldEtpVenduNextYear);
+            await refresh();
+          },
+          redo: async () => {
+            await assignmentService.updateAssignmentRemunerationNextYear(id, remunerationModelNextYear, clearVendu);
+            await refresh();
+          },
         });
       }
     },
@@ -254,7 +279,8 @@ export function useAssignments(orgChartId: string | null) {
     updateAssignmentEtpVendu,
     updateAssignmentEtpReel,
     updateAssignmentRemuneration,
-    updateAssignmentNextYear,
+    updateAssignmentEtpVenduNextYear,
+    updateAssignmentRemunerationNextYear,
     deleteAssignment,
   };
 }

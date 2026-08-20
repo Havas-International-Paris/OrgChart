@@ -119,7 +119,7 @@ export interface Database {
           created_by: string | null;
           updated_by: string | null;
           etp_vendu_next_year: number | null;
-          etp_expected_next_year: number | null;
+          remuneration_model_next_year: RemunerationModel | null;
         };
         Insert: {
           id?: string;
@@ -130,14 +130,14 @@ export interface Database {
           remuneration_model?: RemunerationModel | null;
           org_chart_id: string;
           etp_vendu_next_year?: number | null;
-          etp_expected_next_year?: number | null;
+          remuneration_model_next_year?: RemunerationModel | null;
         };
         Update: {
           etp_vendu?: number | null;
           etp_reel?: number | null;
           remuneration_model?: RemunerationModel | null;
           etp_vendu_next_year?: number | null;
-          etp_expected_next_year?: number | null;
+          remuneration_model_next_year?: RemunerationModel | null;
         };
         Relationships: [];
       };

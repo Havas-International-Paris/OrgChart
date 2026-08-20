@@ -6,7 +6,7 @@ import { useClientsMissions } from '../../hooks/useClientsMissions';
 import { useTimeEstimation } from '../../hooks/useTimeEstimation';
 import { averageOverRange, sumMetricRows } from '../../lib/timeEstimationMath';
 import { TrendSparkline } from './TrendSparkline';
-import type { Employee, RemunerationModel } from '../../types/domain';
+import type { Assignment, Employee, RemunerationModel } from '../../types/domain';
 import { useTimeEstimationHistoryStore } from '../../stores/timeEstimationHistoryStore';
 import { withSuppressedRecording } from '../../stores/historyStore';
 
@@ -20,12 +20,14 @@ interface LineItem {
   vendu: number | null;
   prevu: number | null;
   n1Total: number | null;
-  // "% sold N+1"/"% expected N+1" — independent of vendu/prevu above (they
-  // don't share remuneration_model, see 0026's own comment); null until an
-  // assignment has ever had a next-year forecast entered, at which point the
-  // other flips to an explicit 0, mirroring vendu/prevu's own UX.
+  // "% sold N+1"/"% expected N+1" — same shared-column-plus-model-flag
+  // mechanism as vendu/prevu above, but with its own independent
+  // remunerationModelNextYear flag (0027) so an N+1 edit never touches N's
+  // own remuneration_model. Stay null (not 0) until remunerationModelNextYear
+  // is actually set, so a row with no forecast ever entered reads as blank.
+  remunerationModelNextYear: RemunerationModel | null;
   venduNextYear: number | null;
-  expectedNextYear: number | null;
+  prevuNextYear: number | null;
   // Index i = month i+1. actualByMonth sums every resolved time_actuals row
   // for that month (several raw imports can resolve to the same month —
   // summed, not overwritten). overrideByMonth is the manual correction/
@@ -65,7 +67,7 @@ function lineItemMetrics(li: LineItem): Record<string, number | null> {
     prevu: li.prevu,
     n1Total: li.n1Total,
     venduNextYear: li.venduNextYear,
-    expectedNextYear: li.expectedNextYear,
+    prevuNextYear: li.prevuNextYear,
     total: li.total,
     avgPast: li.avgPast,
     avgRemaining: li.avgRemaining,
@@ -233,7 +235,8 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
     createAssignment,
     updateAssignmentEtpVendu,
     updateAssignmentRemuneration,
-    updateAssignmentNextYear,
+    updateAssignmentEtpVenduNextYear,
+    updateAssignmentRemunerationNextYear,
     deleteAssignment,
     restoreAssignment,
   } = useAssignments(registryOrgChartId);
@@ -357,8 +360,9 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
           vendu: null,
           prevu: null,
           n1Total: null,
+          remunerationModelNextYear: null,
           venduNextYear: null,
-          expectedNextYear: null,
+          prevuNextYear: null,
           actualByMonth: new Array(12).fill(null),
           overrideByMonth: new Array(12).fill(null),
           effectiveByMonth: new Array(12).fill(null),
@@ -388,14 +392,19 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
         li.vendu = a.etp_vendu;
         li.prevu = 0;
       }
-      // Independent of remuneration_model — both DB columns are always
-      // written together by updateAssignmentNextYear, so a direct passthrough
-      // is enough; only flip the untouched one to 0 once the OTHER has
-      // actually been set, so a row that predates this feature (both still
-      // null) stays blank rather than showing 0/0.
-      if (a.etp_vendu_next_year != null || a.etp_expected_next_year != null) {
-        li.venduNextYear = a.etp_vendu_next_year ?? 0;
-        li.expectedNextYear = a.etp_expected_next_year ?? 0;
+      // Same bucketing as vendu/prevu above, but only once
+      // remuneration_model_next_year has actually been set by an edit — a
+      // row that predates this feature (flag still null) stays blank rather
+      // than showing 0/0 for a forecast nobody ever entered.
+      if (a.remuneration_model_next_year != null) {
+        li.remunerationModelNextYear = a.remuneration_model_next_year;
+        if (a.remuneration_model_next_year === 'commission') {
+          li.prevuNextYear = a.etp_vendu_next_year;
+          li.venduNextYear = 0;
+        } else {
+          li.venduNextYear = a.etp_vendu_next_year;
+          li.prevuNextYear = 0;
+        }
       }
     }
 
@@ -667,30 +676,42 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
     }
   }
 
-  // "% sold N+1"/"% expected N+1" — independent columns (etp_vendu_next_year/
-  // etp_expected_next_year), not tied to remuneration_model at all: mutual
-  // exclusivity is enforced purely by writing both together on every edit
-  // (the one being edited to its new value, the other to 0), same UX as
-  // vendu/prévu without coupling a next-year forecast edit to the current
-  // year's own billing-model classification. See 0026's own migration
-  // comment for why this deliberately isn't the shared-column-plus-flag
-  // trick vendu/prévu use.
+  // "% sold N+1"/"% expected N+1" — mirrors handleEditVendu/handleEditPrevu
+  // exactly, one shared etp_vendu_next_year column bucketed by its own
+  // remuneration_model_next_year flag (0027), kept independent of the
+  // current year's own remuneration_model so an N+1 edit never retroactively
+  // reclassifies N.
   async function handleEditVenduNextYear(li: LineItem, value: number) {
     const label = t('timeEstimation.history.editVenduNextYear');
     if (li.assignmentId) {
-      const priorVendu = li.venduNextYear;
-      const priorExpected = li.expectedNextYear;
+      const priorValue = li.venduNextYear;
+      const priorModel = li.remunerationModelNextYear;
       const assignmentId = li.assignmentId;
-      await withSuppressedRecording(() => updateAssignmentNextYear(assignmentId, value, 0));
+      const needsModelFix = priorModel !== 'retainer';
+      await withSuppressedRecording(async () => {
+        await updateAssignmentEtpVenduNextYear(assignmentId, value);
+        if (needsModelFix) await updateAssignmentRemunerationNextYear(assignmentId, 'retainer', false);
+      });
       useTimeEstimationHistoryStore.getState().push({
         label,
-        undo: () => withSuppressedRecording(() => updateAssignmentNextYear(assignmentId, priorVendu, priorExpected)),
-        redo: () => withSuppressedRecording(() => updateAssignmentNextYear(assignmentId, value, 0)),
+        undo: () =>
+          withSuppressedRecording(async () => {
+            await updateAssignmentEtpVenduNextYear(assignmentId, priorValue);
+            if (needsModelFix) await updateAssignmentRemunerationNextYear(assignmentId, priorModel, false);
+          }),
+        redo: () =>
+          withSuppressedRecording(async () => {
+            await updateAssignmentEtpVenduNextYear(assignmentId, value);
+            if (needsModelFix) await updateAssignmentRemunerationNextYear(assignmentId, 'retainer', false);
+          }),
       });
     } else {
       const created = await withSuppressedRecording(() => createAssignment(li.employeeId, li.clientMissionId, null, null, null));
-      await withSuppressedRecording(() => updateAssignmentNextYear(created.id, value, 0));
-      const createdWithForecast = { ...created, etp_vendu_next_year: value, etp_expected_next_year: 0 };
+      await withSuppressedRecording(async () => {
+        await updateAssignmentEtpVenduNextYear(created.id, value);
+        await updateAssignmentRemunerationNextYear(created.id, 'retainer', false);
+      });
+      const createdWithForecast: Assignment = { ...created, etp_vendu_next_year: value, remuneration_model_next_year: 'retainer' };
       useTimeEstimationHistoryStore.getState().push({
         label,
         undo: () => withSuppressedRecording(() => deleteAssignment(created.id)),
@@ -699,22 +720,37 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
     }
   }
 
-  async function handleEditExpectedNextYear(li: LineItem, value: number) {
-    const label = t('timeEstimation.history.editExpectedNextYear');
+  async function handleEditPrevuNextYear(li: LineItem, value: number) {
+    const label = t('timeEstimation.history.editPrevuNextYear');
     if (li.assignmentId) {
-      const priorVendu = li.venduNextYear;
-      const priorExpected = li.expectedNextYear;
+      const priorValue = li.prevuNextYear;
+      const priorModel = li.remunerationModelNextYear;
       const assignmentId = li.assignmentId;
-      await withSuppressedRecording(() => updateAssignmentNextYear(assignmentId, 0, value));
+      const needsModelFix = priorModel !== 'commission';
+      await withSuppressedRecording(async () => {
+        await updateAssignmentEtpVenduNextYear(assignmentId, value);
+        if (needsModelFix) await updateAssignmentRemunerationNextYear(assignmentId, 'commission', false);
+      });
       useTimeEstimationHistoryStore.getState().push({
         label,
-        undo: () => withSuppressedRecording(() => updateAssignmentNextYear(assignmentId, priorVendu, priorExpected)),
-        redo: () => withSuppressedRecording(() => updateAssignmentNextYear(assignmentId, 0, value)),
+        undo: () =>
+          withSuppressedRecording(async () => {
+            await updateAssignmentEtpVenduNextYear(assignmentId, priorValue);
+            if (needsModelFix) await updateAssignmentRemunerationNextYear(assignmentId, priorModel, false);
+          }),
+        redo: () =>
+          withSuppressedRecording(async () => {
+            await updateAssignmentEtpVenduNextYear(assignmentId, value);
+            if (needsModelFix) await updateAssignmentRemunerationNextYear(assignmentId, 'commission', false);
+          }),
       });
     } else {
       const created = await withSuppressedRecording(() => createAssignment(li.employeeId, li.clientMissionId, null, null, null));
-      await withSuppressedRecording(() => updateAssignmentNextYear(created.id, 0, value));
-      const createdWithForecast = { ...created, etp_vendu_next_year: 0, etp_expected_next_year: value };
+      await withSuppressedRecording(async () => {
+        await updateAssignmentEtpVenduNextYear(created.id, value);
+        await updateAssignmentRemunerationNextYear(created.id, 'commission', false);
+      });
+      const createdWithForecast: Assignment = { ...created, etp_vendu_next_year: value, remuneration_model_next_year: 'commission' };
       useTimeEstimationHistoryStore.getState().push({
         label,
         undo: () => withSuppressedRecording(() => deleteAssignment(created.id)),
@@ -829,10 +865,10 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
           onCommit={(v) => handleEditVenduNextYear(li, v)}
         />
         <CascadeCell
-          value={li.expectedNextYear}
+          value={li.prevuNextYear}
           tint="pink"
           disabled={cumulDisabled}
-          onCommit={(v) => handleEditExpectedNextYear(li, v)}
+          onCommit={(v) => handleEditPrevuNextYear(li, v)}
         />
         <span className="flex justify-end text-slate-400">
           <TrendSparkline points={points} projectedFromIndex={lastMonth} width={90} height={24} />
@@ -941,7 +977,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
             </span>
           ))}
           <span className="rounded bg-rose-50 px-1 text-right text-rose-700">{t('timeEstimation.grid.venduNextYear')}</span>
-          <span className="rounded bg-rose-50 px-1 text-right text-rose-700">{t('timeEstimation.grid.expectedNextYear')}</span>
+          <span className="rounded bg-rose-50 px-1 text-right text-rose-700">{t('timeEstimation.grid.prevuNextYear')}</span>
           <span className="text-right">{t('timeEstimation.grid.trend')}</span>
         </div>
 
@@ -981,7 +1017,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
                     </span>
                   ))}
                   <span className="text-right text-xs tabular-nums text-white">{fmt(groupAgg.venduNextYear)}</span>
-                  <span className="text-right text-xs tabular-nums text-white">{fmt(groupAgg.expectedNextYear)}</span>
+                  <span className="text-right text-xs tabular-nums text-white">{fmt(groupAgg.prevuNextYear)}</span>
                   <span />
                 </button>
 
@@ -999,7 +1035,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
                             prevu: cumulMetrics.prevu,
                             n1Total: cumulMetrics.n1Total,
                             venduNextYear: cumulMetrics.venduNextYear,
-                            expectedNextYear: cumulMetrics.expectedNextYear,
+                            prevuNextYear: cumulMetrics.prevuNextYear,
                             total: cumulMetrics.total ?? 0,
                             avgPast: cumulMetrics.avgPast ?? 0,
                             avgRemaining: cumulMetrics.avgRemaining ?? 0,
