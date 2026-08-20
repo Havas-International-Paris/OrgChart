@@ -300,7 +300,11 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
   // vendu/prevu edit's own handler already KNOWS the sibling field's new
   // value the instant it starts (mutual exclusivity always zeroes the
   // other), it sets that here immediately — applied over lineItems' own
-  // computed values below — and clears it once the real refetch has landed.
+  // computed values below. There is deliberately no manual "clear" call
+  // anywhere: an override is only ever removed by the auto-convergence
+  // effect further down, once the real data has verifiably caught up to
+  // it — see that effect's own comment for why clearing early caused a
+  // visible flicker.
   const [venduPrevuOverrides, setVenduPrevuOverrides] = useState<
     Map<string, Partial<Pick<LineItem, 'vendu' | 'prevu' | 'venduNextYear' | 'prevuNextYear'>>>
   >(new Map());
@@ -309,19 +313,6 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
     setVenduPrevuOverrides((prev) => {
       const next = new Map(prev);
       next.set(key, { ...next.get(key), ...patch });
-      return next;
-    });
-  }
-  function clearVenduPrevuOverride(li: LineItem, fields: Array<'vendu' | 'prevu' | 'venduNextYear' | 'prevuNextYear'>) {
-    const key = `${li.employeeId}::${li.clientMissionId}`;
-    setVenduPrevuOverrides((prev) => {
-      const existing = prev.get(key);
-      if (!existing) return prev;
-      const next = new Map(prev);
-      const updated = { ...existing };
-      fields.forEach((f) => delete updated[f]);
-      if (Object.keys(updated).length === 0) next.delete(key);
-      else next.set(key, updated);
       return next;
     });
   }
@@ -401,7 +392,9 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
     [lastMonth, monthLabel],
   );
 
-  const lineItems = useMemo<Map<string, LineItem>>(() => {
+  // Pure, override-free line items — see the lineItems memo below for why
+  // this is kept as a separate step.
+  const baseLineItems = useMemo<Map<string, LineItem>>(() => {
     const map = new Map<string, LineItem>();
     const keyOf = (employeeId: string, clientMissionId: string) => `${employeeId}::${clientMissionId}`;
 
@@ -500,13 +493,56 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
       li.avgRemaining = averageOverRange(li.effectiveByMonth.slice(lastMonth, 12));
     }
 
+    return map;
+  }, [assignments, timeActuals, timeForecastMonths, timeActualN1Totals, lastMonth, year]);
+
+  // Overlays the optimistic vendu/prevu override on top of baseLineItems.
+  // Kept as a SEPARATE memo (rather than folded into baseLineItems above)
+  // so the auto-clear effect right below can compare "what the real data
+  // says" against "what the override says" independently — collapsing them
+  // into one step would mean the override could never observe its own
+  // target to know when it's safe to let go.
+  const lineItems = useMemo<Map<string, LineItem>>(() => {
+    if (venduPrevuOverrides.size === 0) return baseLineItems;
+    const map = new Map(baseLineItems);
     for (const [key, patch] of venduPrevuOverrides) {
       const li = map.get(key);
-      if (li) Object.assign(li, patch);
+      if (li) map.set(key, { ...li, ...patch });
     }
-
     return map;
-  }, [assignments, timeActuals, timeForecastMonths, timeActualN1Totals, lastMonth, year, venduPrevuOverrides]);
+  }, [baseLineItems, venduPrevuOverrides]);
+
+  // Clears an override only once the REAL data (baseLineItems, driven by
+  // Supabase) has actually caught up and matches it — never on a timer or
+  // "our own write returned," since useAssignments' refresh() is a full
+  // table refetch AND the realtime subscription independently re-fires its
+  // own refresh() per Postgres change event (one edit here writes 2
+  // columns = 2 events), so several unordered network round trips are
+  // racing for the same row. Clearing early (as a prior version of this fix
+  // did, right after our own write's refresh settled) let a still-in-flight,
+  // stale response land afterward and flicker the value back and forth —
+  // reported live as a %sold cell appearing/disappearing/reappearing, even
+  // triggered by switching windows (which nudges Supabase's realtime client
+  // to reconnect and redeliver). Holding the override until convergence
+  // makes the display immune to how many stale intermediate responses show
+  // up in between, or in what order.
+  useEffect(() => {
+    if (venduPrevuOverrides.size === 0) return;
+    setVenduPrevuOverrides((prev) => {
+      let changed = false;
+      const next = new Map(prev);
+      for (const [key, patch] of prev) {
+        const base = baseLineItems.get(key);
+        if (!base) continue;
+        const converged = (Object.keys(patch) as Array<keyof typeof patch>).every((field) => base[field] === patch[field]);
+        if (converged) {
+          next.delete(key);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [baseLineItems, venduPrevuOverrides]);
 
   function toggleGroup(key: string) {
     setCollapsedGroups((prev) => {
@@ -720,7 +756,6 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
         });
       }
     });
-    clearVenduPrevuOverride(li, ['vendu', 'prevu']);
   }
 
   // A prévu value entered by hand always means the "Commission" model —
@@ -768,7 +803,6 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
         });
       }
     });
-    clearVenduPrevuOverride(li, ['vendu', 'prevu']);
   }
 
   // "% sold N+1"/"% expected N+1" — mirrors handleEditVendu/handleEditPrevu
@@ -820,7 +854,6 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
         });
       }
     });
-    clearVenduPrevuOverride(li, ['venduNextYear', 'prevuNextYear']);
   }
 
   async function handleEditPrevuNextYear(li: LineItem, value: number) {
@@ -864,7 +897,6 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
         });
       }
     });
-    clearVenduPrevuOverride(li, ['venduNextYear', 'prevuNextYear']);
   }
 
   async function handleDrop(clientMissionId: string, targetEmployeeId: string, sourceEmployeeId: string) {
