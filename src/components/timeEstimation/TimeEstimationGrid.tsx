@@ -145,30 +145,38 @@ function CascadeCell({
   // re-click-to-reposition-the-caret behavior once the field is already
   // focused.
   const justFocusedRef = useRef(false);
-  // What the field displayed at the moment this edit gesture began (focus),
-  // frozen for the rest of the gesture — commit() diffs against THIS, never
-  // against the live `value` prop. Two real bugs came from comparing against
-  // `value` directly: (1) `value` can be an unrounded average/sum (e.g.
-  // 12.333), which never equals the rounded draft ("12") even when the user
-  // never touched the field — Tab-ing through such a cell falsely looked
-  // like an edit and painted it green; (2) a sibling cell's own commit can
-  // change THIS cell's `value` out from under it while it's focused (e.g.
-  // vendu/prevu's mutual-exclusivity zeroing the other one mid-Tab) — the
-  // untouched, still-focused field would then see its OWN blur as "changed"
-  // relative to that just-arrived new value and re-commit its stale draft
-  // over it, fighting the edit that was actually intended. Comparing to a
-  // baseline fixed at focus time makes "did the user actually change this"
-  // independent of both rounding and concurrent external updates.
-  const baselineRef = useRef(roundedInputValue(value));
+  // True once the user has actually typed into this field during the
+  // CURRENT focus session (set in onChange, cleared on focus/blur/escape).
+  // This is the one signal commit() and the prop-sync effect below trust —
+  // not "is this field focused," which conflates two very different cases:
+  // a field the user is actively mid-keystroke on (must not be clobbered by
+  // an incoming value), and a field that's simply sitting there focused but
+  // UNTOUCHED while its value changes for an unrelated reason — e.g. a
+  // sibling vendu/prevu edit zeroing this one out from under a Tab-driven
+  // pass-through. An earlier version tried to solve this by freezing a
+  // "baseline" string at focus time and diffing against that, but the
+  // freeze itself raced: a native focus event can fire before React's own
+  // optimistic re-render has landed, so the frozen baseline could capture a
+  // stale pre-update value — confirmed live via console instrumentation
+  // (this exact case: %sold's edit fires, optimistic override sets the
+  // sibling %expected to 0, but the native Tab's focus event reaches
+  // %expected's onFocus BEFORE that render commits, freezing baseline at
+  // the OLD "50" while the prop-sync effect still updates draft to "0" —
+  // the resulting draft/baseline MISMATCH looked exactly like a real edit
+  // and fired an unwanted write). Tracking actual keystrokes sidesteps the
+  // whole timing question: an untouched field always mirrors the live
+  // value regardless of when in the focus lifecycle it changes, and commit
+  // only ever fires for a field the user is provably dirty on.
+  const dirtyRef = useRef(false);
 
   // Keeps the field in sync with the underlying value (optimistic update,
-  // realtime reconciliation, another cell's cascade fill) — but never while
-  // this exact field is focused, so an in-progress edit is never clobbered
-  // out from under the person typing it.
+  // realtime reconciliation, another cell's cascade fill) — EVEN WHILE
+  // FOCUSED, as long as the user hasn't actually typed anything yet. Only
+  // stops once dirty, so an in-progress edit is never clobbered out from
+  // under the person typing it.
   useEffect(() => {
-    if (document.activeElement !== inputRef.current) {
+    if (!dirtyRef.current) {
       setDraft(roundedInputValue(value));
-      baselineRef.current = roundedInputValue(value);
     }
   }, [value]);
 
@@ -179,21 +187,20 @@ function CascadeCell({
   }
 
   async function commit() {
+    if (!dirtyRef.current) return; // never touched this session — nothing to commit
     const trimmed = draft.trim();
-    if (trimmed === baselineRef.current) {
-      // Unchanged from what was shown when this edit gesture began — never
-      // commit, regardless of what the live `value` prop has done since.
-      return;
-    }
     if (trimmed === '') {
+      dirtyRef.current = false;
       setDraft(roundedInputValue(value));
       return;
     }
     const parsed = Number(trimmed);
     if (!Number.isFinite(parsed)) {
+      dirtyRef.current = false;
       setDraft(roundedInputValue(value));
       return;
     }
+    dirtyRef.current = false;
     await onCommit(parsed);
   }
 
@@ -211,11 +218,13 @@ function CascadeCell({
         inputMode="decimal"
         placeholder="—"
         value={draft}
-        onChange={(e) => setDraft(e.target.value)}
+        onChange={(e) => {
+          dirtyRef.current = true;
+          setDraft(e.target.value);
+        }}
         onFocus={(e) => {
           e.target.select();
           justFocusedRef.current = true;
-          baselineRef.current = draft;
         }}
         onMouseUp={(e) => {
           if (justFocusedRef.current) {
@@ -227,6 +236,7 @@ function CascadeCell({
         onKeyDown={(e) => {
           if (e.key === 'Enter') e.currentTarget.blur();
           if (e.key === 'Escape') {
+            dirtyRef.current = false;
             setDraft(roundedInputValue(value));
             e.currentTarget.blur();
           }
