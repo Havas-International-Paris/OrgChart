@@ -254,7 +254,7 @@ export function useTimeEstimation() {
   );
 
   const saveMonthOverrides = useCallback(
-    async (employeeId: string, clientMissionId: string, year: number, months: number[], value: number, totalPct: number) => {
+    async (employeeId: string, clientMissionId: string, year: number, months: number[], value: number | null, totalPct: number) => {
       await applyMonthOverrides(
         employeeId,
         clientMissionId,
@@ -301,7 +301,7 @@ export function useTimeEstimation() {
       clientMissionId: string,
       year: number,
       months: number[],
-      value: number,
+      value: number | null,
       totalPct: number,
       employeeDisplayName: string,
       clientDisplayName: string,
@@ -317,23 +317,25 @@ export function useTimeEstimation() {
               months.includes(a.month)
             ),
         ),
-        ...months.map((month) => ({
-          id: `optimistic-${employeeId}-${clientMissionId}-${year}-${month}`,
-          batch_id: null,
-          year,
-          month,
-          raw_employee_name: employeeDisplayName,
-          raw_client_name: clientDisplayName,
-          raw_sous_dossier: null,
-          raw_group_annonceur: null,
-          raw_payroll_name: null,
-          raw_bu_name: null,
-          etp_pct: value,
-          resolved_employee_id: employeeId,
-          resolved_client_mission_id: clientMissionId,
-          created_at: now,
-          updated_at: now,
-        })),
+        ...(value == null
+          ? []
+          : months.map((month) => ({
+              id: `optimistic-${employeeId}-${clientMissionId}-${year}-${month}`,
+              batch_id: null,
+              year,
+              month,
+              raw_employee_name: employeeDisplayName,
+              raw_client_name: clientDisplayName,
+              raw_sous_dossier: null,
+              raw_group_annonceur: null,
+              raw_payroll_name: null,
+              raw_bu_name: null,
+              etp_pct: value,
+              resolved_employee_id: employeeId,
+              resolved_client_mission_id: clientMissionId,
+              created_at: now,
+              updated_at: now,
+            }))),
       ]);
       setTimeForecasts((prev) => {
         const idx = prev.findIndex((f) => f.employee_id === employeeId && f.client_mission_id === clientMissionId && f.year === year);
@@ -352,18 +354,26 @@ export function useTimeEstimation() {
         ];
       });
 
+      // Clearing a past month (value === null) deletes the underlying row(s)
+      // and leaves nothing behind — same "a manual edit is just as
+      // authoritative as an import until the next one" rule already applies
+      // to a real value (this function always collapses the month down to
+      // exactly one fresh row, replacing whatever was imported); clearing is
+      // the same replacement, just with zero rows instead of one.
       await timeEstimationService.deleteTimeActualsForMonths(employeeId, clientMissionId, year, months);
-      await timeEstimationService.insertManualTimeActuals(
-        months.map((month) => ({
-          employee_id: employeeId,
-          client_mission_id: clientMissionId,
-          year,
-          month,
-          pct: value,
-          employee_name: employeeDisplayName,
-          client_name: clientDisplayName,
-        })),
-      );
+      if (value != null) {
+        await timeEstimationService.insertManualTimeActuals(
+          months.map((month) => ({
+            employee_id: employeeId,
+            client_mission_id: clientMissionId,
+            year,
+            month,
+            pct: value,
+            employee_name: employeeDisplayName,
+            client_name: clientDisplayName,
+          })),
+        );
+      }
       await timeEstimationService.upsertTimeForecast(employeeId, clientMissionId, year, totalPct);
       await refresh();
     },

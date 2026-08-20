@@ -122,6 +122,31 @@ const TINT_TEXT: Record<CellTint, string> = {
   greenDerived: 'text-emerald-700',
 };
 
+// Spreadsheet-style vertical navigation between cells of the SAME column —
+// found geometrically (nearest input whose horizontal position matches, on
+// the correct side of the current one) rather than via a 2D index threaded
+// through props, since the grid's rows are dynamically grouped/collapsed/
+// nested (cumul sub-rows) and a rigid row/col index would have to be kept
+// in sync with all of that. Scoped to the grid's own scroll container via
+// data-time-estimation-grid so this never reaches into an unrelated part of
+// the page. Moving focus fires the current cell's blur naturally (same
+// mechanism Tab already relies on for commit), so no explicit commit() call
+// is needed here.
+function moveFocusVertical(current: HTMLInputElement, direction: 1 | -1) {
+  const container = current.closest('[data-time-estimation-grid]');
+  if (!container) return;
+  const currentRect = current.getBoundingClientRect();
+  const inputs = Array.from(container.querySelectorAll<HTMLInputElement>('input[data-cascade-input]'));
+  const candidates = inputs
+    .filter((el) => el !== current && Math.abs(el.getBoundingClientRect().left - currentRect.left) < 2)
+    .filter((el) => {
+      const top = el.getBoundingClientRect().top;
+      return direction === 1 ? top > currentRect.top : top < currentRect.top;
+    })
+    .sort((a, b) => Math.abs(a.getBoundingClientRect().top - currentRect.top) - Math.abs(b.getBoundingClientRect().top - currentRect.top));
+  candidates[0]?.focus();
+}
+
 function CascadeCell({
   value,
   tint,
@@ -131,7 +156,7 @@ function CascadeCell({
   value: number | null;
   tint?: CellTint;
   disabled?: boolean;
-  onCommit: (value: number) => void | Promise<void>;
+  onCommit: (value: number | null) => void | Promise<void>;
 }) {
   const [draft, setDraft] = useState(roundedInputValue(value));
   const inputRef = useRef<HTMLInputElement>(null);
@@ -189,18 +214,19 @@ function CascadeCell({
   async function commit() {
     if (!dirtyRef.current) return; // never touched this session — nothing to commit
     const trimmed = draft.trim();
+    dirtyRef.current = false;
     if (trimmed === '') {
-      dirtyRef.current = false;
-      setDraft(roundedInputValue(value));
+      // Emptying the field is a real edit — commit null (clear) rather than
+      // silently reverting to the previous value, which used to force the
+      // user to type an explicit 0 to remove a figure.
+      await onCommit(null);
       return;
     }
     const parsed = Number(trimmed);
     if (!Number.isFinite(parsed)) {
-      dirtyRef.current = false;
       setDraft(roundedInputValue(value));
       return;
     }
-    dirtyRef.current = false;
     await onCommit(parsed);
   }
 
@@ -216,6 +242,7 @@ function CascadeCell({
         // that normalization; numeric validity is still enforced in commit().
         type="text"
         inputMode="decimal"
+        data-cascade-input
         placeholder="—"
         value={draft}
         onChange={(e) => {
@@ -239,6 +266,10 @@ function CascadeCell({
             dirtyRef.current = false;
             setDraft(roundedInputValue(value));
             e.currentTarget.blur();
+          }
+          if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+            e.preventDefault();
+            moveFocusVertical(e.currentTarget, e.key === 'ArrowDown' ? 1 : -1);
           }
           // Browsers give every text <input> its own native undo stack for
           // free (Cmd/Ctrl+Z) independent of React — reported live as
@@ -588,7 +619,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
   // time_forecast_months via saveMonthOverrides/restoreMonthOverrides as
   // before. Both halves are captured/applied together so one click undoes
   // whichever combination actually ran.
-  async function handleFill(li: LineItem, months: number[], value: number, label: string, sourceField: string) {
+  async function handleFill(li: LineItem, months: number[], value: number | null, label: string, sourceField: string) {
     const newEffective = [...li.effectiveByMonth];
     months.forEach((m) => {
       newEffective[m - 1] = value;
@@ -650,7 +681,9 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
         pastMonths.length > 0
           ? saveManualActuals(li.employeeId, li.clientMissionId, year, pastMonths, value, totalPct, employeeDisplayName, clientDisplayName)
           : null,
-        saveEditMarker(li.employeeId, li.clientMissionId, year, sourceField),
+        value === null
+          ? clearEditMarker(li.employeeId, li.clientMissionId, year, sourceField)
+          : saveEditMarker(li.employeeId, li.clientMissionId, year, sourceField),
         ...staleDirectFields.map((f) => clearEditMarker(li.employeeId, li.clientMissionId, year, f)),
       ]);
     }
@@ -658,7 +691,9 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
       await Promise.all([
         futureMonths.length > 0 ? restoreMonthOverrides(li.employeeId, li.clientMissionId, year, priorOverrideEntries, priorTotalPct) : null,
         pastMonths.length > 0 ? restoreManualActuals(li.employeeId, li.clientMissionId, year, pastMonths, priorActualRows, priorTotalPct) : null,
-        hadPriorDirectMarker ? null : clearEditMarker(li.employeeId, li.clientMissionId, year, sourceField),
+        hadPriorDirectMarker
+          ? saveEditMarker(li.employeeId, li.clientMissionId, year, sourceField)
+          : clearEditMarker(li.employeeId, li.clientMissionId, year, sourceField),
         ...staleDirectFields.map((f) => saveEditMarker(li.employeeId, li.clientMissionId, year, f)),
       ]);
     }
@@ -667,15 +702,19 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
     useTimeEstimationHistoryStore.getState().push({ label, undo, redo: apply });
   }
 
-  async function handleEditN1Total(li: LineItem, value: number) {
+  async function handleEditN1Total(li: LineItem, value: number | null) {
     const priorValue = li.n1Total;
     const hadPriorDirectMarker = timeManualEditMarkers.some(
       (m) => m.employee_id === li.employeeId && m.client_mission_id === li.clientMissionId && m.year === year && m.field === 'n1Total',
     );
     async function apply() {
       await Promise.all([
-        saveN1Total(li.employeeId, li.clientMissionId, year - 1, value),
-        saveEditMarker(li.employeeId, li.clientMissionId, year, 'n1Total'),
+        value === null
+          ? deleteN1Total(li.employeeId, li.clientMissionId, year - 1)
+          : saveN1Total(li.employeeId, li.clientMissionId, year - 1, value),
+        value === null
+          ? clearEditMarker(li.employeeId, li.clientMissionId, year, 'n1Total')
+          : saveEditMarker(li.employeeId, li.clientMissionId, year, 'n1Total'),
       ]);
     }
     async function undo() {
@@ -683,7 +722,9 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
         priorValue == null
           ? deleteN1Total(li.employeeId, li.clientMissionId, year - 1)
           : saveN1Total(li.employeeId, li.clientMissionId, year - 1, priorValue),
-        hadPriorDirectMarker ? null : clearEditMarker(li.employeeId, li.clientMissionId, year, 'n1Total'),
+        hadPriorDirectMarker
+          ? saveEditMarker(li.employeeId, li.clientMissionId, year, 'n1Total')
+          : clearEditMarker(li.employeeId, li.clientMissionId, year, 'n1Total'),
       ]);
     }
     await apply();
@@ -733,7 +774,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
   // identity-stable-undo convention, a fresh create would mint a new row id
   // — so redo uses restoreAssignment(created) instead, same as every other
   // create-then-undo path in this app.
-  async function handleEditVendu(li: LineItem, value: number) {
+  async function handleEditVendu(li: LineItem, value: number | null) {
     const label = t('timeEstimation.history.editVendu');
     const generation = setVenduPrevuOverride(li, { vendu: value, prevu: 0 });
     await withRowLock(li, async () => {
@@ -742,13 +783,17 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
         const priorValue = current.etp_vendu;
         const priorModel = current.remuneration_model;
         const assignmentId = current.id;
-        await withSuppressedRecording(() => updateAssignmentVenduAndModel(assignmentId, value, 'retainer'));
+        // Clearing (value === null) removes the figure without forcing a
+        // model flip — a real value always means "Retainer," but an empty
+        // cell doesn't mean anything about the model, so it's left as-is.
+        const newModel = value === null ? priorModel : 'retainer';
+        await withSuppressedRecording(() => updateAssignmentVenduAndModel(assignmentId, value, newModel));
         useTimeEstimationHistoryStore.getState().push({
           label,
           undo: () => withSuppressedRecording(() => updateAssignmentVenduAndModel(assignmentId, priorValue, priorModel)),
-          redo: () => withSuppressedRecording(() => updateAssignmentVenduAndModel(assignmentId, value, 'retainer')),
+          redo: () => withSuppressedRecording(() => updateAssignmentVenduAndModel(assignmentId, value, newModel)),
         });
-      } else {
+      } else if (value !== null) {
         const created = await withSuppressedRecording(() => createAssignment(li.employeeId, li.clientMissionId, value, null, 'retainer'));
         useTimeEstimationHistoryStore.getState().push({
           label,
@@ -756,13 +801,14 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
           redo: () => restoreAssignment(created).then(() => {}),
         });
       }
+      // else: clearing a cell with no assignment yet — nothing to do.
     });
     scheduleOverrideClear(li, ['vendu', 'prevu'], generation);
   }
 
   // A prévu value entered by hand always means the "Commission" model —
   // mirrors handleEditVendu exactly (just the other direction).
-  async function handleEditPrevu(li: LineItem, value: number) {
+  async function handleEditPrevu(li: LineItem, value: number | null) {
     const label = t('timeEstimation.history.editPrevu');
     const generation = setVenduPrevuOverride(li, { prevu: value, vendu: 0 });
     await withRowLock(li, async () => {
@@ -771,13 +817,14 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
         const priorValue = current.etp_vendu;
         const priorModel = current.remuneration_model;
         const assignmentId = current.id;
-        await withSuppressedRecording(() => updateAssignmentVenduAndModel(assignmentId, value, 'commission'));
+        const newModel = value === null ? priorModel : 'commission';
+        await withSuppressedRecording(() => updateAssignmentVenduAndModel(assignmentId, value, newModel));
         useTimeEstimationHistoryStore.getState().push({
           label,
           undo: () => withSuppressedRecording(() => updateAssignmentVenduAndModel(assignmentId, priorValue, priorModel)),
-          redo: () => withSuppressedRecording(() => updateAssignmentVenduAndModel(assignmentId, value, 'commission')),
+          redo: () => withSuppressedRecording(() => updateAssignmentVenduAndModel(assignmentId, value, newModel)),
         });
-      } else {
+      } else if (value !== null) {
         const created = await withSuppressedRecording(() =>
           createAssignment(li.employeeId, li.clientMissionId, value, null, 'commission'),
         );
@@ -799,7 +846,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
   // (keyed only by employee+client, not by which year's columns are being
   // touched) — simplest correct choice since all 4 handlers write the same
   // physical row and these are infrequent manual admin edits.
-  async function handleEditVenduNextYear(li: LineItem, value: number) {
+  async function handleEditVenduNextYear(li: LineItem, value: number | null) {
     const label = t('timeEstimation.history.editVenduNextYear');
     const generation = setVenduPrevuOverride(li, { venduNextYear: value, prevuNextYear: 0 });
     await withRowLock(li, async () => {
@@ -808,13 +855,14 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
         const priorValue = current.etp_vendu_next_year;
         const priorModel = current.remuneration_model_next_year;
         const assignmentId = current.id;
-        await withSuppressedRecording(() => updateAssignmentVenduAndModelNextYear(assignmentId, value, 'retainer'));
+        const newModel = value === null ? priorModel : 'retainer';
+        await withSuppressedRecording(() => updateAssignmentVenduAndModelNextYear(assignmentId, value, newModel));
         useTimeEstimationHistoryStore.getState().push({
           label,
           undo: () => withSuppressedRecording(() => updateAssignmentVenduAndModelNextYear(assignmentId, priorValue, priorModel)),
-          redo: () => withSuppressedRecording(() => updateAssignmentVenduAndModelNextYear(assignmentId, value, 'retainer')),
+          redo: () => withSuppressedRecording(() => updateAssignmentVenduAndModelNextYear(assignmentId, value, newModel)),
         });
-      } else {
+      } else if (value !== null) {
         const created = await withSuppressedRecording(() => createAssignment(li.employeeId, li.clientMissionId, null, null, null));
         await withSuppressedRecording(() => updateAssignmentVenduAndModelNextYear(created.id, value, 'retainer'));
         const createdWithForecast: Assignment = { ...created, etp_vendu_next_year: value, remuneration_model_next_year: 'retainer' };
@@ -828,7 +876,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
     scheduleOverrideClear(li, ['venduNextYear', 'prevuNextYear'], generation);
   }
 
-  async function handleEditPrevuNextYear(li: LineItem, value: number) {
+  async function handleEditPrevuNextYear(li: LineItem, value: number | null) {
     const label = t('timeEstimation.history.editPrevuNextYear');
     const generation = setVenduPrevuOverride(li, { prevuNextYear: value, venduNextYear: 0 });
     await withRowLock(li, async () => {
@@ -837,13 +885,14 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
         const priorValue = current.etp_vendu_next_year;
         const priorModel = current.remuneration_model_next_year;
         const assignmentId = current.id;
-        await withSuppressedRecording(() => updateAssignmentVenduAndModelNextYear(assignmentId, value, 'commission'));
+        const newModel = value === null ? priorModel : 'commission';
+        await withSuppressedRecording(() => updateAssignmentVenduAndModelNextYear(assignmentId, value, newModel));
         useTimeEstimationHistoryStore.getState().push({
           label,
           undo: () => withSuppressedRecording(() => updateAssignmentVenduAndModelNextYear(assignmentId, priorValue, priorModel)),
-          redo: () => withSuppressedRecording(() => updateAssignmentVenduAndModelNextYear(assignmentId, value, 'commission')),
+          redo: () => withSuppressedRecording(() => updateAssignmentVenduAndModelNextYear(assignmentId, value, newModel)),
         });
-      } else {
+      } else if (value !== null) {
         const created = await withSuppressedRecording(() => createAssignment(li.employeeId, li.clientMissionId, null, null, null));
         await withSuppressedRecording(() => updateAssignmentVenduAndModelNextYear(created.id, value, 'commission'));
         const createdWithForecast: Assignment = { ...created, etp_vendu_next_year: value, remuneration_model_next_year: 'commission' };
@@ -1052,7 +1101,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto rounded border border-slate-200">
+      <div className="min-h-0 flex-1 overflow-auto rounded border border-slate-200" data-time-estimation-grid>
         <div
           className="sticky top-0 z-10 grid items-center gap-2 border-b border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-500"
           style={{ gridTemplateColumns }}
