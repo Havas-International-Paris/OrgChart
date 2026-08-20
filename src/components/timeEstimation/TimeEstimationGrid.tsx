@@ -238,6 +238,15 @@ function CascadeCell({
       setDraft(roundedInputValue(value));
       return;
     }
+    // Reflect the just-committed value locally right away, rather than
+    // waiting for the `value` prop to come back around through the write +
+    // refetch. Needed because the prop-sync effect above only fires when
+    // `value` actually CHANGES — committing 0 into a cell that was already
+    // (numerically) 0 leaves the prop unchanged, so that effect never
+    // re-runs and the input would otherwise keep showing the raw "0" the
+    // user just typed until something unrelated forced a re-render (e.g. a
+    // page reload) — reported live.
+    setDraft(roundedInputValue(parsed));
     await onCommit(parsed);
   }
 
