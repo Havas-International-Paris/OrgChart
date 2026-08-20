@@ -50,16 +50,27 @@ function employeeName(employee: Employee | undefined): string {
 // of interest here. Still routed through one function so every cell (grey
 // disabled span, group-header aggregate, or an editable field's own
 // resting/blurred display) rounds identically and stays column-aligned.
+// A value that rounds to 0 displays the same as null (blank dash) — per
+// user feedback, 0 and "nothing entered" are equivalent to them, and
+// showing zeroes as blank makes the genuinely non-zero cells stand out.
+// This is display-only: 0 and null stay distinct in the underlying data
+// (e.g. vendu/prevu's mutual-exclusivity bucketing still needs a real 0 to
+// tell "committed to this model, nothing entered" apart from "no
+// assignment at all") — only how they're PRESENTED is unified here.
 function fmt(value: number | null | undefined): string {
-  return value == null ? '—' : `${Math.round(value)}%`;
+  if (value == null) return '—';
+  const rounded = Math.round(value);
+  return rounded === 0 ? '—' : `${rounded}%`;
 }
 
-// Same whole-percent rounding as fmt(), without the "%" — what a
-// CascadeCell's <input> shows outside of an active edit, so a value
-// carrying float noise (e.g. an average like 12.333333) doesn't visually
-// stretch the column and break the row's alignment.
+// Same whole-percent rounding and zero-as-blank rule as fmt(), without the
+// "%" — what a CascadeCell's <input> shows outside of an active edit, so a
+// value carrying float noise (e.g. an average like 12.333333) doesn't
+// visually stretch the column and break the row's alignment.
 function roundedInputValue(value: number | null | undefined): string {
-  return value == null ? '' : String(Math.round(value));
+  if (value == null) return '';
+  const rounded = Math.round(value);
+  return rounded === 0 ? '' : String(rounded);
 }
 
 function lineItemMetrics(li: LineItem): Record<string, number | null> {
