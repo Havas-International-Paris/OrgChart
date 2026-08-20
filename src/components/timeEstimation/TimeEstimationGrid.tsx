@@ -291,6 +291,40 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
   const [collapsedCumul, setCollapsedCumul] = useState<Set<string>>(new Set());
   const [dragEmployeeId, setDragEmployeeId] = useState<string | null>(null);
   const [dropTargetKey, setDropTargetKey] = useState<string | null>(null);
+  // Optimistic override for vendu/prevu (both years), keyed by
+  // employeeId::clientMissionId — useAssignments.refresh() is a full,
+  // org-wide table refetch (deliberate architecture, see CLAUDE.md), slow
+  // enough that a user Tab-ing straight from %sold into %expected would see
+  // the just-focused %expected cell still showing its OLD value for a
+  // visible moment, confusingly landing focus on a "wrong" number. Since a
+  // vendu/prevu edit's own handler already KNOWS the sibling field's new
+  // value the instant it starts (mutual exclusivity always zeroes the
+  // other), it sets that here immediately — applied over lineItems' own
+  // computed values below — and clears it once the real refetch has landed.
+  const [venduPrevuOverrides, setVenduPrevuOverrides] = useState<
+    Map<string, Partial<Pick<LineItem, 'vendu' | 'prevu' | 'venduNextYear' | 'prevuNextYear'>>>
+  >(new Map());
+  function setVenduPrevuOverride(li: LineItem, patch: Partial<Pick<LineItem, 'vendu' | 'prevu' | 'venduNextYear' | 'prevuNextYear'>>) {
+    const key = `${li.employeeId}::${li.clientMissionId}`;
+    setVenduPrevuOverrides((prev) => {
+      const next = new Map(prev);
+      next.set(key, { ...next.get(key), ...patch });
+      return next;
+    });
+  }
+  function clearVenduPrevuOverride(li: LineItem, fields: Array<'vendu' | 'prevu' | 'venduNextYear' | 'prevuNextYear'>) {
+    const key = `${li.employeeId}::${li.clientMissionId}`;
+    setVenduPrevuOverrides((prev) => {
+      const existing = prev.get(key);
+      if (!existing) return prev;
+      const next = new Map(prev);
+      const updated = { ...existing };
+      fields.forEach((f) => delete updated[f]);
+      if (Object.keys(updated).length === 0) next.delete(key);
+      else next.set(key, updated);
+      return next;
+    });
+  }
 
   const employeeById = useMemo(() => new Map(employees.map((e) => [e.id, e])), [employees]);
   const clientMissionById = useMemo(() => new Map(clientsMissions.map((cm) => [cm.id, cm])), [clientsMissions]);
@@ -466,8 +500,13 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
       li.avgRemaining = averageOverRange(li.effectiveByMonth.slice(lastMonth, 12));
     }
 
+    for (const [key, patch] of venduPrevuOverrides) {
+      const li = map.get(key);
+      if (li) Object.assign(li, patch);
+    }
+
     return map;
-  }, [assignments, timeActuals, timeForecastMonths, timeActualN1Totals, lastMonth, year]);
+  }, [assignments, timeActuals, timeForecastMonths, timeActualN1Totals, lastMonth, year, venduPrevuOverrides]);
 
   function toggleGroup(key: string) {
     setCollapsedGroups((prev) => {
@@ -647,6 +686,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
   // same edit rather than leaving vendu populated with no explicit model.
   async function handleEditVendu(li: LineItem, value: number) {
     const label = t('timeEstimation.history.editVendu');
+    setVenduPrevuOverride(li, { vendu: value, prevu: 0 });
     await withRowLock(li, async () => {
       const current = await assignmentService.fetchAssignmentByPair(registryOrgChartId, li.employeeId, li.clientMissionId);
       if (current) {
@@ -680,6 +720,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
         });
       }
     });
+    clearVenduPrevuOverride(li, ['vendu', 'prevu']);
   }
 
   // A prévu value entered by hand always means the "Commission" model —
@@ -691,6 +732,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
   // confirmed as the actual cause of "% expected doesn't persist" reports.
   async function handleEditPrevu(li: LineItem, value: number) {
     const label = t('timeEstimation.history.editPrevu');
+    setVenduPrevuOverride(li, { prevu: value, vendu: 0 });
     await withRowLock(li, async () => {
       const current = await assignmentService.fetchAssignmentByPair(registryOrgChartId, li.employeeId, li.clientMissionId);
       if (current) {
@@ -726,6 +768,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
         });
       }
     });
+    clearVenduPrevuOverride(li, ['vendu', 'prevu']);
   }
 
   // "% sold N+1"/"% expected N+1" — mirrors handleEditVendu/handleEditPrevu
@@ -738,6 +781,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
   // physical row and these are infrequent manual admin edits.
   async function handleEditVenduNextYear(li: LineItem, value: number) {
     const label = t('timeEstimation.history.editVenduNextYear');
+    setVenduPrevuOverride(li, { venduNextYear: value, prevuNextYear: 0 });
     await withRowLock(li, async () => {
       const current = await assignmentService.fetchAssignmentByPair(registryOrgChartId, li.employeeId, li.clientMissionId);
       if (current) {
@@ -776,10 +820,12 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
         });
       }
     });
+    clearVenduPrevuOverride(li, ['venduNextYear', 'prevuNextYear']);
   }
 
   async function handleEditPrevuNextYear(li: LineItem, value: number) {
     const label = t('timeEstimation.history.editPrevuNextYear');
+    setVenduPrevuOverride(li, { prevuNextYear: value, venduNextYear: 0 });
     await withRowLock(li, async () => {
       const current = await assignmentService.fetchAssignmentByPair(registryOrgChartId, li.employeeId, li.clientMissionId);
       if (current) {
@@ -818,6 +864,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
         });
       }
     });
+    clearVenduPrevuOverride(li, ['venduNextYear', 'prevuNextYear']);
   }
 
   async function handleDrop(clientMissionId: string, targetEmployeeId: string, sourceEmployeeId: string) {
