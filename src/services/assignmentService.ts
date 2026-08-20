@@ -17,6 +17,28 @@ export async function fetchAssignmentsAcrossCharts(excludeChartId: string): Prom
   return data as Assignment[];
 }
 
+// Direct, uncached read of one (employee, client) pair's row — used by
+// TimeEstimationGrid's vendu/prevu handlers to decide their
+// remuneration_model flip from the FRESHEST server state right before
+// writing, rather than from a component-render snapshot that can be stale
+// by the time a second, rapidly-fired edit (e.g. Tab from % sold to %
+// expected) runs — see the grid's own withRowLock for the full race.
+export async function fetchAssignmentByPair(
+  orgChartId: string,
+  employeeId: string,
+  clientMissionId: string,
+): Promise<Assignment | null> {
+  const { data, error } = await supabase
+    .from('assignments')
+    .select('*')
+    .eq('org_chart_id', orgChartId)
+    .eq('employee_id', employeeId)
+    .eq('client_mission_id', clientMissionId)
+    .maybeSingle();
+  if (error) throw error;
+  return data as Assignment | null;
+}
+
 export async function createAssignment(
   orgChartId: string,
   employeeId: string,

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useEmployees } from '../../hooks/useEmployees';
 import { useAssignments } from '../../hooks/useAssignments';
+import * as assignmentService from '../../services/assignmentService';
 import { useClientsMissions } from '../../hooks/useClientsMissions';
 import { useTimeEstimation } from '../../hooks/useTimeEstimation';
 import { averageOverRange, sumMetricRows } from '../../lib/timeEstimationMath';
@@ -600,6 +601,29 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
     useTimeEstimationHistoryStore.getState().push({ label: t('timeEstimation.history.editN1Total'), undo, redo: apply });
   }
 
+  // Serializes concurrent edits to the SAME (employee, client) assignment
+  // row. Tab moves focus — and fires the next cell's blur-commit — before
+  // the previous edit's async write+refresh has landed. Without this, a
+  // second edit fired that fast would decide its own remuneration_model
+  // flip from the SAME stale `li` snapshot the first edit started from (or
+  // race it to CREATE the row in the first place), letting vendu and prevu
+  // end up non-zero at once even though they're bucketed from one physical
+  // column + one flag — reported live via Kevin Binoy showing both %sold
+  // and %expected simultaneously. Keyed by employee+client (not
+  // assignmentId), since it must also serialize the very first edit that
+  // creates the row. The function passed in always re-reads the row fresh
+  // from Supabase (fetchAssignmentByPair) rather than trusting the `li`
+  // argument or component state, since by the time a queued edit actually
+  // runs, React's own state may not have caught up with the previous edit's
+  // write yet even though the write itself is done.
+  const rowLocksRef = useRef(new Map<string, Promise<unknown>>());
+  function withRowLock<T>(li: LineItem, fn: () => Promise<T>): Promise<T> {
+    const key = `${li.employeeId}::${li.clientMissionId}`;
+    const queued = (rowLocksRef.current.get(key) ?? Promise.resolve()).catch(() => undefined).then(fn);
+    rowLocksRef.current.set(key, queued.catch(() => undefined));
+    return queued;
+  }
+
   // "% vendu"/"% prévu" both read/write the same assignments.etp_vendu
   // column, bucketed into one column or the other by remuneration_model
   // (see CLAUDE.md) — editing whichever one is currently empty on a line
@@ -623,36 +647,39 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
   // same edit rather than leaving vendu populated with no explicit model.
   async function handleEditVendu(li: LineItem, value: number) {
     const label = t('timeEstimation.history.editVendu');
-    if (li.assignmentId) {
-      const priorValue = li.vendu;
-      const priorModel = li.remunerationModel;
-      const assignmentId = li.assignmentId;
-      const needsModelFix = priorModel !== 'retainer';
-      await withSuppressedRecording(async () => {
-        await updateAssignmentEtpVendu(assignmentId, value);
-        if (needsModelFix) await updateAssignmentRemuneration(assignmentId, 'retainer', false);
-      });
-      useTimeEstimationHistoryStore.getState().push({
-        label,
-        undo: () =>
-          withSuppressedRecording(async () => {
-            await updateAssignmentEtpVendu(assignmentId, priorValue);
-            if (needsModelFix) await updateAssignmentRemuneration(assignmentId, priorModel, false);
-          }),
-        redo: () =>
-          withSuppressedRecording(async () => {
-            await updateAssignmentEtpVendu(assignmentId, value);
-            if (needsModelFix) await updateAssignmentRemuneration(assignmentId, 'retainer', false);
-          }),
-      });
-    } else {
-      const created = await withSuppressedRecording(() => createAssignment(li.employeeId, li.clientMissionId, value, null, 'retainer'));
-      useTimeEstimationHistoryStore.getState().push({
-        label,
-        undo: () => withSuppressedRecording(() => deleteAssignment(created.id)),
-        redo: () => restoreAssignment(created).then(() => {}),
-      });
-    }
+    await withRowLock(li, async () => {
+      const current = await assignmentService.fetchAssignmentByPair(registryOrgChartId, li.employeeId, li.clientMissionId);
+      if (current) {
+        const priorValue = current.etp_vendu;
+        const priorModel = current.remuneration_model;
+        const assignmentId = current.id;
+        const needsModelFix = priorModel !== 'retainer';
+        await withSuppressedRecording(async () => {
+          await updateAssignmentEtpVendu(assignmentId, value);
+          if (needsModelFix) await updateAssignmentRemuneration(assignmentId, 'retainer', false);
+        });
+        useTimeEstimationHistoryStore.getState().push({
+          label,
+          undo: () =>
+            withSuppressedRecording(async () => {
+              await updateAssignmentEtpVendu(assignmentId, priorValue);
+              if (needsModelFix) await updateAssignmentRemuneration(assignmentId, priorModel, false);
+            }),
+          redo: () =>
+            withSuppressedRecording(async () => {
+              await updateAssignmentEtpVendu(assignmentId, value);
+              if (needsModelFix) await updateAssignmentRemuneration(assignmentId, 'retainer', false);
+            }),
+        });
+      } else {
+        const created = await withSuppressedRecording(() => createAssignment(li.employeeId, li.clientMissionId, value, null, 'retainer'));
+        useTimeEstimationHistoryStore.getState().push({
+          label,
+          undo: () => withSuppressedRecording(() => deleteAssignment(created.id)),
+          redo: () => restoreAssignment(created).then(() => {}),
+        });
+      }
+    });
   }
 
   // A prévu value entered by hand always means the "Commission" model —
@@ -664,121 +691,133 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
   // confirmed as the actual cause of "% expected doesn't persist" reports.
   async function handleEditPrevu(li: LineItem, value: number) {
     const label = t('timeEstimation.history.editPrevu');
-    if (li.assignmentId) {
-      const priorValue = li.prevu;
-      const priorModel = li.remunerationModel;
-      const assignmentId = li.assignmentId;
-      const needsModelFix = priorModel !== 'commission';
-      await withSuppressedRecording(async () => {
-        await updateAssignmentEtpVendu(assignmentId, value);
-        if (needsModelFix) await updateAssignmentRemuneration(assignmentId, 'commission', false);
-      });
-      useTimeEstimationHistoryStore.getState().push({
-        label,
-        undo: () =>
-          withSuppressedRecording(async () => {
-            await updateAssignmentEtpVendu(assignmentId, priorValue);
-            if (needsModelFix) await updateAssignmentRemuneration(assignmentId, priorModel, false);
-          }),
-        redo: () =>
-          withSuppressedRecording(async () => {
-            await updateAssignmentEtpVendu(assignmentId, value);
-            if (needsModelFix) await updateAssignmentRemuneration(assignmentId, 'commission', false);
-          }),
-      });
-    } else {
-      const created = await withSuppressedRecording(() =>
-        createAssignment(li.employeeId, li.clientMissionId, value, null, 'commission'),
-      );
-      useTimeEstimationHistoryStore.getState().push({
-        label,
-        undo: () => withSuppressedRecording(() => deleteAssignment(created.id)),
-        redo: () => restoreAssignment(created).then(() => {}),
-      });
-    }
+    await withRowLock(li, async () => {
+      const current = await assignmentService.fetchAssignmentByPair(registryOrgChartId, li.employeeId, li.clientMissionId);
+      if (current) {
+        const priorValue = current.etp_vendu;
+        const priorModel = current.remuneration_model;
+        const assignmentId = current.id;
+        const needsModelFix = priorModel !== 'commission';
+        await withSuppressedRecording(async () => {
+          await updateAssignmentEtpVendu(assignmentId, value);
+          if (needsModelFix) await updateAssignmentRemuneration(assignmentId, 'commission', false);
+        });
+        useTimeEstimationHistoryStore.getState().push({
+          label,
+          undo: () =>
+            withSuppressedRecording(async () => {
+              await updateAssignmentEtpVendu(assignmentId, priorValue);
+              if (needsModelFix) await updateAssignmentRemuneration(assignmentId, priorModel, false);
+            }),
+          redo: () =>
+            withSuppressedRecording(async () => {
+              await updateAssignmentEtpVendu(assignmentId, value);
+              if (needsModelFix) await updateAssignmentRemuneration(assignmentId, 'commission', false);
+            }),
+        });
+      } else {
+        const created = await withSuppressedRecording(() =>
+          createAssignment(li.employeeId, li.clientMissionId, value, null, 'commission'),
+        );
+        useTimeEstimationHistoryStore.getState().push({
+          label,
+          undo: () => withSuppressedRecording(() => deleteAssignment(created.id)),
+          redo: () => restoreAssignment(created).then(() => {}),
+        });
+      }
+    });
   }
 
   // "% sold N+1"/"% expected N+1" — mirrors handleEditVendu/handleEditPrevu
   // exactly, one shared etp_vendu_next_year column bucketed by its own
   // remuneration_model_next_year flag (0027), kept independent of the
   // current year's own remuneration_model so an N+1 edit never retroactively
-  // reclassifies N.
+  // reclassifies N. Uses the SAME row lock as the current-year handlers
+  // (keyed only by employee+client, not by which year's columns are being
+  // touched) — simplest correct choice since all 4 handlers write the same
+  // physical row and these are infrequent manual admin edits.
   async function handleEditVenduNextYear(li: LineItem, value: number) {
     const label = t('timeEstimation.history.editVenduNextYear');
-    if (li.assignmentId) {
-      const priorValue = li.venduNextYear;
-      const priorModel = li.remunerationModelNextYear;
-      const assignmentId = li.assignmentId;
-      const needsModelFix = priorModel !== 'retainer';
-      await withSuppressedRecording(async () => {
-        await updateAssignmentEtpVenduNextYear(assignmentId, value);
-        if (needsModelFix) await updateAssignmentRemunerationNextYear(assignmentId, 'retainer', false);
-      });
-      useTimeEstimationHistoryStore.getState().push({
-        label,
-        undo: () =>
-          withSuppressedRecording(async () => {
-            await updateAssignmentEtpVenduNextYear(assignmentId, priorValue);
-            if (needsModelFix) await updateAssignmentRemunerationNextYear(assignmentId, priorModel, false);
-          }),
-        redo: () =>
-          withSuppressedRecording(async () => {
-            await updateAssignmentEtpVenduNextYear(assignmentId, value);
-            if (needsModelFix) await updateAssignmentRemunerationNextYear(assignmentId, 'retainer', false);
-          }),
-      });
-    } else {
-      const created = await withSuppressedRecording(() => createAssignment(li.employeeId, li.clientMissionId, null, null, null));
-      await withSuppressedRecording(async () => {
-        await updateAssignmentEtpVenduNextYear(created.id, value);
-        await updateAssignmentRemunerationNextYear(created.id, 'retainer', false);
-      });
-      const createdWithForecast: Assignment = { ...created, etp_vendu_next_year: value, remuneration_model_next_year: 'retainer' };
-      useTimeEstimationHistoryStore.getState().push({
-        label,
-        undo: () => withSuppressedRecording(() => deleteAssignment(created.id)),
-        redo: () => restoreAssignment(createdWithForecast).then(() => {}),
-      });
-    }
+    await withRowLock(li, async () => {
+      const current = await assignmentService.fetchAssignmentByPair(registryOrgChartId, li.employeeId, li.clientMissionId);
+      if (current) {
+        const priorValue = current.etp_vendu_next_year;
+        const priorModel = current.remuneration_model_next_year;
+        const assignmentId = current.id;
+        const needsModelFix = priorModel !== 'retainer';
+        await withSuppressedRecording(async () => {
+          await updateAssignmentEtpVenduNextYear(assignmentId, value);
+          if (needsModelFix) await updateAssignmentRemunerationNextYear(assignmentId, 'retainer', false);
+        });
+        useTimeEstimationHistoryStore.getState().push({
+          label,
+          undo: () =>
+            withSuppressedRecording(async () => {
+              await updateAssignmentEtpVenduNextYear(assignmentId, priorValue);
+              if (needsModelFix) await updateAssignmentRemunerationNextYear(assignmentId, priorModel, false);
+            }),
+          redo: () =>
+            withSuppressedRecording(async () => {
+              await updateAssignmentEtpVenduNextYear(assignmentId, value);
+              if (needsModelFix) await updateAssignmentRemunerationNextYear(assignmentId, 'retainer', false);
+            }),
+        });
+      } else {
+        const created = await withSuppressedRecording(() => createAssignment(li.employeeId, li.clientMissionId, null, null, null));
+        await withSuppressedRecording(async () => {
+          await updateAssignmentEtpVenduNextYear(created.id, value);
+          await updateAssignmentRemunerationNextYear(created.id, 'retainer', false);
+        });
+        const createdWithForecast: Assignment = { ...created, etp_vendu_next_year: value, remuneration_model_next_year: 'retainer' };
+        useTimeEstimationHistoryStore.getState().push({
+          label,
+          undo: () => withSuppressedRecording(() => deleteAssignment(created.id)),
+          redo: () => restoreAssignment(createdWithForecast).then(() => {}),
+        });
+      }
+    });
   }
 
   async function handleEditPrevuNextYear(li: LineItem, value: number) {
     const label = t('timeEstimation.history.editPrevuNextYear');
-    if (li.assignmentId) {
-      const priorValue = li.prevuNextYear;
-      const priorModel = li.remunerationModelNextYear;
-      const assignmentId = li.assignmentId;
-      const needsModelFix = priorModel !== 'commission';
-      await withSuppressedRecording(async () => {
-        await updateAssignmentEtpVenduNextYear(assignmentId, value);
-        if (needsModelFix) await updateAssignmentRemunerationNextYear(assignmentId, 'commission', false);
-      });
-      useTimeEstimationHistoryStore.getState().push({
-        label,
-        undo: () =>
-          withSuppressedRecording(async () => {
-            await updateAssignmentEtpVenduNextYear(assignmentId, priorValue);
-            if (needsModelFix) await updateAssignmentRemunerationNextYear(assignmentId, priorModel, false);
-          }),
-        redo: () =>
-          withSuppressedRecording(async () => {
-            await updateAssignmentEtpVenduNextYear(assignmentId, value);
-            if (needsModelFix) await updateAssignmentRemunerationNextYear(assignmentId, 'commission', false);
-          }),
-      });
-    } else {
-      const created = await withSuppressedRecording(() => createAssignment(li.employeeId, li.clientMissionId, null, null, null));
-      await withSuppressedRecording(async () => {
-        await updateAssignmentEtpVenduNextYear(created.id, value);
-        await updateAssignmentRemunerationNextYear(created.id, 'commission', false);
-      });
-      const createdWithForecast: Assignment = { ...created, etp_vendu_next_year: value, remuneration_model_next_year: 'commission' };
-      useTimeEstimationHistoryStore.getState().push({
-        label,
-        undo: () => withSuppressedRecording(() => deleteAssignment(created.id)),
-        redo: () => restoreAssignment(createdWithForecast).then(() => {}),
-      });
-    }
+    await withRowLock(li, async () => {
+      const current = await assignmentService.fetchAssignmentByPair(registryOrgChartId, li.employeeId, li.clientMissionId);
+      if (current) {
+        const priorValue = current.etp_vendu_next_year;
+        const priorModel = current.remuneration_model_next_year;
+        const assignmentId = current.id;
+        const needsModelFix = priorModel !== 'commission';
+        await withSuppressedRecording(async () => {
+          await updateAssignmentEtpVenduNextYear(assignmentId, value);
+          if (needsModelFix) await updateAssignmentRemunerationNextYear(assignmentId, 'commission', false);
+        });
+        useTimeEstimationHistoryStore.getState().push({
+          label,
+          undo: () =>
+            withSuppressedRecording(async () => {
+              await updateAssignmentEtpVenduNextYear(assignmentId, priorValue);
+              if (needsModelFix) await updateAssignmentRemunerationNextYear(assignmentId, priorModel, false);
+            }),
+          redo: () =>
+            withSuppressedRecording(async () => {
+              await updateAssignmentEtpVenduNextYear(assignmentId, value);
+              if (needsModelFix) await updateAssignmentRemunerationNextYear(assignmentId, 'commission', false);
+            }),
+        });
+      } else {
+        const created = await withSuppressedRecording(() => createAssignment(li.employeeId, li.clientMissionId, null, null, null));
+        await withSuppressedRecording(async () => {
+          await updateAssignmentEtpVenduNextYear(created.id, value);
+          await updateAssignmentRemunerationNextYear(created.id, 'commission', false);
+        });
+        const createdWithForecast: Assignment = { ...created, etp_vendu_next_year: value, remuneration_model_next_year: 'commission' };
+        useTimeEstimationHistoryStore.getState().push({
+          label,
+          undo: () => withSuppressedRecording(() => deleteAssignment(created.id)),
+          redo: () => restoreAssignment(createdWithForecast).then(() => {}),
+        });
+      }
+    });
   }
 
   async function handleDrop(clientMissionId: string, targetEmployeeId: string, sourceEmployeeId: string) {
