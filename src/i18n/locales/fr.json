@@ -420,6 +420,7 @@
     "updateAssignment": "Modifier une affectation",
     "updateEtpSold": "Modifier le % vendu",
     "updateEtpActual": "Modifier le % réel",
+    "updateNextYearForecast": "Modifier la prévision N+1",
     "updateRemunerationModel": "Modifier le modèle de rémunération",
     "deleteAssignment": "Supprimer une affectation",
     "createDepartment": "Créer la business unit {{name}}",
@@ -484,6 +485,8 @@
       "prevu": "% prévu",
       "totalN1": "Total N-1",
       "total": "% total",
+      "venduNextYear": "% vendu N+1",
+      "expectedNextYear": "% prévu N+1",
       "trend": "Tendance",
       "loading": "Chargement…",
       "empty": "Aucune donnée pour le moment.",
@@ -499,7 +502,9 @@
       "editTotal": "Modifier le % total",
       "editN1Total": "Modifier le Total N-1",
       "editVendu": "Modifier le % vendu",
-      "editPrevu": "Modifier le % prévu"
+      "editPrevu": "Modifier le % prévu",
+      "editVenduNextYear": "Modifier le % vendu N+1",
+      "editExpectedNextYear": "Modifier le % prévu N+1"
     },
     "wizard": {
       "title": "Importer un extract de temps passé",

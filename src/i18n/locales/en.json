@@ -420,6 +420,7 @@
     "updateAssignment": "Edit an assignment",
     "updateEtpSold": "Edit % sold",
     "updateEtpActual": "Edit % actual",
+    "updateNextYearForecast": "Edit next-year forecast",
     "updateRemunerationModel": "Edit remuneration model",
     "deleteAssignment": "Delete an assignment",
     "createDepartment": "Create business unit {{name}}",
@@ -484,6 +485,8 @@
       "prevu": "% expected",
       "totalN1": "Total N-1",
       "total": "% total",
+      "venduNextYear": "% sold N+1",
+      "expectedNextYear": "% expected N+1",
       "trend": "Trend",
       "loading": "Loading…",
       "empty": "No data yet.",
@@ -499,7 +502,9 @@
       "editTotal": "Edit % total",
       "editN1Total": "Edit Total N-1",
       "editVendu": "Edit % sold",
-      "editPrevu": "Edit % expected"
+      "editPrevu": "Edit % expected",
+      "editVenduNextYear": "Edit % sold N+1",
+      "editExpectedNextYear": "Edit % expected N+1"
     },
     "wizard": {
       "title": "Import a time-tracking extract",

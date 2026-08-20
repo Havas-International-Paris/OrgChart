@@ -122,6 +122,11 @@ export interface Assignment {
   // Added in 0025 — nullable, existing rows predate this migration.
   created_by: string | null;
   updated_by: string | null;
+  // Added in 0026 — "% sold N+1"/"% expected N+1" on the Time Estimation
+  // grid, independent of the current year's etp_vendu/remuneration_model
+  // (see that migration's own comment for why they're separate columns).
+  etp_vendu_next_year: number | null;
+  etp_expected_next_year: number | null;
 }
 
 export type AssignmentInput = Pick<Assignment, 'employee_id' | 'client_mission_id'> &

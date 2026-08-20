@@ -153,6 +153,25 @@ export function useAssignments(orgChartId: string | null) {
     [assignments, refresh, orgChartId, t],
   );
 
+  const updateAssignmentNextYear = useCallback(
+    async (id: string, etpVenduNextYear: number | null, etpExpectedNextYear: number | null) => {
+      const before = assignments.find((a) => a.id === id);
+      await assignmentService.updateAssignmentNextYear(id, etpVenduNextYear, etpExpectedNextYear);
+      await refresh();
+      if (before && orgChartId) {
+        const oldVendu = before.etp_vendu_next_year;
+        const oldExpected = before.etp_expected_next_year;
+        useHistoryStore.getState().push({
+          label: t('history.updateNextYearForecast'),
+          orgChartId,
+          undo: async () => { await updateAssignmentNextYear(id, oldVendu, oldExpected); },
+          redo: async () => { await updateAssignmentNextYear(id, etpVenduNextYear, etpExpectedNextYear); },
+        });
+      }
+    },
+    [assignments, refresh, orgChartId, t],
+  );
+
   const updateAssignmentEtpReel = useCallback(
     async (id: string, etpReel: number | null) => {
       const before = assignments.find((a) => a.id === id);
@@ -235,6 +254,7 @@ export function useAssignments(orgChartId: string | null) {
     updateAssignmentEtpVendu,
     updateAssignmentEtpReel,
     updateAssignmentRemuneration,
+    updateAssignmentNextYear,
     deleteAssignment,
   };
 }
