@@ -256,10 +256,8 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
   const {
     assignments,
     createAssignment,
-    updateAssignmentEtpVendu,
-    updateAssignmentRemuneration,
-    updateAssignmentEtpVenduNextYear,
-    updateAssignmentRemunerationNextYear,
+    updateAssignmentVenduAndModel,
+    updateAssignmentVenduAndModelNextYear,
     deleteAssignment,
     restoreAssignment,
   } = useAssignments(registryOrgChartId);
@@ -293,28 +291,65 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
   const [dropTargetKey, setDropTargetKey] = useState<string | null>(null);
   // Optimistic override for vendu/prevu (both years), keyed by
   // employeeId::clientMissionId — useAssignments.refresh() is a full,
-  // org-wide table refetch (deliberate architecture, see CLAUDE.md), slow
-  // enough that a user Tab-ing straight from %sold into %expected would see
-  // the just-focused %expected cell still showing its OLD value for a
-  // visible moment, confusingly landing focus on a "wrong" number. Since a
-  // vendu/prevu edit's own handler already KNOWS the sibling field's new
+  // org-wide table refetch (deliberate architecture, see CLAUDE.md). Even
+  // after combining each edit's value+model write into one atomic update
+  // (see assignmentService), a Tab-driven edit still races the resulting
+  // Postgres change event's own realtime-triggered refresh() against our
+  // own explicit one — two unordered network round trips for the same row.
+  // A vendu/prevu edit's own handler already KNOWS the sibling field's new
   // value the instant it starts (mutual exclusivity always zeroes the
-  // other), it sets that here immediately — applied over lineItems' own
-  // computed values below. There is deliberately no manual "clear" call
-  // anywhere: an override is only ever removed by the auto-convergence
-  // effect further down, once the real data has verifiably caught up to
-  // it — see that effect's own comment for why clearing early caused a
-  // visible flicker.
+  // other), so it's set here immediately, applied over lineItems' own
+  // computed values below.
+  //
+  // Clearing is generation-tracked and time-bounded, NOT value-comparison
+  // based — an earlier version cleared an override the first time the raw
+  // data happened to match it, which turned out unsafe: a LATER, still
+  // in-flight stale response could land afterward and overwrite the now-
+  // unprotected cell anyway (reported live as %sold reverting to 0 on its
+  // own after tabbing through an untouched %expected). Each override write
+  // bumps a generation counter for its (row, field-pair) key; the timeout
+  // scheduled right after that write only actually clears if it's still the
+  // most recent one for that key — so a newer edit on the same field pair
+  // silently supersedes an older pending clear instead of racing it.
   const [venduPrevuOverrides, setVenduPrevuOverrides] = useState<
     Map<string, Partial<Pick<LineItem, 'vendu' | 'prevu' | 'venduNextYear' | 'prevuNextYear'>>>
   >(new Map());
+  const overrideGenerationRef = useRef(new Map<string, number>());
+  function overrideGroupKey(li: LineItem, fields: Array<'vendu' | 'prevu' | 'venduNextYear' | 'prevuNextYear'>) {
+    return `${li.employeeId}::${li.clientMissionId}::${[...fields].sort().join(',')}`;
+  }
   function setVenduPrevuOverride(li: LineItem, patch: Partial<Pick<LineItem, 'vendu' | 'prevu' | 'venduNextYear' | 'prevuNextYear'>>) {
-    const key = `${li.employeeId}::${li.clientMissionId}`;
+    const rowKey = `${li.employeeId}::${li.clientMissionId}`;
+    const groupKey = overrideGroupKey(li, Object.keys(patch) as Array<'vendu' | 'prevu' | 'venduNextYear' | 'prevuNextYear'>);
+    const generation = (overrideGenerationRef.current.get(groupKey) ?? 0) + 1;
+    overrideGenerationRef.current.set(groupKey, generation);
     setVenduPrevuOverrides((prev) => {
       const next = new Map(prev);
-      next.set(key, { ...next.get(key), ...patch });
+      next.set(rowKey, { ...next.get(rowKey), ...patch });
       return next;
     });
+    return generation;
+  }
+  // Fires ~2s after a write settles — comfortably longer than a normal
+  // Supabase round trip plus realtime propagation, short enough that a
+  // genuinely different concurrent edit (another admin, another tab) still
+  // shows up promptly.
+  function scheduleOverrideClear(li: LineItem, fields: Array<'vendu' | 'prevu' | 'venduNextYear' | 'prevuNextYear'>, generation: number) {
+    const rowKey = `${li.employeeId}::${li.clientMissionId}`;
+    const groupKey = overrideGroupKey(li, fields);
+    window.setTimeout(() => {
+      if (overrideGenerationRef.current.get(groupKey) !== generation) return;
+      setVenduPrevuOverrides((prev) => {
+        const existing = prev.get(rowKey);
+        if (!existing) return prev;
+        const next = new Map(prev);
+        const updated = { ...existing };
+        fields.forEach((f) => delete updated[f]);
+        if (Object.keys(updated).length === 0) next.delete(rowKey);
+        else next.set(rowKey, updated);
+        return next;
+      });
+    }, 2000);
   }
 
   const employeeById = useMemo(() => new Map(employees.map((e) => [e.id, e])), [employees]);
@@ -497,11 +532,12 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
   }, [assignments, timeActuals, timeForecastMonths, timeActualN1Totals, lastMonth, year]);
 
   // Overlays the optimistic vendu/prevu override on top of baseLineItems.
-  // Kept as a SEPARATE memo (rather than folded into baseLineItems above)
-  // so the auto-clear effect right below can compare "what the real data
-  // says" against "what the override says" independently — collapsing them
-  // into one step would mean the override could never observe its own
-  // target to know when it's safe to let go.
+  // The override itself clears on a generation-tracked timeout (see
+  // scheduleOverrideClear above), not by watching for this overlay to
+  // "agree" with the raw data — a value-comparison approach looked
+  // appealing but is unsound here: a still in-flight, stale refresh can
+  // land AFTER a correct-looking one and silently regress the row once
+  // nothing is protecting it anymore.
   const lineItems = useMemo<Map<string, LineItem>>(() => {
     if (venduPrevuOverrides.size === 0) return baseLineItems;
     const map = new Map(baseLineItems);
@@ -510,38 +546,6 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
       if (li) map.set(key, { ...li, ...patch });
     }
     return map;
-  }, [baseLineItems, venduPrevuOverrides]);
-
-  // Clears an override only once the REAL data (baseLineItems, driven by
-  // Supabase) has actually caught up and matches it — never on a timer or
-  // "our own write returned," since useAssignments' refresh() is a full
-  // table refetch AND the realtime subscription independently re-fires its
-  // own refresh() per Postgres change event (one edit here writes 2
-  // columns = 2 events), so several unordered network round trips are
-  // racing for the same row. Clearing early (as a prior version of this fix
-  // did, right after our own write's refresh settled) let a still-in-flight,
-  // stale response land afterward and flicker the value back and forth —
-  // reported live as a %sold cell appearing/disappearing/reappearing, even
-  // triggered by switching windows (which nudges Supabase's realtime client
-  // to reconnect and redeliver). Holding the override until convergence
-  // makes the display immune to how many stale intermediate responses show
-  // up in between, or in what order.
-  useEffect(() => {
-    if (venduPrevuOverrides.size === 0) return;
-    setVenduPrevuOverrides((prev) => {
-      let changed = false;
-      const next = new Map(prev);
-      for (const [key, patch] of prev) {
-        const base = baseLineItems.get(key);
-        if (!base) continue;
-        const converged = (Object.keys(patch) as Array<keyof typeof patch>).every((field) => base[field] === patch[field]);
-        if (converged) {
-          next.delete(key);
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
-    });
   }, [baseLineItems, venduPrevuOverrides]);
 
   function toggleGroup(key: string) {
@@ -703,49 +707,36 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
   // column, bucketed into one column or the other by remuneration_model
   // (see CLAUDE.md) — editing whichever one is currently empty on a line
   // with no assignment yet creates one; editing an existing assignment's
-  // already-populated column just updates its value in place.
+  // already-populated column just updates its value in place. The value and
+  // the model are written in ONE atomic call (updateAssignmentVenduAndModel)
+  // rather than two sequential ones — see assignmentService's own comment
+  // for why splitting them caused real problems, not just extra requests.
   //
-  // Every call to updateAssignmentEtpVendu/createAssignment/deleteAssignment
-  // here is wrapped in the MAIN store's withSuppressedRecording — those
-  // mutators (see useAssignments.ts) self-push onto the org-chart/grid
-  // screen's own useHistoryStore unconditionally, which would otherwise leak
-  // a Time Estimation edit into the org chart's undo stack. This screen
-  // records its own Command onto useTimeEstimationHistoryStore instead.
-  // Creating an assignment must never be replayed via createAssignment again
-  // on redo — per CLAUDE.md's identity-stable-undo convention, a fresh
-  // create would mint a new row id — so redo uses restoreAssignment(created)
-  // instead, same as every other create-then-undo path in this app.
-  // A vendu value entered by hand always means the "Retainer" remuneration
-  // model — the DB's own check constraint already forbids etp_vendu +
-  // 'commission' together, but a fresh assignment or one created some other
-  // way could still sit at remuneration_model = null; fix that up in the
-  // same edit rather than leaving vendu populated with no explicit model.
+  // Every call to updateAssignmentVenduAndModel/createAssignment/
+  // deleteAssignment here is wrapped in the MAIN store's
+  // withSuppressedRecording — those mutators (see useAssignments.ts)
+  // self-push onto the org-chart/grid screen's own useHistoryStore
+  // unconditionally, which would otherwise leak a Time Estimation edit into
+  // the org chart's undo stack. This screen records its own Command onto
+  // useTimeEstimationHistoryStore instead. Creating an assignment must
+  // never be replayed via createAssignment again on redo — per CLAUDE.md's
+  // identity-stable-undo convention, a fresh create would mint a new row id
+  // — so redo uses restoreAssignment(created) instead, same as every other
+  // create-then-undo path in this app.
   async function handleEditVendu(li: LineItem, value: number) {
     const label = t('timeEstimation.history.editVendu');
-    setVenduPrevuOverride(li, { vendu: value, prevu: 0 });
+    const generation = setVenduPrevuOverride(li, { vendu: value, prevu: 0 });
     await withRowLock(li, async () => {
       const current = await assignmentService.fetchAssignmentByPair(registryOrgChartId, li.employeeId, li.clientMissionId);
       if (current) {
         const priorValue = current.etp_vendu;
         const priorModel = current.remuneration_model;
         const assignmentId = current.id;
-        const needsModelFix = priorModel !== 'retainer';
-        await withSuppressedRecording(async () => {
-          await updateAssignmentEtpVendu(assignmentId, value);
-          if (needsModelFix) await updateAssignmentRemuneration(assignmentId, 'retainer', false);
-        });
+        await withSuppressedRecording(() => updateAssignmentVenduAndModel(assignmentId, value, 'retainer'));
         useTimeEstimationHistoryStore.getState().push({
           label,
-          undo: () =>
-            withSuppressedRecording(async () => {
-              await updateAssignmentEtpVendu(assignmentId, priorValue);
-              if (needsModelFix) await updateAssignmentRemuneration(assignmentId, priorModel, false);
-            }),
-          redo: () =>
-            withSuppressedRecording(async () => {
-              await updateAssignmentEtpVendu(assignmentId, value);
-              if (needsModelFix) await updateAssignmentRemuneration(assignmentId, 'retainer', false);
-            }),
+          undo: () => withSuppressedRecording(() => updateAssignmentVenduAndModel(assignmentId, priorValue, priorModel)),
+          redo: () => withSuppressedRecording(() => updateAssignmentVenduAndModel(assignmentId, value, 'retainer')),
         });
       } else {
         const created = await withSuppressedRecording(() => createAssignment(li.employeeId, li.clientMissionId, value, null, 'retainer'));
@@ -756,41 +747,25 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
         });
       }
     });
+    scheduleOverrideClear(li, ['vendu', 'prevu'], generation);
   }
 
   // A prévu value entered by hand always means the "Commission" model —
-  // mirrors handleEditVendu's own needsModelFix exactly (just the other
-  // direction). Without this, editing "% prévu" on an assignment that was
-  // still sitting at retainer silently wrote into the shared etp_vendu
-  // column without ever flipping the model, so the value surfaced as "%
-  // vendu" instead and "% prévu" itself stayed blank on the next render —
-  // confirmed as the actual cause of "% expected doesn't persist" reports.
+  // mirrors handleEditVendu exactly (just the other direction).
   async function handleEditPrevu(li: LineItem, value: number) {
     const label = t('timeEstimation.history.editPrevu');
-    setVenduPrevuOverride(li, { prevu: value, vendu: 0 });
+    const generation = setVenduPrevuOverride(li, { prevu: value, vendu: 0 });
     await withRowLock(li, async () => {
       const current = await assignmentService.fetchAssignmentByPair(registryOrgChartId, li.employeeId, li.clientMissionId);
       if (current) {
         const priorValue = current.etp_vendu;
         const priorModel = current.remuneration_model;
         const assignmentId = current.id;
-        const needsModelFix = priorModel !== 'commission';
-        await withSuppressedRecording(async () => {
-          await updateAssignmentEtpVendu(assignmentId, value);
-          if (needsModelFix) await updateAssignmentRemuneration(assignmentId, 'commission', false);
-        });
+        await withSuppressedRecording(() => updateAssignmentVenduAndModel(assignmentId, value, 'commission'));
         useTimeEstimationHistoryStore.getState().push({
           label,
-          undo: () =>
-            withSuppressedRecording(async () => {
-              await updateAssignmentEtpVendu(assignmentId, priorValue);
-              if (needsModelFix) await updateAssignmentRemuneration(assignmentId, priorModel, false);
-            }),
-          redo: () =>
-            withSuppressedRecording(async () => {
-              await updateAssignmentEtpVendu(assignmentId, value);
-              if (needsModelFix) await updateAssignmentRemuneration(assignmentId, 'commission', false);
-            }),
+          undo: () => withSuppressedRecording(() => updateAssignmentVenduAndModel(assignmentId, priorValue, priorModel)),
+          redo: () => withSuppressedRecording(() => updateAssignmentVenduAndModel(assignmentId, value, 'commission')),
         });
       } else {
         const created = await withSuppressedRecording(() =>
@@ -803,6 +778,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
         });
       }
     });
+    scheduleOverrideClear(li, ['vendu', 'prevu'], generation);
   }
 
   // "% sold N+1"/"% expected N+1" — mirrors handleEditVendu/handleEditPrevu
@@ -815,37 +791,22 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
   // physical row and these are infrequent manual admin edits.
   async function handleEditVenduNextYear(li: LineItem, value: number) {
     const label = t('timeEstimation.history.editVenduNextYear');
-    setVenduPrevuOverride(li, { venduNextYear: value, prevuNextYear: 0 });
+    const generation = setVenduPrevuOverride(li, { venduNextYear: value, prevuNextYear: 0 });
     await withRowLock(li, async () => {
       const current = await assignmentService.fetchAssignmentByPair(registryOrgChartId, li.employeeId, li.clientMissionId);
       if (current) {
         const priorValue = current.etp_vendu_next_year;
         const priorModel = current.remuneration_model_next_year;
         const assignmentId = current.id;
-        const needsModelFix = priorModel !== 'retainer';
-        await withSuppressedRecording(async () => {
-          await updateAssignmentEtpVenduNextYear(assignmentId, value);
-          if (needsModelFix) await updateAssignmentRemunerationNextYear(assignmentId, 'retainer', false);
-        });
+        await withSuppressedRecording(() => updateAssignmentVenduAndModelNextYear(assignmentId, value, 'retainer'));
         useTimeEstimationHistoryStore.getState().push({
           label,
-          undo: () =>
-            withSuppressedRecording(async () => {
-              await updateAssignmentEtpVenduNextYear(assignmentId, priorValue);
-              if (needsModelFix) await updateAssignmentRemunerationNextYear(assignmentId, priorModel, false);
-            }),
-          redo: () =>
-            withSuppressedRecording(async () => {
-              await updateAssignmentEtpVenduNextYear(assignmentId, value);
-              if (needsModelFix) await updateAssignmentRemunerationNextYear(assignmentId, 'retainer', false);
-            }),
+          undo: () => withSuppressedRecording(() => updateAssignmentVenduAndModelNextYear(assignmentId, priorValue, priorModel)),
+          redo: () => withSuppressedRecording(() => updateAssignmentVenduAndModelNextYear(assignmentId, value, 'retainer')),
         });
       } else {
         const created = await withSuppressedRecording(() => createAssignment(li.employeeId, li.clientMissionId, null, null, null));
-        await withSuppressedRecording(async () => {
-          await updateAssignmentEtpVenduNextYear(created.id, value);
-          await updateAssignmentRemunerationNextYear(created.id, 'retainer', false);
-        });
+        await withSuppressedRecording(() => updateAssignmentVenduAndModelNextYear(created.id, value, 'retainer'));
         const createdWithForecast: Assignment = { ...created, etp_vendu_next_year: value, remuneration_model_next_year: 'retainer' };
         useTimeEstimationHistoryStore.getState().push({
           label,
@@ -854,41 +815,27 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
         });
       }
     });
+    scheduleOverrideClear(li, ['venduNextYear', 'prevuNextYear'], generation);
   }
 
   async function handleEditPrevuNextYear(li: LineItem, value: number) {
     const label = t('timeEstimation.history.editPrevuNextYear');
-    setVenduPrevuOverride(li, { prevuNextYear: value, venduNextYear: 0 });
+    const generation = setVenduPrevuOverride(li, { prevuNextYear: value, venduNextYear: 0 });
     await withRowLock(li, async () => {
       const current = await assignmentService.fetchAssignmentByPair(registryOrgChartId, li.employeeId, li.clientMissionId);
       if (current) {
         const priorValue = current.etp_vendu_next_year;
         const priorModel = current.remuneration_model_next_year;
         const assignmentId = current.id;
-        const needsModelFix = priorModel !== 'commission';
-        await withSuppressedRecording(async () => {
-          await updateAssignmentEtpVenduNextYear(assignmentId, value);
-          if (needsModelFix) await updateAssignmentRemunerationNextYear(assignmentId, 'commission', false);
-        });
+        await withSuppressedRecording(() => updateAssignmentVenduAndModelNextYear(assignmentId, value, 'commission'));
         useTimeEstimationHistoryStore.getState().push({
           label,
-          undo: () =>
-            withSuppressedRecording(async () => {
-              await updateAssignmentEtpVenduNextYear(assignmentId, priorValue);
-              if (needsModelFix) await updateAssignmentRemunerationNextYear(assignmentId, priorModel, false);
-            }),
-          redo: () =>
-            withSuppressedRecording(async () => {
-              await updateAssignmentEtpVenduNextYear(assignmentId, value);
-              if (needsModelFix) await updateAssignmentRemunerationNextYear(assignmentId, 'commission', false);
-            }),
+          undo: () => withSuppressedRecording(() => updateAssignmentVenduAndModelNextYear(assignmentId, priorValue, priorModel)),
+          redo: () => withSuppressedRecording(() => updateAssignmentVenduAndModelNextYear(assignmentId, value, 'commission')),
         });
       } else {
         const created = await withSuppressedRecording(() => createAssignment(li.employeeId, li.clientMissionId, null, null, null));
-        await withSuppressedRecording(async () => {
-          await updateAssignmentEtpVenduNextYear(created.id, value);
-          await updateAssignmentRemunerationNextYear(created.id, 'commission', false);
-        });
+        await withSuppressedRecording(() => updateAssignmentVenduAndModelNextYear(created.id, value, 'commission'));
         const createdWithForecast: Assignment = { ...created, etp_vendu_next_year: value, remuneration_model_next_year: 'commission' };
         useTimeEstimationHistoryStore.getState().push({
           label,
@@ -897,6 +844,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
         });
       }
     });
+    scheduleOverrideClear(li, ['venduNextYear', 'prevuNextYear'], generation);
   }
 
   async function handleDrop(clientMissionId: string, targetEmployeeId: string, sourceEmployeeId: string) {

@@ -153,44 +153,44 @@ export function useAssignments(orgChartId: string | null) {
     [assignments, refresh, orgChartId, t],
   );
 
-  const updateAssignmentEtpVenduNextYear = useCallback(
-    async (id: string, etpVenduNextYear: number | null) => {
+  // Combined-write versions used by TimeEstimationGrid's vendu/prevu
+  // handlers — one atomic update instead of two sequential ones (value +
+  // model), which halves the Postgres change events (hence realtime-
+  // triggered refetches) that one edit produces and removes a real window
+  // where the row briefly held an inconsistent (value, model) pair. See
+  // assignmentService's own comment for the full story.
+  const updateAssignmentVenduAndModel = useCallback(
+    async (id: string, etpVendu: number | null, remunerationModel: RemunerationModel | null) => {
       const before = assignments.find((a) => a.id === id);
-      await assignmentService.updateAssignmentEtpVenduNextYear(id, etpVenduNextYear);
+      await assignmentService.updateAssignmentVenduAndModel(id, etpVendu, remunerationModel);
       await refresh();
       if (before && orgChartId) {
-        const oldEtpVenduNextYear = before.etp_vendu_next_year;
+        const oldEtpVendu = before.etp_vendu;
+        const oldModel = before.remuneration_model;
         useHistoryStore.getState().push({
-          label: t('history.updateEtpSoldNextYear'),
+          label: t('history.updateVenduAndModel'),
           orgChartId,
-          undo: async () => { await updateAssignmentEtpVenduNextYear(id, oldEtpVenduNextYear); },
-          redo: async () => { await updateAssignmentEtpVenduNextYear(id, etpVenduNextYear); },
+          undo: async () => { await updateAssignmentVenduAndModel(id, oldEtpVendu, oldModel); },
+          redo: async () => { await updateAssignmentVenduAndModel(id, etpVendu, remunerationModel); },
         });
       }
     },
     [assignments, refresh, orgChartId, t],
   );
 
-  const updateAssignmentRemunerationNextYear = useCallback(
-    async (id: string, remunerationModelNextYear: RemunerationModel | null, clearVendu: boolean) => {
+  const updateAssignmentVenduAndModelNextYear = useCallback(
+    async (id: string, etpVenduNextYear: number | null, remunerationModelNextYear: RemunerationModel | null) => {
       const before = assignments.find((a) => a.id === id);
-      await assignmentService.updateAssignmentRemunerationNextYear(id, remunerationModelNextYear, clearVendu);
+      await assignmentService.updateAssignmentVenduAndModelNextYear(id, etpVenduNextYear, remunerationModelNextYear);
       await refresh();
       if (before && orgChartId) {
-        const oldModel = before.remuneration_model_next_year;
         const oldEtpVenduNextYear = before.etp_vendu_next_year;
+        const oldModel = before.remuneration_model_next_year;
         useHistoryStore.getState().push({
-          label: t('history.updateRemunerationModelNextYear'),
+          label: t('history.updateVenduAndModelNextYear'),
           orgChartId,
-          undo: async () => {
-            await assignmentService.updateAssignmentRemunerationNextYear(id, oldModel, false);
-            if (oldEtpVenduNextYear !== null) await assignmentService.updateAssignmentEtpVenduNextYear(id, oldEtpVenduNextYear);
-            await refresh();
-          },
-          redo: async () => {
-            await assignmentService.updateAssignmentRemunerationNextYear(id, remunerationModelNextYear, clearVendu);
-            await refresh();
-          },
+          undo: async () => { await updateAssignmentVenduAndModelNextYear(id, oldEtpVenduNextYear, oldModel); },
+          redo: async () => { await updateAssignmentVenduAndModelNextYear(id, etpVenduNextYear, remunerationModelNextYear); },
         });
       }
     },
@@ -279,8 +279,8 @@ export function useAssignments(orgChartId: string | null) {
     updateAssignmentEtpVendu,
     updateAssignmentEtpReel,
     updateAssignmentRemuneration,
-    updateAssignmentEtpVenduNextYear,
-    updateAssignmentRemunerationNextYear,
+    updateAssignmentVenduAndModel,
+    updateAssignmentVenduAndModelNextYear,
     deleteAssignment,
   };
 }

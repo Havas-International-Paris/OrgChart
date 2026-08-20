@@ -68,35 +68,42 @@ export async function updateAssignmentEtpVendu(id: string, etpVendu: number | nu
   assertRowsAffected(data, error);
 }
 
-export async function updateAssignmentEtpReel(id: string, etpReel: number | null): Promise<void> {
-  const { data, error } = await supabase.from('assignments').update({ etp_reel: etpReel }).eq('id', id).select();
-  assertRowsAffected(data, error);
-}
-
-// "% sold N+1" / "% expected N+1" (Time Estimation grid) — mirrors
-// updateAssignmentEtpVendu/updateAssignmentRemuneration exactly, one shared
-// column bucketed by its own remuneration_model_next_year flag, kept
-// independent of the current year's own remuneration_model — see
-// 0027_next_year_remuneration_model.sql.
-export async function updateAssignmentEtpVenduNextYear(id: string, etpVenduNextYear: number | null): Promise<void> {
+// TimeEstimationGrid's vendu/prevu handlers use this instead of two
+// sequential updateAssignmentEtpVendu + updateAssignmentRemuneration calls —
+// splitting them left a real, observable window where the row briefly held
+// an inconsistent (value, model) pair, and doubled the number of Postgres
+// change events (hence realtime-triggered refetches) per edit, which turned
+// out to be the actual cause of a persistent display flicker reported live.
+// One atomic write removes both problems.
+export async function updateAssignmentVenduAndModel(
+  id: string,
+  etpVendu: number | null,
+  remunerationModel: RemunerationModel | null,
+): Promise<void> {
   const { data, error } = await supabase
     .from('assignments')
-    .update({ etp_vendu_next_year: etpVenduNextYear })
+    .update({ etp_vendu: etpVendu, remuneration_model: remunerationModel })
     .eq('id', id)
     .select();
   assertRowsAffected(data, error);
 }
 
-export async function updateAssignmentRemunerationNextYear(
+// Same reasoning as updateAssignmentVenduAndModel, for the N+1 pair.
+export async function updateAssignmentVenduAndModelNextYear(
   id: string,
+  etpVenduNextYear: number | null,
   remunerationModelNextYear: RemunerationModel | null,
-  clearVendu: boolean,
 ): Promise<void> {
-  const patch: { remuneration_model_next_year: RemunerationModel | null; etp_vendu_next_year?: null } = {
-    remuneration_model_next_year: remunerationModelNextYear,
-  };
-  if (clearVendu) patch.etp_vendu_next_year = null;
-  const { data, error } = await supabase.from('assignments').update(patch).eq('id', id).select();
+  const { data, error } = await supabase
+    .from('assignments')
+    .update({ etp_vendu_next_year: etpVenduNextYear, remuneration_model_next_year: remunerationModelNextYear })
+    .eq('id', id)
+    .select();
+  assertRowsAffected(data, error);
+}
+
+export async function updateAssignmentEtpReel(id: string, etpReel: number | null): Promise<void> {
+  const { data, error } = await supabase.from('assignments').update({ etp_reel: etpReel }).eq('id', id).select();
   assertRowsAffected(data, error);
 }
 
