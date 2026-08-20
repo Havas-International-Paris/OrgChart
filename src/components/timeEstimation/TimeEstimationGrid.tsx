@@ -144,6 +144,21 @@ function CascadeCell({
   // re-click-to-reposition-the-caret behavior once the field is already
   // focused.
   const justFocusedRef = useRef(false);
+  // What the field displayed at the moment this edit gesture began (focus),
+  // frozen for the rest of the gesture — commit() diffs against THIS, never
+  // against the live `value` prop. Two real bugs came from comparing against
+  // `value` directly: (1) `value` can be an unrounded average/sum (e.g.
+  // 12.333), which never equals the rounded draft ("12") even when the user
+  // never touched the field — Tab-ing through such a cell falsely looked
+  // like an edit and painted it green; (2) a sibling cell's own commit can
+  // change THIS cell's `value` out from under it while it's focused (e.g.
+  // vendu/prevu's mutual-exclusivity zeroing the other one mid-Tab) — the
+  // untouched, still-focused field would then see its OWN blur as "changed"
+  // relative to that just-arrived new value and re-commit its stale draft
+  // over it, fighting the edit that was actually intended. Comparing to a
+  // baseline fixed at focus time makes "did the user actually change this"
+  // independent of both rounding and concurrent external updates.
+  const baselineRef = useRef(roundedInputValue(value));
 
   // Keeps the field in sync with the underlying value (optimistic update,
   // realtime reconciliation, another cell's cascade fill) — but never while
@@ -152,6 +167,7 @@ function CascadeCell({
   useEffect(() => {
     if (document.activeElement !== inputRef.current) {
       setDraft(roundedInputValue(value));
+      baselineRef.current = roundedInputValue(value);
     }
   }, [value]);
 
@@ -163,12 +179,17 @@ function CascadeCell({
 
   async function commit() {
     const trimmed = draft.trim();
+    if (trimmed === baselineRef.current) {
+      // Unchanged from what was shown when this edit gesture began — never
+      // commit, regardless of what the live `value` prop has done since.
+      return;
+    }
     if (trimmed === '') {
       setDraft(roundedInputValue(value));
       return;
     }
     const parsed = Number(trimmed);
-    if (!Number.isFinite(parsed) || parsed === value) {
+    if (!Number.isFinite(parsed)) {
       setDraft(roundedInputValue(value));
       return;
     }
@@ -193,6 +214,7 @@ function CascadeCell({
         onFocus={(e) => {
           e.target.select();
           justFocusedRef.current = true;
+          baselineRef.current = draft;
         }}
         onMouseUp={(e) => {
           if (justFocusedRef.current) {
