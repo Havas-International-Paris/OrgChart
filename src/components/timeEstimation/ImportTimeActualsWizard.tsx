@@ -23,30 +23,36 @@ import {
 import type { Employee } from '../../types/domain';
 import { FilterDropdown, type FilterDropdownOption } from '../shared/FilterDropdown';
 
-// Revision 2: a single workbook covers both years — "Input N-1" (shape of
-// the real "Evol Etps" Havas export: one annual total per employee×client,
-// no monthly detail) and "Input N" (shape of the real "ETPs Landing"
-// export: two header rows, MTD01-12 monthly detail, past months = real
-// timesheet, future months = an existing forecast to challenge). See
-// CLAUDE.md for the full design — this replaces the old single-tab,
-// single-year wizard entirely.
+// Revision 3: same two-tab workbook shape (one annual total per employee×
+// client on "Input N-1", monthly detail on "Input N"), but both tabs
+// changed to match Power BI's own "Exporter des données → Données
+// résumées" export instead of the old manual "develop the whole hierarchy,
+// copy-paste" procedure: no more METIERS/Annonceur left blank below a group
+// header (every row is already fully filled) and no more per-group "Total"
+// aggregate rows to filter out — forwardFillHierarchy/isSubtotalRow are
+// still applied below as a cheap no-op safety net against Power BI ever
+// reverting to the old shape, not because this format needs them. "Input
+// N-1"'s columns were also renamed (ETPs 2025 -> ETP Fin N-1, ETPs 2026 ->
+// ETP Fin Période) and "Input N" is no longer wide (one row per employee×
+// client with 12 MTD columns) but long/unpivoted (one row per employee×
+// client×month, a PeriodMonth + single ETP staffing column) — parseInputNSheet
+// pivots it back to the same monthlyFractions[12] shape the rest of this
+// file and timeImportParsing.ts already expect, so nothing downstream of
+// parsing needed to change. Verified byte-for-byte identical against the
+// last old-format export before switching (782/782 N-1 pairs, 476/476 N
+// pairs, zero differing values on any month including the cutoff month).
+// See CLAUDE.md for the full design.
 
-const TEMPLATE_N1_HEADERS = ['METIERS', 'Annonceur', 'Employee Prenom Nom', 'ETPs 2025', 'ETPs 2026', 'ETPs StaffPlan', 'Var Etps', 'ETPs Clients'];
-const TEMPLATE_N_MONTH_HEADERS = Array.from({ length: 12 }, (_, i) => `MTD${String(i + 1).padStart(2, '0')}`);
+const TEMPLATE_N1_HEADERS = ['METIERS', 'Annonceur', 'Employee Prenom Nom', 'ETP Fin N-1', 'ETP Fin Période', '.ETPs Havas Encours N', 'Var Etps', '.ETPs Clients N'];
 
 function downloadTemplate() {
   const n1Sheet = XLSX.utils.aoa_to_sheet([
     TEMPLATE_N1_HEADERS,
-    ['ADOPS', 'Total', null, 0.56, 0.69, 0.62, 0.07, 0.57],
-    [null, 'Client Exemple', 'Total', 0.03, 0.16, 0.22, -0.06, 0.22],
-    [null, null, 'Jean Dupont', 0.03, 0.16, 0.22, -0.06, 0.22],
+    ['ADOPS', 'Client Exemple', 'Jean Dupont', 0.03, 0.16, 0.22, -0.06, 0.22],
   ]);
   const nSheet = XLSX.utils.aoa_to_sheet([
-    ['PeriodMonth', null, null, ...TEMPLATE_N_MONTH_HEADERS],
-    ['METIERS', 'Annonceur', 'Employee Prenom Nom', ...Array(12).fill('ETP staffing')],
-    ['ADOPS', 'Total', null, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.62, 0.62, 0.62, 0.62, 0.62],
-    [null, 'Client Exemple', 'Total', 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.22, 0.22, 0.22, 0.22, 0.22],
-    [null, null, 'Jean Dupont', 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.22, 0.22, 0.22, 0.22, 0.22],
+    ['METIERS', 'Annonceur', 'Employee Prenom Nom', 'PeriodMonth', 'ETP staffing'],
+    ...Array.from({ length: 12 }, (_, i) => ['ADOPS', 'Client Exemple', 'Jean Dupont', `MTD${String(i + 1).padStart(2, '0')}`, 0.2]),
   ]);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, n1Sheet, 'Input N-1');
@@ -75,8 +81,10 @@ function findSheet(wb: XLSX.WorkBook, name: string): XLSX.WorkSheet | null {
   return sheetName ? wb.Sheets[sheetName] : null;
 }
 
-// Input N-1 has one plain header row with unique column names — resolved
-// by name, so column reordering doesn't break parsing.
+// Both tabs have one plain header row with unique column names, possibly
+// preceded by Power BI's own "Filtres appliqués : ..." + blank rows — found
+// by scanning for the METIERS cell rather than assuming row 0, so those
+// leading rows (and column reordering) don't break parsing.
 function parseInputN1Sheet(sheet: XLSX.WorkSheet): InputN1Row[] {
   const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: null });
   const headerIndex = rows.findIndex((r) => cellStr(r[0])?.toUpperCase() === 'METIERS');
@@ -86,8 +94,8 @@ function parseInputN1Sheet(sheet: XLSX.WorkSheet): InputN1Row[] {
   const iMetiers = col('metiers');
   const iAnnonceur = col('annonceur');
   const iEmployee = col('employee prenom nom');
-  const iN1 = col('etps 2025');
-  const iCrossCheck = col('etps 2026');
+  const iN1 = col('etp fin n-1');
+  const iCrossCheck = col('etp fin période');
   if ([iMetiers, iAnnonceur, iEmployee, iN1].some((i) => i === -1)) throw new Error('missing-columns-n1');
   return rows
     .slice(headerIndex + 1)
@@ -101,23 +109,40 @@ function parseInputN1Sheet(sheet: XLSX.WorkSheet): InputN1Row[] {
     }));
 }
 
-// Input N has TWO header rows (PeriodMonth/MTD01-12, then
-// METIERS/Annonceur/Employee/ETP staffing×12 — "ETP staffing" repeated 12
-// times can't be resolved by name), so the 12 monthly columns are read
-// positionally (index 3..14) once the METIERS row is located.
+// Input N is long/unpivoted — one row per (employee, client, month), not
+// one row per (employee, client) with 12 month columns — so rows are first
+// read by name like Input N-1, then grouped by (annonceur, employeeName)
+// and each PeriodMonth ("MTD01".."MTD12") written into the matching
+// monthlyFractions slot, restoring the wide shape the rest of this file and
+// timeImportParsing.ts's detectCutoffMonth already expect.
 function parseInputNSheet(sheet: XLSX.WorkSheet): InputNRow[] {
   const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: null });
   const headerIndex = rows.findIndex((r) => cellStr(r[0])?.toUpperCase() === 'METIERS');
   if (headerIndex === -1) throw new Error('missing-header-n');
-  return rows
-    .slice(headerIndex + 1)
-    .filter((r) => !isBlankRow(r))
-    .map((r) => ({
-      metiers: cellStr(r[0]),
-      annonceur: cellStr(r[1]),
-      employeeName: cellStr(r[2]),
-      monthlyFractions: Array.from({ length: 12 }, (_, i) => cellNum(r[3 + i])),
-    }));
+  const header = rows[headerIndex].map((h) => (cellStr(h) ?? '').toLowerCase());
+  const col = (name: string) => header.indexOf(name.toLowerCase());
+  const iMetiers = col('metiers');
+  const iAnnonceur = col('annonceur');
+  const iEmployee = col('employee prenom nom');
+  const iPeriod = col('periodmonth');
+  const iValue = col('etp staffing');
+  if ([iMetiers, iAnnonceur, iEmployee, iPeriod, iValue].some((i) => i === -1)) throw new Error('missing-columns-n');
+
+  const byPair = new Map<string, InputNRow>();
+  for (const r of rows.slice(headerIndex + 1)) {
+    if (isBlankRow(r)) continue;
+    const metiers = cellStr(r[iMetiers]);
+    const annonceur = cellStr(r[iAnnonceur]);
+    const employeeName = cellStr(r[iEmployee]);
+    const monthMatch = /^MTD(\d{1,2})$/i.exec(cellStr(r[iPeriod]) ?? '');
+    if (!monthMatch) continue;
+    const monthIndex = Number(monthMatch[1]) - 1;
+    if (monthIndex < 0 || monthIndex > 11) continue;
+    const key = `${(annonceur ?? '').trim().toUpperCase()}::${(employeeName ?? '').trim().toUpperCase()}`;
+    if (!byPair.has(key)) byPair.set(key, { metiers, annonceur, employeeName, monthlyFractions: Array(12).fill(null) });
+    byPair.get(key)!.monthlyFractions[monthIndex] = cellNum(r[iValue]);
+  }
+  return Array.from(byPair.values());
 }
 
 function parseCombinedWorkbook(buffer: ArrayBuffer): { n1Rows: InputN1Row[]; nRows: InputNRow[] } {
