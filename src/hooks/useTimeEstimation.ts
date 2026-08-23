@@ -14,6 +14,17 @@ import type {
   TimeManualRow,
 } from '../types/domain';
 
+// What purgeManualDataForPair deleted (and restorePairData can put back) —
+// see purgeManualDataForPair's own comment for why each field is scoped
+// the way it is.
+export interface PairDataSnapshot {
+  actuals: TimeActual[];
+  forecastMonths: TimeForecastMonth[];
+  forecasts: TimeForecast[];
+  n1Totals: TimeActualN1Total[];
+  editMarkers: TimeManualEditMarker[];
+}
+
 // Data + mutations for the "Estimation des temps" module — deliberately
 // thin, like useAssignments.ts: loads the module's tables in full (admin-only,
 // a few hundred rows at most) and lets TimeEstimationGrid build the
@@ -576,44 +587,97 @@ export function useTimeEstimation() {
     [refresh],
   );
 
-  // Wipes every trace of (employeeId, clientMissionId) across the four
-  // per-pair tables this hook owns (time_actuals, time_forecast_months,
-  // time_forecasts, time_actual_n1_totals, time_manual_edit_markers) — not
-  // scoped to any one year, since a purge should leave nothing behind
-  // regardless of which year it's for. Does NOT touch time_manual_rows
-  // (the caller handles that via deleteManualRow, same call) or assignments
-  // (owned by useAssignments.ts, out of this hook's reach — the grid
-  // composes both). Not self-recording, same convention as every other
-  // mutator here.
-  const purgePairData = useCallback(
-    async (employeeId: string, clientMissionId: string) => {
+  // Deletes ONLY the manually-entered data for (employeeId, clientMissionId)
+  // — an import must never lose data to this action (per user feedback: the
+  // grid's "×" on a manually-added row originally purged everything for the
+  // pair, which turned out to be wrong once real import data could also
+  // land on a pair that started out manually added). Provenance is
+  // determined per table, using the most precise signal each one actually
+  // has:
+  // - time_actuals: batch_id IS NULL is the table's own exact manual/
+  //   import flag (deleteManualTimeActualsForPair) — an import always tags
+  //   batch_id, a hand-typed row never does.
+  // - time_actual_n1_totals / time_forecasts (the annual total_pct) /
+  //   time_forecast_months have no such column, so this reuses
+  //   time_manual_edit_markers instead: ImportTimeActualsWizard.tsx clears
+  //   a field's marker the instant a re-import overwrites that exact
+  //   field — confirmed true for 'total' too (any import touching a
+  //   pair's actuals/forecast always also touches and re-derives 'total',
+  //   clearing its marker along with it) — so a marker's mere presence for
+  //   a given (year, field) is a reliable, never-stale signal that the
+  //   value currently stored is still the hand-typed one. Only n1Total,
+  //   total, and individual m0..m11 map to an actual stored row;
+  //   avgPast/avgRemaining markers record that a SUMMARY field was the
+  //   direct edit source but have no row of their own to act on — the
+  //   individual months they fanned out to are left alone unless they
+  //   separately carry their own m* marker. Real gap (a whole cascade-
+  //   filled range with no later single-month edit on top of it won't be
+  //   caught), but the safe direction: erring toward not deleting
+  //   possibly-imported data, never the reverse.
+  // Does NOT touch time_manual_rows (the caller handles that via
+  // deleteManualRow, same call) or assignments (owned by useAssignments.ts,
+  // out of this hook's reach, and unambiguously 100% manual by
+  // construction — import never writes there at all — so the caller
+  // deletes it unconditionally). Not self-recording, same convention as
+  // every other mutator here. Returns exactly what it deleted so the
+  // caller can build an undo Command from it (see restorePairData below).
+  const purgeManualDataForPair = useCallback(
+    async (employeeId: string, clientMissionId: string): Promise<PairDataSnapshot> => {
+      const priorActuals = timeActuals.filter(
+        (a) => a.resolved_employee_id === employeeId && a.resolved_client_mission_id === clientMissionId && a.batch_id === null,
+      );
+      const relevantMarkers = timeManualEditMarkers.filter((m) => m.employee_id === employeeId && m.client_mission_id === clientMissionId);
+      const n1Markers = relevantMarkers.filter((m) => m.field === 'n1Total');
+      const totalMarkers = relevantMarkers.filter((m) => m.field === 'total');
+      const monthMarkers = relevantMarkers.filter((m) => /^m\d+$/.test(m.field));
+
+      const priorN1Totals = timeActualN1Totals.filter(
+        (n) => n.employee_id === employeeId && n.client_mission_id === clientMissionId && n1Markers.some((m) => m.year === n.year),
+      );
+      const priorForecasts = timeForecasts.filter(
+        (f) => f.employee_id === employeeId && f.client_mission_id === clientMissionId && totalMarkers.some((m) => m.year === f.year),
+      );
+      const priorForecastMonths = timeForecastMonths.filter((fm) => {
+        if (fm.employee_id !== employeeId || fm.client_mission_id !== clientMissionId) return false;
+        return monthMarkers.some((m) => m.year === fm.year && Number(m.field.slice(1)) + 1 === fm.month);
+      });
+      const priorEditMarkers = [...n1Markers, ...totalMarkers, ...monthMarkers];
+
+      const monthsByYear = new Map<number, number[]>();
+      for (const m of monthMarkers) {
+        monthsByYear.set(m.year, [...(monthsByYear.get(m.year) ?? []), Number(m.field.slice(1)) + 1]);
+      }
+
       await Promise.all([
-        timeEstimationService.deleteTimeActualsForPair(employeeId, clientMissionId),
-        timeEstimationService.deleteTimeForecastMonthsForPair(employeeId, clientMissionId),
-        timeEstimationService.deleteTimeForecastsForPair(employeeId, clientMissionId),
-        timeEstimationService.deleteTimeActualN1TotalsForPair(employeeId, clientMissionId),
-        timeEstimationService.deleteTimeManualEditMarkersForPair(employeeId, clientMissionId),
+        timeEstimationService.deleteManualTimeActualsForPair(employeeId, clientMissionId),
+        ...n1Markers.map((m) => timeEstimationService.deleteTimeActualN1Total(employeeId, clientMissionId, m.year)),
+        ...totalMarkers.map((m) => timeEstimationService.deleteTimeForecast(employeeId, clientMissionId, m.year)),
+        ...Array.from(monthsByYear.entries()).map(([year, months]) =>
+          timeEstimationService.deleteTimeForecastMonths(employeeId, clientMissionId, year, months),
+        ),
+        priorEditMarkers.length > 0 ? timeEstimationService.deleteTimeManualEditMarkersByIds(priorEditMarkers.map((m) => m.id)) : null,
       ]);
       await refresh();
+
+      return {
+        actuals: priorActuals,
+        forecastMonths: priorForecastMonths,
+        forecasts: priorForecasts,
+        n1Totals: priorN1Totals,
+        editMarkers: priorEditMarkers,
+      };
     },
-    [refresh],
+    [refresh, timeActuals, timeForecasts, timeManualEditMarkers, timeActualN1Totals, timeForecastMonths],
   );
 
-  // Undo body for purgePairData — the caller (TimeEstimationGrid.tsx) must
-  // have captured every row this pair had, across all 5 tables, BEFORE
-  // calling purgePairData, since a purge can't reconstruct what it deleted.
+  // Undo body for purgeManualDataForPair — the caller (TimeEstimationGrid.
+  // tsx) passes back exactly the snapshot purgeManualDataForPair returned.
   // time_actuals goes back under its original ids via restoreTimeActuals
-  // (this app's identity-stable-undo convention); the other four tables
-  // have no external references to their own row ids, so a plain
-  // upsert/insert by natural key is enough to restore their values.
+  // (this app's identity-stable-undo convention); the other tables have no
+  // external references to their own row ids, so a plain upsert/insert by
+  // natural key is enough to restore their values.
   const restorePairData = useCallback(
-    async (snapshot: {
-      actuals: TimeActual[];
-      forecastMonths: TimeForecastMonth[];
-      forecasts: TimeForecast[];
-      n1Totals: TimeActualN1Total[];
-      editMarkers: TimeManualEditMarker[];
-    }) => {
+    async (snapshot: PairDataSnapshot) => {
       await Promise.all([
         timeEstimationService.restoreTimeActuals(snapshot.actuals),
         timeEstimationService.upsertTimeForecastMonths(
@@ -691,7 +755,7 @@ export function useTimeEstimation() {
     createManualRow,
     deleteManualRow,
     restoreManualRow,
-    purgePairData,
+    purgeManualDataForPair,
     restorePairData,
     resolveEmployeeAlias,
     resolveClientAlias,

@@ -510,7 +510,7 @@
       "addRowButton": "+ Ajouter une ligne",
       "originImportedTooltip": "Importé",
       "originManualTooltip": "Ajouté manuellement",
-      "manualRowDeleteHint": "Supprimer cette ligne et ses données",
+      "manualRowDeleteHint": "Supprimer cette ligne et ses données saisies à la main (les données importées sont conservées)",
       "quickAddPlaceholder": "+ Ajouter un salarié…",
       "quickAddClientMissionPlaceholder": "+ Ajouter un client/mission…"
     },
