@@ -447,6 +447,19 @@ export async function deleteTimeManualEditMarkersByIds(ids: string[]): Promise<v
   if (error) throw error;
 }
 
+// Clears the "manually added" marker for pairs a re-import has just
+// confirmed with real data — see ImportTimeActualsWizard.tsx's own call
+// site. Same shape as deleteTimeManualEditMarkersByIds just above:
+// computed client-side against the already-loaded timeManualRows, one bulk
+// delete regardless of how many pairs are affected. No assertRowsAffected
+// — most imported pairs were never manually added, so "nothing to clear"
+// is the common case.
+export async function deleteTimeManualRowsByIds(ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  const { error } = await supabase.from('time_manual_rows').delete().in('id', ids);
+  if (error) throw error;
+}
+
 export async function fetchTimeManualRows(): Promise<TimeManualRow[]> {
   const { data, error } = await supabase.from('time_manual_rows').select('*');
   if (error) throw error;

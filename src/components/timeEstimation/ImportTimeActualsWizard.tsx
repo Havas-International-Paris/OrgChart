@@ -247,6 +247,7 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
     clientAliases,
     timeForecasts,
     timeManualEditMarkers,
+    timeManualRows,
     loading: estimationLoading,
     refresh: refreshEstimation,
   } = useTimeEstimation();
@@ -768,6 +769,16 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
         }
       }
 
+      // A pair this import touches is no longer "manually added" — its
+      // origin should reflect current reality, not how the row first
+      // appeared (TimeEstimationGrid.tsx's "a"/"i" marker). affectedKeys is
+      // already exactly the set of resolved pairs this import writes SOME
+      // data for (N-1, actuals, or forecast — see its own construction
+      // above), so it's the right signal here too.
+      const manualRowIdsToClear = timeManualRows
+        .filter((r) => affectedKeys.has(`${r.employee_id}::${r.client_mission_id}`))
+        .map((r) => r.id);
+
       // upsertTimeActuals's onConflict is (raw_employee_name, raw_client_name,
       // year, month) — a manually-entered row (raw name = the real display
       // name) or a row from an earlier import with a differently-spelled raw
@@ -808,6 +819,7 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
         clearActualsChunks.length +
         toRecompute.length +
         (markerIdsToClear.length > 0 ? 1 : 0) +
+        (manualRowIdsToClear.length > 0 ? 1 : 0) +
         markersToPromote.length;
       let commitDone = 0;
       setProgress(commitTotal > 0 ? { done: 0, total: commitTotal } : null);
@@ -831,6 +843,9 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
       await Promise.all([
         markerIdsToClear.length > 0
           ? timeEstimationService.deleteTimeManualEditMarkersByIds(markerIdsToClear).then(() => bumpCommit())
+          : null,
+        manualRowIdsToClear.length > 0
+          ? timeEstimationService.deleteTimeManualRowsByIds(manualRowIdsToClear).then(() => bumpCommit())
           : null,
         ...markersToPromote.map(async (m) => {
           await timeEstimationService.upsertTimeManualEditMarker(m.employeeId, m.clientMissionId, year, m.field);
