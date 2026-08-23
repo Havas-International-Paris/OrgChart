@@ -318,6 +318,103 @@ function CascadeCell({
   );
 }
 
+// Trailing "type an employee name to add them" row at the bottom of each
+// client group (client-grouped view only — the client/mission is already
+// fixed by the section, so only the employee needs picking, unlike the
+// header's "+ Ajouter une ligne" modal which has to ask for both).
+// Prefix-matches on first name, last name, or the full "First Last" string
+// — not the modal's looser substring match — per user request ("les noms
+// qui matchent avec les premières lettres tapées"). `candidates` is
+// pre-filtered by the caller to exclude employees who already have a
+// visible row in this client group, so a selection can never collide with
+// an existing row.
+function QuickAddEmployeeRow({
+  candidates,
+  onAdd,
+  gridTemplateColumns,
+  placeholder,
+}: {
+  candidates: Employee[];
+  onAdd: (employeeId: string) => Promise<void>;
+  gridTemplateColumns: string;
+  placeholder: string;
+}) {
+  const [query, setQuery] = useState('');
+  const [open, setOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const normalizedQuery = query.trim().toLowerCase();
+  const matches =
+    normalizedQuery === ''
+      ? []
+      : candidates
+          .filter((e) => {
+            const first = e.first_name.toLowerCase();
+            const last = e.last_name.toLowerCase();
+            return first.startsWith(normalizedQuery) || last.startsWith(normalizedQuery) || `${first} ${last}`.startsWith(normalizedQuery);
+          })
+          .slice(0, 8);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  async function handleSelect(employeeId: string) {
+    setSubmitting(true);
+    setError(null);
+    try {
+      await onAdd(employeeId);
+      setQuery('');
+      setOpen(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="grid items-center gap-2 border-t border-dashed border-slate-200 px-3 py-1.5 text-sm" style={{ gridTemplateColumns }}>
+      <div ref={containerRef} className="relative pl-5">
+        <input
+          type="text"
+          value={query}
+          disabled={submitting}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setOpen(true);
+            setError(null);
+          }}
+          onFocus={() => setOpen(true)}
+          placeholder={placeholder}
+          className="w-full rounded border border-dashed border-slate-300 bg-transparent px-1.5 py-0.5 text-xs text-slate-500 placeholder:text-slate-400 focus:border-solid focus:border-slate-400 focus:outline-none disabled:opacity-50"
+        />
+        {open && matches.length > 0 && (
+          <div className="absolute left-0 top-full z-20 mt-1 w-64 overflow-auto rounded border border-slate-200 bg-white shadow-lg">
+            {matches.map((e) => (
+              <button
+                key={e.id}
+                type="button"
+                onClick={() => handleSelect(e.id)}
+                className="block w-full truncate px-2 py-1 text-left text-xs text-slate-700 hover:bg-slate-50"
+              >
+                {e.first_name} {e.last_name}
+              </button>
+            ))}
+          </div>
+        )}
+        {error && <p className="mt-0.5 text-[10px] text-red-600">{error}</p>}
+      </div>
+    </div>
+  );
+}
+
 export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId: string }) {
   const { t, i18n } = useTranslation();
   const { employees } = useEmployees(registryOrgChartId);
@@ -975,6 +1072,22 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
     });
   }
 
+  // Creates a manual row for (employeeId, clientMissionId) straight from
+  // QuickAddEmployeeRow's trailing "type a name" row at the bottom of a
+  // client group — the client/mission is already fixed by the section, so
+  // unlike handleAdd in AddTimeEstimationRowModal there's no client/mission
+  // picker/findOrCreate involved, hence no withSuppressedRecording wrapper
+  // is needed here either (createManualRow/restoreManualRow/deleteManualRow
+  // don't self-push, see useTimeEstimation.ts).
+  async function handleQuickAddRow(employeeId: string, clientMissionId: string) {
+    const created = await createManualRow(employeeId, clientMissionId);
+    useTimeEstimationHistoryStore.getState().push({
+      label: t('timeEstimation.history.addManualRow'),
+      undo: () => deleteManualRow(created.id),
+      redo: () => restoreManualRow(created).then(() => {}),
+    });
+  }
+
   async function handleDrop(clientMissionId: string, targetEmployeeId: string, sourceEmployeeId: string) {
     if (targetEmployeeId === sourceEmployeeId) return;
     // Refuse to nest a primary-with-members under another row, and refuse a
@@ -1224,6 +1337,12 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
           topGroups.map((group) => {
             const isCollapsed = collapsedGroups.has(group.key);
             const groupAgg = sumMetricRows(group.rows.flatMap((r) => [r.primary, ...r.members].map(lineItemMetrics)));
+            // Only meaningful in 'client' mode, where group.key IS the
+            // clientMissionId (see topGroups above) — every employee already
+            // showing a row (as a primary or a cumul-grouped member) in this
+            // client section, excluded from QuickAddEmployeeRow's candidates
+            // so a selection can never collide with an existing row.
+            const presentEmployeeIds = new Set(group.rows.flatMap((r) => [r.primary.employeeId, ...r.members.map((m) => m.employeeId)]));
             return (
               <div key={group.key} className="border-b border-slate-100 last:border-0">
                 <button
@@ -1362,6 +1481,15 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
                       </div>
                     );
                   })}
+
+                {!isCollapsed && groupBy === 'client' && (
+                  <QuickAddEmployeeRow
+                    candidates={employees.filter((e) => !presentEmployeeIds.has(e.id))}
+                    onAdd={(employeeId) => handleQuickAddRow(employeeId, group.key)}
+                    gridTemplateColumns={gridTemplateColumns}
+                    placeholder={t('timeEstimation.grid.quickAddPlaceholder')}
+                  />
+                )}
               </div>
             );
           })}
