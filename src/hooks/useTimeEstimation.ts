@@ -11,6 +11,7 @@ import type {
   TimeForecastMonth,
   TimeImportBatch,
   TimeManualEditMarker,
+  TimeManualRow,
 } from '../types/domain';
 
 // Data + mutations for the "Estimation des temps" module — deliberately
@@ -35,6 +36,7 @@ export function useTimeEstimation() {
   const [employeeAliases, setEmployeeAliases] = useState<TimeEmployeeAlias[]>([]);
   const [clientAliases, setClientAliases] = useState<TimeClientAlias[]>([]);
   const [timeManualEditMarkers, setTimeManualEditMarkers] = useState<TimeManualEditMarker[]>([]);
+  const [timeManualRows, setTimeManualRows] = useState<TimeManualRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -52,7 +54,7 @@ export function useTimeEstimation() {
   const refresh = useCallback(async () => {
     const requestId = ++latestRequestRef.current;
     try {
-      const [actuals, forecasts, forecastMonths, n1Totals, groups, batches, empAliases, cliAliases, editMarkers] = await Promise.all([
+      const [actuals, forecasts, forecastMonths, n1Totals, groups, batches, empAliases, cliAliases, editMarkers, manualRows] = await Promise.all([
         timeEstimationService.fetchTimeActuals(),
         timeEstimationService.fetchTimeForecasts(),
         timeEstimationService.fetchTimeForecastMonths(),
@@ -62,6 +64,7 @@ export function useTimeEstimation() {
         timeEstimationService.fetchTimeEmployeeAliases(),
         timeEstimationService.fetchTimeClientAliases(),
         timeEstimationService.fetchTimeManualEditMarkers(),
+        timeEstimationService.fetchTimeManualRows(),
       ]);
       if (requestId !== latestRequestRef.current) return;
       setTimeActuals(actuals);
@@ -73,6 +76,7 @@ export function useTimeEstimation() {
       setEmployeeAliases(empAliases);
       setClientAliases(cliAliases);
       setTimeManualEditMarkers(editMarkers);
+      setTimeManualRows(manualRows);
       setError(null);
     } catch (err) {
       if (requestId !== latestRequestRef.current) return;
@@ -117,6 +121,7 @@ export function useTimeEstimation() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'time_actual_groups' }, () => debouncedRefresh())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'time_import_batches' }, () => debouncedRefresh())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'time_manual_edit_markers' }, () => debouncedRefresh())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'time_manual_rows' }, () => debouncedRefresh())
       .subscribe();
 
     return () => {
@@ -157,6 +162,12 @@ export function useTimeEstimation() {
       timeActualN1Totals.find((t) => t.employee_id === employeeId && t.client_mission_id === clientMissionId && t.year === year)
         ?.total_pct ?? null,
     [timeActualN1Totals],
+  );
+
+  const manualRowOf = useCallback(
+    (employeeId: string, clientMissionId: string) =>
+      timeManualRows.find((r) => r.employee_id === employeeId && r.client_mission_id === clientMissionId) ?? null,
+    [timeManualRows],
   );
 
   const monthOverridesOf = useCallback(
@@ -531,6 +542,40 @@ export function useTimeEstimation() {
     [refresh],
   );
 
+  // Marks (employeeId, clientMissionId) as added by hand from the grid's
+  // "+ Ajouter une ligne" action — see 0029_time_manual_rows.sql. Not
+  // self-recording, same convention as every other mutator here:
+  // TimeEstimationGrid.tsx captures the created row and pushes its own
+  // undo/redo Command onto useTimeEstimationHistoryStore.
+  const createManualRow = useCallback(
+    async (employeeId: string, clientMissionId: string) => {
+      const created = await timeEstimationService.createTimeManualRow(employeeId, clientMissionId);
+      await refresh();
+      return created;
+    },
+    [refresh],
+  );
+
+  const deleteManualRow = useCallback(
+    async (id: string) => {
+      await timeEstimationService.deleteTimeManualRow(id);
+      await refresh();
+    },
+    [refresh],
+  );
+
+  // Undo body for deleteManualRow — re-inserts the exact captured row under
+  // its original id (identity-stable-undo convention, see restoreAssignment/
+  // restoreTimeActuals).
+  const restoreManualRow = useCallback(
+    async (row: TimeManualRow) => {
+      const restored = await timeEstimationService.restoreTimeManualRow(row);
+      await refresh();
+      return restored;
+    },
+    [refresh],
+  );
+
   const resolveEmployeeAlias = useCallback(
     async (rawName: string, employeeId: string | null) => {
       await timeEstimationService.upsertTimeEmployeeAlias(rawName, employeeId);
@@ -557,6 +602,7 @@ export function useTimeEstimation() {
     employeeAliases,
     clientAliases,
     timeManualEditMarkers,
+    timeManualRows,
     loading,
     error,
     refresh,
@@ -564,6 +610,7 @@ export function useTimeEstimation() {
     forecastOf,
     n1TotalOf,
     monthOverridesOf,
+    manualRowOf,
     groupsByPrimary,
     groupOfMember,
     saveMonthOverrides,
@@ -576,6 +623,9 @@ export function useTimeEstimation() {
     clearEditMarker,
     createGroup,
     deleteGroup,
+    createManualRow,
+    deleteManualRow,
+    restoreManualRow,
     resolveEmployeeAlias,
     resolveClientAlias,
   };

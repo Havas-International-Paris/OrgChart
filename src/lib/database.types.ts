@@ -454,6 +454,23 @@ export interface Database {
         Update: Record<string, never>;
         Relationships: [];
       };
+      time_manual_rows: {
+        Row: {
+          id: string;
+          employee_id: string;
+          client_mission_id: string;
+          created_at: string;
+          created_by: string | null;
+        };
+        Insert: {
+          id?: string;
+          employee_id: string;
+          client_mission_id: string;
+          created_by?: string | null;
+        };
+        Update: Record<string, never>;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {

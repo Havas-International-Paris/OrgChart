@@ -299,3 +299,15 @@ export interface TimeActualGroup {
   member_employee_id: string;
   created_at: string;
 }
+
+// Marks an (employee, client_mission) pairing added by hand from the grid's
+// "+ Ajouter une ligne" action, rather than one that surfaced via an
+// assignment or an import — see 0029_time_manual_rows.sql. No `year`: the
+// pairing persists across N-1/N/N+1.
+export interface TimeManualRow {
+  id: string;
+  employee_id: string;
+  client_mission_id: string;
+  created_at: string;
+  created_by: string | null;
+}

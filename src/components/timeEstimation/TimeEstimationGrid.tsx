@@ -7,13 +7,14 @@ import { useClientsMissions } from '../../hooks/useClientsMissions';
 import { useTimeEstimation } from '../../hooks/useTimeEstimation';
 import { averageOverRange, sumMetricRows } from '../../lib/timeEstimationMath';
 import { TrendSparkline } from './TrendSparkline';
+import { AddTimeEstimationRowModal } from './AddTimeEstimationRowModal';
 import type { Assignment, Employee, RemunerationModel } from '../../types/domain';
 import { useTimeEstimationHistoryStore } from '../../stores/timeEstimationHistoryStore';
 import { withSuppressedRecording } from '../../stores/historyStore';
 
 type GroupBy = 'client' | 'employee';
 
-interface LineItem {
+export interface LineItem {
   employeeId: string;
   clientMissionId: string;
   assignmentId: string | null;
@@ -40,6 +41,12 @@ interface LineItem {
   total: number;
   avgPast: number;
   avgRemaining: number;
+  // True iff a time_manual_rows entry exists for this pair — the row was
+  // added by hand via "+ Ajouter une ligne", not derived from an assignment
+  // or an import. Drives the "Origine" column's badge only; nothing else
+  // reads it (no separate boolean anywhere in the DB — existence of the
+  // time_manual_rows row IS the flag, see 0029_time_manual_rows.sql).
+  isManual: boolean;
 }
 
 function employeeName(employee: Employee | undefined): string {
@@ -322,18 +329,23 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
     deleteAssignment,
     restoreAssignment,
   } = useAssignments(registryOrgChartId);
-  const { clientsMissions } = useClientsMissions();
+  const { clientsMissions, findOrCreate, restoreClientMission, deleteClientMission } = useClientsMissions();
   const {
     timeActuals,
     timeForecastMonths,
     timeActualN1Totals,
     timeManualEditMarkers,
+    timeManualRows,
     loading: estimationLoading,
     forecastOf,
+    manualRowOf,
     groupsByPrimary,
     groupOfMember,
     createGroup,
     deleteGroup,
+    createManualRow,
+    deleteManualRow,
+    restoreManualRow,
     saveMonthOverrides,
     restoreMonthOverrides,
     saveManualActuals,
@@ -350,6 +362,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
   const [collapsedCumul, setCollapsedCumul] = useState<Set<string>>(new Set());
   const [dragEmployeeId, setDragEmployeeId] = useState<string | null>(null);
   const [dropTargetKey, setDropTargetKey] = useState<string | null>(null);
+  const [addRowOpen, setAddRowOpen] = useState(false);
   // Optimistic override for vendu/prevu (both years), keyed by
   // employeeId::clientMissionId — useAssignments.refresh() is a full,
   // org-wide table refetch (deliberate architecture, see CLAUDE.md). Even
@@ -515,6 +528,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
           total: 0,
           avgPast: 0,
           avgRemaining: 0,
+          isManual: false,
         };
         map.set(key, li);
       }
@@ -577,6 +591,16 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
       li.overrideByMonth[m.month - 1] = m.pct;
     }
 
+    // 5th source: a pairing added by hand via "+ Ajouter une ligne" but with
+    // no assignment/actual/forecast data entered yet would otherwise never
+    // surface a row at all — getOrCreate below is what makes it appear (with
+    // every metric still at its default null/0) so the admin has somewhere
+    // to type N-1/N/N+1 values into.
+    for (const r of timeManualRows) {
+      const li = getOrCreate(r.employee_id, r.client_mission_id);
+      li.isManual = true;
+    }
+
     for (const li of map.values()) {
       // Past months (i < lastMonth) never consult overrideByMonth — a past
       // month is entirely import/manual-edit-driven via time_actuals now,
@@ -590,7 +614,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
     }
 
     return map;
-  }, [assignments, timeActuals, timeForecastMonths, timeActualN1Totals, lastMonth, year]);
+  }, [assignments, timeActuals, timeForecastMonths, timeActualN1Totals, timeManualRows, lastMonth, year]);
 
   // Overlays the optimistic vendu/prevu override on top of baseLineItems.
   // The override itself clears on a generation-tracked timeout (see
@@ -608,6 +632,11 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
     }
     return map;
   }, [baseLineItems, venduPrevuOverrides]);
+
+  // Every (employee, client/mission) pair already rendered as a row today —
+  // the duplicate-pair guard AddTimeEstimationRowModal uses to refuse
+  // re-adding a pairing that already has a visible row via any source.
+  const existingPairKeys = useMemo(() => new Set(lineItems.keys()), [lineItems]);
 
   function toggleGroup(key: string) {
     setCollapsedGroups((prev) => {
@@ -926,6 +955,26 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
     scheduleOverrideClear(li, ['venduNextYear', 'prevuNextYear'], generation);
   }
 
+  // Removes a manually-added pairing (time_manual_rows) — never touches
+  // assignments/time_actuals/time_forecast_months/time_actual_n1_totals, so
+  // any real data since entered on the row survives; the row then simply
+  // stops showing the "Ajout manuel" badge (it's still a real row via
+  // whichever OTHER source now has data for the pair) or disappears
+  // entirely if nothing else does. Not wrapped in withSuppressedRecording —
+  // useTimeEstimation.ts's mutators never self-push onto any history store,
+  // unlike useAssignments.ts's.
+  async function handleDeleteManualRow(li: LineItem) {
+    const row = manualRowOf(li.employeeId, li.clientMissionId);
+    if (!row) return;
+    if (!window.confirm(t('timeEstimation.grid.manualRowDeleteConfirm'))) return;
+    await deleteManualRow(row.id);
+    useTimeEstimationHistoryStore.getState().push({
+      label: t('timeEstimation.history.deleteManualRow'),
+      undo: () => restoreManualRow(row).then(() => {}),
+      redo: () => deleteManualRow(row.id),
+    });
+  }
+
   async function handleDrop(clientMissionId: string, targetEmployeeId: string, sourceEmployeeId: string) {
     if (targetEmployeeId === sourceEmployeeId) return;
     // Refuse to nest a primary-with-members under another row, and refuse a
@@ -944,7 +993,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
     `minmax(180px,1fr) 64px 64px 64px 72px ` +
     `72px ${pastColTemplate} ` +
     `72px ${remainingColTemplate} ` +
-    `64px 64px 100px`;
+    `64px 64px 100px 96px`;
 
   const loading = estimationLoading;
 
@@ -1040,6 +1089,18 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
         <span className="flex justify-end text-slate-400">
           <TrendSparkline points={points} projectedFromIndex={lastMonth} width={90} height={24} />
         </span>
+        <span className="flex justify-end">
+          {li.isManual && (
+            <button
+              type="button"
+              onClick={() => handleDeleteManualRow(li)}
+              title={t('timeEstimation.grid.manualRowDeleteHint')}
+              className="rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 hover:bg-red-50 hover:text-red-600"
+            >
+              {t('timeEstimation.grid.manualBadge')}
+            </button>
+          )}
+        </span>
       </>
     );
   }
@@ -1099,6 +1160,13 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
         <h2 className="text-sm font-semibold text-slate-700">{t('timeEstimation.grid.title')}</h2>
         <div className="flex items-center gap-2">
           <button
+            type="button"
+            onClick={() => setAddRowOpen(true)}
+            className="rounded bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-700"
+          >
+            {t('timeEstimation.grid.addRowButton')}
+          </button>
+          <button
             onClick={() => setCollapsedGroups(allCollapsed ? new Set() : new Set(topGroups.map((g) => g.key)))}
             className="rounded border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
           >
@@ -1146,6 +1214,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
           <span className="rounded bg-rose-50 px-1 text-right text-rose-700">{t('timeEstimation.grid.venduNextYear')}</span>
           <span className="rounded bg-rose-50 px-1 text-right text-rose-700">{t('timeEstimation.grid.prevuNextYear')}</span>
           <span className="text-right">{t('timeEstimation.grid.trend')}</span>
+          <span className="text-right">{t('timeEstimation.grid.origin')}</span>
         </div>
 
         {loading && <p className="p-3 text-sm text-slate-400">{t('timeEstimation.grid.loading')}</p>}
@@ -1185,6 +1254,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
                   ))}
                   <span className="text-right text-xs tabular-nums text-white">{fmt(groupAgg.venduNextYear)}</span>
                   <span className="text-right text-xs tabular-nums text-white">{fmt(groupAgg.prevuNextYear)}</span>
+                  <span />
                   <span />
                 </button>
 
@@ -1296,6 +1366,21 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
             );
           })}
       </div>
+
+      {addRowOpen && (
+        <AddTimeEstimationRowModal
+          employees={employees}
+          clientsMissions={clientsMissions}
+          existingPairKeys={existingPairKeys}
+          findOrCreate={findOrCreate}
+          createManualRow={createManualRow}
+          deleteManualRow={deleteManualRow}
+          restoreManualRow={restoreManualRow}
+          deleteClientMission={deleteClientMission}
+          restoreClientMission={restoreClientMission}
+          onClose={() => setAddRowOpen(false)}
+        />
+      )}
     </div>
   );
 }

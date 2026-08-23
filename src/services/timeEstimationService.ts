@@ -10,6 +10,7 @@ import type {
   TimeForecastMonth,
   TimeImportBatch,
   TimeManualEditMarker,
+  TimeManualRow,
 } from '../types/domain';
 
 // PostgREST caps an unbounded `select('*')` at this project's configured
@@ -444,4 +445,45 @@ export async function deleteTimeManualEditMarkersByIds(ids: string[]): Promise<v
   if (ids.length === 0) return;
   const { error } = await supabase.from('time_manual_edit_markers').delete().in('id', ids);
   if (error) throw error;
+}
+
+export async function fetchTimeManualRows(): Promise<TimeManualRow[]> {
+  const { data, error } = await supabase.from('time_manual_rows').select('*');
+  if (error) throw error;
+  return data as TimeManualRow[];
+}
+
+// Records that (employeeId, clientMissionId) was added by hand from the
+// grid's "+ Ajouter une ligne" action — see 0029_time_manual_rows.sql. The
+// unique (employee_id, client_mission_id) constraint fails this outright if
+// the pair is already marked manual; callers check the already-loaded
+// timeManualRows client-side before calling, same precondition style as
+// createTimeActualGroup.
+export async function createTimeManualRow(employeeId: string, clientMissionId: string): Promise<TimeManualRow> {
+  const { data: userData } = await supabase.auth.getUser();
+  const { data, error } = await supabase
+    .from('time_manual_rows')
+    .insert({ employee_id: employeeId, client_mission_id: clientMissionId, created_by: userData.user?.id ?? null })
+    .select()
+    .single();
+  if (error) throw error;
+  return data as TimeManualRow;
+}
+
+export async function deleteTimeManualRow(id: string): Promise<void> {
+  const { data, error } = await supabase.from('time_manual_rows').delete().eq('id', id).select();
+  assertRowsAffected(data, error);
+}
+
+// Undo body for a delete — re-inserts the exact captured row under its
+// original id (this app's identity-stable-undo convention, see
+// restoreAssignment/restoreTimeActuals above).
+export async function restoreTimeManualRow(row: TimeManualRow): Promise<TimeManualRow> {
+  const { data, error } = await supabase
+    .from('time_manual_rows')
+    .insert({ id: row.id, employee_id: row.employee_id, client_mission_id: row.client_mission_id, created_by: row.created_by })
+    .select()
+    .single();
+  if (error) throw error;
+  return data as TimeManualRow;
 }

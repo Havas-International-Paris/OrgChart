@@ -506,7 +506,12 @@
       "cumulSuffix": "(rolled up)",
       "ungroup": "Ungroup",
       "avgPast": "Avg. past months",
-      "avgRemaining": "Avg. remaining months"
+      "avgRemaining": "Avg. remaining months",
+      "origin": "Origin",
+      "addRowButton": "+ Add a row",
+      "manualBadge": "Manually added",
+      "manualRowDeleteHint": "Remove this manually-added row",
+      "manualRowDeleteConfirm": "Remove this manually-added row? Any data already entered on it (N-1, N, N+1) will remain, but it will no longer appear as manually added."
     },
     "history": {
       "editMonth": "Edit {{month}}",
@@ -517,7 +522,20 @@
       "editVendu": "Edit % sold",
       "editPrevu": "Edit % expected",
       "editVenduNextYear": "Edit % sold N+1",
-      "editPrevuNextYear": "Edit % expected N+1"
+      "editPrevuNextYear": "Edit % expected N+1",
+      "addManualRow": "Add row",
+      "deleteManualRow": "Remove manually-added row"
+    },
+    "addRowModal": {
+      "title": "Add a row",
+      "employeeLabel": "Employee",
+      "employeeSearchPlaceholder": "Search an employee…",
+      "employeeEmpty": "No matching employee.",
+      "clientMissionLabel": "Client or mission",
+      "clientMissionPlaceholder": "Client or mission name…",
+      "duplicateError": "This employee already has a row for this client/mission.",
+      "add": "Add",
+      "close": "Close"
     },
     "wizard": {
       "title": "Import a time-tracking extract",

@@ -506,7 +506,12 @@
       "cumulSuffix": "(cumul)",
       "ungroup": "Dissocier",
       "avgPast": "Moy. mois passés",
-      "avgRemaining": "Moy. mois restants"
+      "avgRemaining": "Moy. mois restants",
+      "origin": "Origine",
+      "addRowButton": "+ Ajouter une ligne",
+      "manualBadge": "Ajout manuel",
+      "manualRowDeleteHint": "Retirer cette ligne ajoutée manuellement",
+      "manualRowDeleteConfirm": "Retirer cette ligne ajoutée manuellement ? Les données déjà saisies (N-1, N, N+1) seront conservées, mais la ligne ne s'affichera plus comme ajoutée manuellement."
     },
     "history": {
       "editMonth": "Modifier {{month}}",
@@ -517,7 +522,20 @@
       "editVendu": "Modifier le % vendu",
       "editPrevu": "Modifier le % prévu",
       "editVenduNextYear": "Modifier le % vendu N+1",
-      "editPrevuNextYear": "Modifier le % prévu N+1"
+      "editPrevuNextYear": "Modifier le % prévu N+1",
+      "addManualRow": "Ajouter une ligne",
+      "deleteManualRow": "Retirer une ligne ajoutée manuellement"
+    },
+    "addRowModal": {
+      "title": "Ajouter une ligne",
+      "employeeLabel": "Collaborateur",
+      "employeeSearchPlaceholder": "Rechercher un collaborateur…",
+      "employeeEmpty": "Aucun collaborateur ne correspond.",
+      "clientMissionLabel": "Client ou mission",
+      "clientMissionPlaceholder": "Nom du client ou de la mission…",
+      "duplicateError": "Ce collaborateur a déjà une ligne pour ce client/cette mission.",
+      "add": "Ajouter",
+      "close": "Fermer"
     },
     "wizard": {
       "title": "Importer un extract de temps passé",
