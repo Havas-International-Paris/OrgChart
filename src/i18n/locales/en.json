@@ -507,12 +507,12 @@
       "ungroup": "Ungroup",
       "avgPast": "Avg. past months",
       "avgRemaining": "Avg. remaining months",
-      "origin": "Origin",
       "addRowButton": "+ Add a row",
-      "manualBadge": "Manually added",
-      "manualRowDeleteHint": "Remove this manually-added row",
+      "originImportedTooltip": "Imported",
+      "originManualTooltip": "Manually added — click to remove",
       "manualRowDeleteConfirm": "Remove this manually-added row? Any data already entered on it (N-1, N, N+1) will remain, but it will no longer appear as manually added.",
-      "quickAddPlaceholder": "+ Add an employee…"
+      "quickAddPlaceholder": "+ Add an employee…",
+      "quickAddClientMissionPlaceholder": "+ Add a client/mission…"
     },
     "history": {
       "editMonth": "Edit {{month}}",

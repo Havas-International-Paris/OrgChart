@@ -507,12 +507,12 @@
       "ungroup": "Dissocier",
       "avgPast": "Moy. mois passés",
       "avgRemaining": "Moy. mois restants",
-      "origin": "Origine",
       "addRowButton": "+ Ajouter une ligne",
-      "manualBadge": "Ajout manuel",
-      "manualRowDeleteHint": "Retirer cette ligne ajoutée manuellement",
+      "originImportedTooltip": "Importé",
+      "originManualTooltip": "Ajouté manuellement — cliquer pour retirer",
       "manualRowDeleteConfirm": "Retirer cette ligne ajoutée manuellement ? Les données déjà saisies (N-1, N, N+1) seront conservées, mais la ligne ne s'affichera plus comme ajoutée manuellement.",
-      "quickAddPlaceholder": "+ Ajouter un salarié…"
+      "quickAddPlaceholder": "+ Ajouter un salarié…",
+      "quickAddClientMissionPlaceholder": "+ Ajouter un client/mission…"
     },
     "history": {
       "editMonth": "Modifier {{month}}",

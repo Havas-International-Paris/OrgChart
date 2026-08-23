@@ -8,7 +8,7 @@ import { useTimeEstimation } from '../../hooks/useTimeEstimation';
 import { averageOverRange, sumMetricRows } from '../../lib/timeEstimationMath';
 import { TrendSparkline } from './TrendSparkline';
 import { AddTimeEstimationRowModal } from './AddTimeEstimationRowModal';
-import type { Assignment, Employee, RemunerationModel } from '../../types/domain';
+import type { Assignment, ClientMission, Employee, RemunerationModel } from '../../types/domain';
 import { useTimeEstimationHistoryStore } from '../../stores/timeEstimationHistoryStore';
 import { withSuppressedRecording } from '../../stores/historyStore';
 
@@ -318,24 +318,28 @@ function CascadeCell({
   );
 }
 
-// Trailing "type an employee name to add them" row at the bottom of each
-// client group (client-grouped view only — the client/mission is already
-// fixed by the section, so only the employee needs picking, unlike the
-// header's "+ Ajouter une ligne" modal which has to ask for both).
-// Prefix-matches on first name, last name, or the full "First Last" string
-// — not the modal's looser substring match — per user request ("les noms
-// qui matchent avec les premières lettres tapées"). `candidates` is
-// pre-filtered by the caller to exclude employees who already have a
-// visible row in this client group, so a selection can never collide with
-// an existing row.
-function QuickAddEmployeeRow({
+// Trailing "type a name to add a row" row at the bottom of each top-level
+// group — generic over WHAT is being picked, since the two grouping modes
+// need opposite halves of a pair: client-grouped sections already have a
+// fixed client/mission and need to pick an employee; employee-grouped
+// sections already have a fixed employee and need to pick a client/mission.
+// Only existing catalog entries are offered — no create-on-the-fly here,
+// unlike the header's "+ Ajouter une ligne" modal, which stays the only
+// place to introduce a brand-new client/mission. `candidates` is
+// pre-filtered by the caller to exclude whichever ones already have a
+// visible row in that section, so a pick can never collide with one.
+function QuickAddRow<T extends { id: string }>({
   candidates,
+  matchesQuery,
+  labelOf,
   onAdd,
   gridTemplateColumns,
   placeholder,
 }: {
-  candidates: Employee[];
-  onAdd: (employeeId: string) => Promise<void>;
+  candidates: T[];
+  matchesQuery: (candidate: T, normalizedQuery: string) => boolean;
+  labelOf: (candidate: T) => string;
+  onAdd: (id: string) => Promise<void>;
   gridTemplateColumns: string;
   placeholder: string;
 }) {
@@ -346,16 +350,7 @@ function QuickAddEmployeeRow({
   const containerRef = useRef<HTMLDivElement>(null);
 
   const normalizedQuery = query.trim().toLowerCase();
-  const matches =
-    normalizedQuery === ''
-      ? []
-      : candidates
-          .filter((e) => {
-            const first = e.first_name.toLowerCase();
-            const last = e.last_name.toLowerCase();
-            return first.startsWith(normalizedQuery) || last.startsWith(normalizedQuery) || `${first} ${last}`.startsWith(normalizedQuery);
-          })
-          .slice(0, 8);
+  const matches = normalizedQuery === '' ? [] : candidates.filter((c) => matchesQuery(c, normalizedQuery)).slice(0, 8);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -365,11 +360,11 @@ function QuickAddEmployeeRow({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  async function handleSelect(employeeId: string) {
+  async function handleSelect(id: string) {
     setSubmitting(true);
     setError(null);
     try {
-      await onAdd(employeeId);
+      await onAdd(id);
       setQuery('');
       setOpen(false);
     } catch (err) {
@@ -397,14 +392,14 @@ function QuickAddEmployeeRow({
         />
         {open && matches.length > 0 && (
           <div className="absolute left-0 top-full z-20 mt-1 w-64 overflow-auto rounded border border-slate-200 bg-white shadow-lg">
-            {matches.map((e) => (
+            {matches.map((c) => (
               <button
-                key={e.id}
+                key={c.id}
                 type="button"
-                onClick={() => handleSelect(e.id)}
+                onClick={() => handleSelect(c.id)}
                 className="block w-full truncate px-2 py-1 text-left text-xs text-slate-700 hover:bg-slate-50"
               >
-                {e.first_name} {e.last_name}
+                {labelOf(c)}
               </button>
             ))}
           </div>
@@ -412,6 +407,54 @@ function QuickAddEmployeeRow({
         {error && <p className="mt-0.5 text-[10px] text-red-600">{error}</p>}
       </div>
     </div>
+  );
+}
+
+function employeeMatchesQuery(e: Employee, normalizedQuery: string): boolean {
+  const first = e.first_name.toLowerCase();
+  const last = e.last_name.toLowerCase();
+  return first.startsWith(normalizedQuery) || last.startsWith(normalizedQuery) || `${first} ${last}`.startsWith(normalizedQuery);
+}
+
+function clientMissionMatchesQuery(cm: ClientMission, normalizedQuery: string): boolean {
+  return cm.name.toLowerCase().startsWith(normalizedQuery);
+}
+
+// Small, discreet origin marker rendered right after a row's label — an
+// "imported/default" glyph for every row, or a clickable "manually added"
+// glyph (delete-with-confirm) when isManual. Replaces the old dedicated
+// "Origine" column per user feedback: the badge column read as too heavy
+// for something that's true of most rows' DEFAULT state, and having it
+// right next to the name reads more naturally as "how did this row get
+// here" than a whole extra column at the far right did. Deliberately
+// icon-only with a native `title` tooltip (no on-screen text) — this
+// mirrors the rest of the grid's minimal-chrome controls (CollapseBadge,
+// the ungroup button) rather than introducing a new tooltip component.
+function RowOriginIcon({ isManual, onRemove, t }: { isManual: boolean; onRemove?: () => void; t: (key: string) => string }) {
+  if (isManual) {
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onRemove?.();
+        }}
+        title={t('timeEstimation.grid.originManualTooltip')}
+        className="shrink-0 text-slate-400 hover:text-red-600"
+      >
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
+          <circle cx="8" cy="8" r="6.3" />
+          <path d="M8 5v6M5 8h6" />
+        </svg>
+      </button>
+    );
+  }
+  return (
+    <span title={t('timeEstimation.grid.originImportedTooltip')} className="shrink-0 text-slate-300">
+      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M8 2v7.5M5 7l3 3 3-3M3 13h10" />
+      </svg>
+    </span>
   );
 }
 
@@ -1073,8 +1116,9 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
   }
 
   // Creates a manual row for (employeeId, clientMissionId) straight from
-  // QuickAddEmployeeRow's trailing "type a name" row at the bottom of a
-  // client group — the client/mission is already fixed by the section, so
+  // QuickAddRow's trailing "type a name" row at the bottom of a group —
+  // one half of the pair is already fixed by the section (the
+  // client/mission in 'client' mode, the employee in 'employee' mode), so
   // unlike handleAdd in AddTimeEstimationRowModal there's no client/mission
   // picker/findOrCreate involved, hence no withSuppressedRecording wrapper
   // is needed here either (createManualRow/restoreManualRow/deleteManualRow
@@ -1106,7 +1150,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
     `minmax(180px,1fr) 64px 64px 64px 72px ` +
     `72px ${pastColTemplate} ` +
     `72px ${remainingColTemplate} ` +
-    `64px 64px 100px 96px`;
+    `64px 64px 100px`;
 
   const loading = estimationLoading;
 
@@ -1201,18 +1245,6 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
         />
         <span className="flex justify-end text-slate-400">
           <TrendSparkline points={points} projectedFromIndex={lastMonth} width={90} height={24} />
-        </span>
-        <span className="flex justify-end">
-          {li.isManual && (
-            <button
-              type="button"
-              onClick={() => handleDeleteManualRow(li)}
-              title={t('timeEstimation.grid.manualRowDeleteHint')}
-              className="rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 hover:bg-red-50 hover:text-red-600"
-            >
-              {t('timeEstimation.grid.manualBadge')}
-            </button>
-          )}
         </span>
       </>
     );
@@ -1327,7 +1359,6 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
           <span className="rounded bg-rose-50 px-1 text-right text-rose-700">{t('timeEstimation.grid.venduNextYear')}</span>
           <span className="rounded bg-rose-50 px-1 text-right text-rose-700">{t('timeEstimation.grid.prevuNextYear')}</span>
           <span className="text-right">{t('timeEstimation.grid.trend')}</span>
-          <span className="text-right">{t('timeEstimation.grid.origin')}</span>
         </div>
 
         {loading && <p className="p-3 text-sm text-slate-400">{t('timeEstimation.grid.loading')}</p>}
@@ -1337,12 +1368,15 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
           topGroups.map((group) => {
             const isCollapsed = collapsedGroups.has(group.key);
             const groupAgg = sumMetricRows(group.rows.flatMap((r) => [r.primary, ...r.members].map(lineItemMetrics)));
-            // Only meaningful in 'client' mode, where group.key IS the
-            // clientMissionId (see topGroups above) — every employee already
-            // showing a row (as a primary or a cumul-grouped member) in this
-            // client section, excluded from QuickAddEmployeeRow's candidates
-            // so a selection can never collide with an existing row.
+            // Feeds QuickAddRow's candidate exclusion below, one set per
+            // grouping mode (only the relevant one is ever used per render).
+            // 'client' mode: group.key IS the clientMissionId — every
+            // employee already showing a row (primary or cumul-grouped
+            // member) in this section. 'employee' mode: group.key IS the
+            // employeeId, and members is always empty (see topGroups above),
+            // so just every client/mission already shown for this employee.
             const presentEmployeeIds = new Set(group.rows.flatMap((r) => [r.primary.employeeId, ...r.members.map((m) => m.employeeId)]));
+            const presentClientMissionIds = new Set(group.rows.map((r) => r.primary.clientMissionId));
             return (
               <div key={group.key} className="border-b border-slate-100 last:border-0">
                 <button
@@ -1373,7 +1407,6 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
                   ))}
                   <span className="text-right text-xs tabular-nums text-white">{fmt(groupAgg.venduNextYear)}</span>
                   <span className="text-right text-xs tabular-nums text-white">{fmt(groupAgg.prevuNextYear)}</span>
-                  <span />
                   <span />
                 </button>
 
@@ -1443,6 +1476,13 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
                                 </button>
                               )}
                               <span className="truncate">{rowLabel}</span>
+                              {/* Skipped on a cumul (drag-grouped) aggregate row — it mixes
+                                  several employees' own rows, so a single icon here would
+                                  misrepresent them; each member's own row below carries its
+                                  own accurate icon instead. */}
+                              {!hasGroup && (
+                                <RowOriginIcon isManual={primary.isManual} onRemove={() => handleDeleteManualRow(primary)} t={t} />
+                              )}
                               {hasGroup && <span className="shrink-0 text-xs italic text-slate-400">{t('timeEstimation.grid.cumulSuffix')}</span>}
                             </span>,
                           )}
@@ -1464,6 +1504,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
                                   false,
                                   <span className="flex items-center gap-1.5 truncate pl-11 text-xs text-slate-600">
                                     <span className="truncate">{employeeName(employeeById.get(sub.employeeId))}</span>
+                                    <RowOriginIcon isManual={sub.isManual} onRemove={() => handleDeleteManualRow(sub)} t={t} />
                                     {isMember && group && (
                                       <button
                                         type="button"
@@ -1483,11 +1524,23 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
                   })}
 
                 {!isCollapsed && groupBy === 'client' && (
-                  <QuickAddEmployeeRow
+                  <QuickAddRow
                     candidates={employees.filter((e) => !presentEmployeeIds.has(e.id))}
+                    matchesQuery={employeeMatchesQuery}
+                    labelOf={(e) => `${e.first_name} ${e.last_name}`}
                     onAdd={(employeeId) => handleQuickAddRow(employeeId, group.key)}
                     gridTemplateColumns={gridTemplateColumns}
                     placeholder={t('timeEstimation.grid.quickAddPlaceholder')}
+                  />
+                )}
+                {!isCollapsed && groupBy === 'employee' && (
+                  <QuickAddRow
+                    candidates={clientsMissions.filter((cm) => !presentClientMissionIds.has(cm.id))}
+                    matchesQuery={clientMissionMatchesQuery}
+                    labelOf={(cm) => cm.name}
+                    onAdd={(clientMissionId) => handleQuickAddRow(group.key, clientMissionId)}
+                    gridTemplateColumns={gridTemplateColumns}
+                    placeholder={t('timeEstimation.grid.quickAddClientMissionPlaceholder')}
                   />
                 )}
               </div>
