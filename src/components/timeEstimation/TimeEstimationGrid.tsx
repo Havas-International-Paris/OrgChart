@@ -420,40 +420,48 @@ function clientMissionMatchesQuery(cm: ClientMission, normalizedQuery: string): 
   return cm.name.toLowerCase().startsWith(normalizedQuery);
 }
 
-// Small, discreet origin marker rendered right after a row's label — an
-// "imported/default" glyph for every row, or a clickable "manually added"
-// glyph (delete-with-confirm) when isManual. Replaces the old dedicated
-// "Origine" column per user feedback: the badge column read as too heavy
-// for something that's true of most rows' DEFAULT state, and having it
-// right next to the name reads more naturally as "how did this row get
-// here" than a whole extra column at the far right did. Deliberately
-// icon-only with a native `title` tooltip (no on-screen text) — this
-// mirrors the rest of the grid's minimal-chrome controls (CollapseBadge,
-// the ungroup button) rather than introducing a new tooltip component.
-function RowOriginIcon({ isManual, onRemove, t }: { isManual: boolean; onRemove?: () => void; t: (key: string) => string }) {
+// Small, discreet origin marker rendered right after a row's label — a
+// plain "i" for every row in its default/imported state, or an "a" (plus a
+// separate "×" delete control) for a manually-added one. Replaces the old
+// dedicated "Origine" column, and then the icon-based version of this same
+// marker, per user feedback (letters read clearer at this size than a tiny
+// glyph, and needed their own dedicated hit target once the delete action
+// stopped being the same click target as the indicator itself). Each
+// letter/× is its own element with a native `title` tooltip, sized with
+// real padding (not just a bare character) so the tooltip reliably
+// triggers on hover — mirrors the rest of the grid's minimal-chrome
+// controls (CollapseBadge, the ungroup button) rather than introducing a
+// new tooltip component.
+function RowOriginMarker({ isManual, onRemove, t }: { isManual: boolean; onRemove?: () => void; t: (key: string) => string }) {
   if (isManual) {
     return (
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onRemove?.();
-        }}
-        title={t('timeEstimation.grid.originManualTooltip')}
-        className="shrink-0 text-slate-400 hover:text-red-600"
-      >
-        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
-          <circle cx="8" cy="8" r="6.3" />
-          <path d="M8 5v6M5 8h6" />
-        </svg>
-      </button>
+      <span className="flex shrink-0 items-center gap-0.5">
+        <span
+          title={t('timeEstimation.grid.originManualTooltip')}
+          className="flex h-4 w-4 items-center justify-center rounded text-[10px] font-semibold leading-none text-indigo-400"
+        >
+          a
+        </span>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onRemove?.();
+          }}
+          title={t('timeEstimation.grid.manualRowDeleteHint')}
+          className="flex h-4 w-4 items-center justify-center rounded text-[10px] font-semibold leading-none text-slate-400 hover:bg-red-50 hover:text-red-600"
+        >
+          ×
+        </button>
+      </span>
     );
   }
   return (
-    <span title={t('timeEstimation.grid.originImportedTooltip')} className="shrink-0 text-slate-300">
-      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M8 2v7.5M5 7l3 3 3-3M3 13h10" />
-      </svg>
+    <span
+      title={t('timeEstimation.grid.originImportedTooltip')}
+      className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-[10px] font-semibold leading-none text-slate-300"
+    >
+      i
     </span>
   );
 }
@@ -1481,7 +1489,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
                                   misrepresent them; each member's own row below carries its
                                   own accurate icon instead. */}
                               {!hasGroup && (
-                                <RowOriginIcon isManual={primary.isManual} onRemove={() => handleDeleteManualRow(primary)} t={t} />
+                                <RowOriginMarker isManual={primary.isManual} onRemove={() => handleDeleteManualRow(primary)} t={t} />
                               )}
                               {hasGroup && <span className="shrink-0 text-xs italic text-slate-400">{t('timeEstimation.grid.cumulSuffix')}</span>}
                             </span>,
@@ -1504,7 +1512,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
                                   false,
                                   <span className="flex items-center gap-1.5 truncate pl-11 text-xs text-slate-600">
                                     <span className="truncate">{employeeName(employeeById.get(sub.employeeId))}</span>
-                                    <RowOriginIcon isManual={sub.isManual} onRemove={() => handleDeleteManualRow(sub)} t={t} />
+                                    <RowOriginMarker isManual={sub.isManual} onRemove={() => handleDeleteManualRow(sub)} t={t} />
                                     {isMember && group && (
                                       <button
                                         type="button"
