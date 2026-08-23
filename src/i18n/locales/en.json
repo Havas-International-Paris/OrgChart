@@ -510,8 +510,7 @@
       "addRowButton": "+ Add a row",
       "originImportedTooltip": "Imported",
       "originManualTooltip": "Manually added",
-      "manualRowDeleteHint": "Remove this manually-added row",
-      "manualRowDeleteConfirm": "Remove this manually-added row? Any data already entered on it (N-1, N, N+1) will remain, but it will no longer appear as manually added.",
+      "manualRowDeleteHint": "Remove this row and its data",
       "quickAddPlaceholder": "+ Add an employee…",
       "quickAddClientMissionPlaceholder": "+ Add a client/mission…"
     },

@@ -510,8 +510,7 @@
       "addRowButton": "+ Ajouter une ligne",
       "originImportedTooltip": "Importé",
       "originManualTooltip": "Ajouté manuellement",
-      "manualRowDeleteHint": "Retirer cette ligne ajoutée manuellement",
-      "manualRowDeleteConfirm": "Retirer cette ligne ajoutée manuellement ? Les données déjà saisies (N-1, N, N+1) seront conservées, mais la ligne ne s'affichera plus comme ajoutée manuellement.",
+      "manualRowDeleteHint": "Supprimer cette ligne et ses données",
       "quickAddPlaceholder": "+ Ajouter un salarié…",
       "quickAddClientMissionPlaceholder": "+ Ajouter un client/mission…"
     },

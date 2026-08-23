@@ -480,6 +480,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
   const { clientsMissions, findOrCreate, restoreClientMission, deleteClientMission } = useClientsMissions();
   const {
     timeActuals,
+    timeForecasts,
     timeForecastMonths,
     timeActualN1Totals,
     timeManualEditMarkers,
@@ -494,6 +495,8 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
     createManualRow,
     deleteManualRow,
     restoreManualRow,
+    purgePairData,
+    restorePairData,
     saveMonthOverrides,
     restoreMonthOverrides,
     saveManualActuals,
@@ -1103,23 +1106,56 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
     scheduleOverrideClear(li, ['venduNextYear', 'prevuNextYear'], generation);
   }
 
-  // Removes a manually-added pairing (time_manual_rows) — never touches
-  // assignments/time_actuals/time_forecast_months/time_actual_n1_totals, so
-  // any real data since entered on the row survives; the row then simply
-  // stops showing the "Ajout manuel" badge (it's still a real row via
-  // whichever OTHER source now has data for the pair) or disappears
-  // entirely if nothing else does. Not wrapped in withSuppressedRecording —
-  // useTimeEstimation.ts's mutators never self-push onto any history store,
-  // unlike useAssignments.ts's.
+  // Removes a manually-added pairing AND every trace of its data — the
+  // time_manual_rows marker, its assignment (if any, which carries
+  // vendu/prévu/N+1), and every row across time_actuals/
+  // time_forecast_months/time_forecasts/time_actual_n1_totals/
+  // time_manual_edit_markers for this (employeeId, clientMissionId) pair —
+  // "as if the row had never been added," per user request. This
+  // deliberately replaces an earlier soft-delete design that kept entered
+  // data around; no confirmation prompt either, also per request. Still
+  // undoable: everything relevant is snapshotted before deleting so undo
+  // can replay it all, matching this app's identity-stable-undo convention
+  // despite this being a multi-table purge rather than a single-row delete.
+  // The assignment's own delete/restore is wrapped in withSuppressedRecording
+  // (useAssignments.ts's mutators self-push onto the MAIN org-chart
+  // historyStore) — purgePairData/deleteManualRow/restorePairData/
+  // restoreManualRow (useTimeEstimation.ts) need no such wrapping, they
+  // never self-push onto any history store.
   async function handleDeleteManualRow(li: LineItem) {
-    const row = manualRowOf(li.employeeId, li.clientMissionId);
-    if (!row) return;
-    if (!window.confirm(t('timeEstimation.grid.manualRowDeleteConfirm'))) return;
-    await deleteManualRow(row.id);
+    const foundRow = manualRowOf(li.employeeId, li.clientMissionId);
+    if (!foundRow) return;
+    const row = foundRow; // narrowed once, for the closures below
+
+    const priorAssignment = li.assignmentId ? assignments.find((a) => a.id === li.assignmentId) ?? null : null;
+    const snapshot = {
+      actuals: timeActuals.filter((a) => a.resolved_employee_id === li.employeeId && a.resolved_client_mission_id === li.clientMissionId),
+      forecastMonths: timeForecastMonths.filter((m) => m.employee_id === li.employeeId && m.client_mission_id === li.clientMissionId),
+      forecasts: timeForecasts.filter((f) => f.employee_id === li.employeeId && f.client_mission_id === li.clientMissionId),
+      n1Totals: timeActualN1Totals.filter((n) => n.employee_id === li.employeeId && n.client_mission_id === li.clientMissionId),
+      editMarkers: timeManualEditMarkers.filter((m) => m.employee_id === li.employeeId && m.client_mission_id === li.clientMissionId),
+    };
+
+    async function apply() {
+      await Promise.all([
+        priorAssignment ? withSuppressedRecording(() => deleteAssignment(priorAssignment.id)) : null,
+        purgePairData(li.employeeId, li.clientMissionId),
+        deleteManualRow(row.id),
+      ]);
+    }
+    async function undo() {
+      await Promise.all([
+        priorAssignment ? withSuppressedRecording(() => restoreAssignment(priorAssignment)) : null,
+        restorePairData(snapshot),
+        restoreManualRow(row),
+      ]);
+    }
+
+    await apply();
     useTimeEstimationHistoryStore.getState().push({
       label: t('timeEstimation.history.deleteManualRow'),
-      undo: () => restoreManualRow(row).then(() => {}),
-      redo: () => deleteManualRow(row.id),
+      undo,
+      redo: apply,
     });
   }
 

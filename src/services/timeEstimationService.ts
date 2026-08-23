@@ -487,3 +487,59 @@ export async function restoreTimeManualRow(row: TimeManualRow): Promise<TimeManu
   if (error) throw error;
   return data as TimeManualRow;
 }
+
+// The five functions below back TimeEstimationGrid.tsx's "×" delete on a
+// manually-added row — per user request, that action wipes every trace of
+// the pair ("as if the row had never been added"), not just the
+// time_manual_rows marker the earlier soft-delete design left in place.
+// Deliberately NOT scoped to the grid's current `year` — a purge should
+// remove every year's data for the pair, not leave stray rows for a year
+// the grid doesn't currently show. None of these need
+// assertRowsAffected — "nothing to delete" (the pair never had data in
+// this particular table) is a normal, expected outcome here, same
+// reasoning as deleteTimeActualsForMonths/deleteTimeManualEditMarker above.
+
+export async function deleteTimeActualsForPair(employeeId: string, clientMissionId: string): Promise<void> {
+  const { error } = await supabase
+    .from('time_actuals')
+    .delete()
+    .eq('resolved_employee_id', employeeId)
+    .eq('resolved_client_mission_id', clientMissionId);
+  if (error) throw error;
+}
+
+export async function deleteTimeForecastMonthsForPair(employeeId: string, clientMissionId: string): Promise<void> {
+  const { error } = await supabase
+    .from('time_forecast_months')
+    .delete()
+    .eq('employee_id', employeeId)
+    .eq('client_mission_id', clientMissionId);
+  if (error) throw error;
+}
+
+export async function deleteTimeForecastsForPair(employeeId: string, clientMissionId: string): Promise<void> {
+  const { error } = await supabase
+    .from('time_forecasts')
+    .delete()
+    .eq('employee_id', employeeId)
+    .eq('client_mission_id', clientMissionId);
+  if (error) throw error;
+}
+
+export async function deleteTimeActualN1TotalsForPair(employeeId: string, clientMissionId: string): Promise<void> {
+  const { error } = await supabase
+    .from('time_actual_n1_totals')
+    .delete()
+    .eq('employee_id', employeeId)
+    .eq('client_mission_id', clientMissionId);
+  if (error) throw error;
+}
+
+export async function deleteTimeManualEditMarkersForPair(employeeId: string, clientMissionId: string): Promise<void> {
+  const { error } = await supabase
+    .from('time_manual_edit_markers')
+    .delete()
+    .eq('employee_id', employeeId)
+    .eq('client_mission_id', clientMissionId);
+  if (error) throw error;
+}
