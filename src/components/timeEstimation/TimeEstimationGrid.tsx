@@ -11,6 +11,7 @@ import { AddTimeEstimationRowModal } from './AddTimeEstimationRowModal';
 import { CommentFlag } from './CommentFlag';
 import { FilterDropdown, type FilterDropdownOption } from '../shared/FilterDropdown';
 import { Tooltip } from '../shared/Tooltip';
+import { TruncatedLabel } from '../shared/TruncatedLabel';
 import {
   emptyTimeEstimationFilters,
   hasActiveTimeEstimationFilters,
@@ -20,8 +21,31 @@ import {
 import type { Assignment, ClientMission, Employee, RemunerationModel } from '../../types/domain';
 import { useTimeEstimationHistoryStore } from '../../stores/timeEstimationHistoryStore';
 import { withSuppressedRecording } from '../../stores/historyStore';
+import { useUiPreferencesStore } from '../../stores/uiPreferencesStore';
 
 type GroupBy = 'client' | 'employee';
+
+// Default column widths, matching the literals the old hardcoded
+// gridTemplateColumns string used — the resolver below falls back to these
+// when a column has no stored override, so a first-time user (or an old
+// localStorage blob predating column resize) sees the exact same layout as
+// before, byte-for-byte.
+const DEFAULT_COL_PX: Record<string, number> = {
+  model: 48,
+  totalN1: 64,
+  vendu: 64,
+  prevu: 64,
+  total: 72,
+  avgPast: 72,
+  avgRemaining: 72,
+  venduNextYear: 64,
+  prevuNextYear: 64,
+  trend: 100,
+};
+const MONTH_DEFAULT_PX = 56;
+const LABEL_MIN_PX = 120;
+const COL_MIN_PX = 40;
+const COL_MAX_PX = 500;
 
 export interface LineItem {
   employeeId: string;
@@ -561,8 +585,55 @@ function RemunerationModelBadge({
   );
 }
 
+// Same setPointerCapture/onPointerMove idiom as AppShell.tsx's grid/chart
+// split divider: absolute width from getBoundingClientRect() each move (not
+// accumulated deltas), e.preventDefault() on pointerdown so the drag isn't
+// read as text selection. No onPointerUp needed — once the button releases,
+// e.buttons becomes 0 and further moves are no-ops. Writes to the store on
+// every pointermove, same as AppShell's divider — this grid tops out at a
+// few hundred rows (see CLAUDE.md), so continuous re-render during drag is
+// fine and simpler than buffering to commit-on-release.
+function ColumnResizeHandle({
+  columnId,
+  minWidth,
+  onResize,
+  title,
+}: {
+  columnId: string;
+  minWidth: number;
+  onResize: (columnId: string, width: number) => void;
+  title: string;
+}) {
+  function handlePointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    e.preventDefault();
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }
+
+  function handlePointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    if (e.buttons !== 1) return;
+    const rect = e.currentTarget.parentElement?.getBoundingClientRect();
+    if (!rect) return;
+    const width = Math.min(COL_MAX_PX, Math.max(minWidth, e.clientX - rect.left));
+    onResize(columnId, width);
+  }
+
+  return (
+    <div
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      title={title}
+      className="absolute inset-y-0 right-0 w-1.5 cursor-col-resize hover:bg-slate-300 active:bg-slate-400"
+    />
+  );
+}
+
 export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId: string }) {
   const { t, i18n } = useTranslation();
+  const columnWidths = useUiPreferencesStore((s) => s.timeEstimationColumnWidths);
+  const setColumnWidth = useUiPreferencesStore((s) => s.setTimeEstimationColumnWidth);
+  const monthsHidden = useUiPreferencesStore((s) => s.timeEstimationMonthsHidden);
+  const setMonthsHidden = useUiPreferencesStore((s) => s.setTimeEstimationMonthsHidden);
   const { employees } = useEmployees(registryOrgChartId);
   const {
     assignments,
@@ -1396,13 +1467,23 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
     await createGroup(clientMissionId, targetEmployeeId, sourceEmployeeId);
   }
 
-  const pastColTemplate = pastMonthLabels.map(() => '56px').join(' ');
-  const remainingColTemplate = remainingMonthLabels.map(() => '56px').join(' ');
+  function widthOf(columnId: string, defaultPx: number): string {
+    const stored = columnWidths[columnId];
+    return `${stored ?? defaultPx}px`;
+  }
+  const labelWidth = columnWidths.label ? `${columnWidths.label}px` : 'minmax(180px,1fr)';
+  const pastColTemplate = monthsHidden
+    ? ''
+    : pastMonthLabels.map((_, i) => widthOf(`month${i}`, MONTH_DEFAULT_PX)).join(' ');
+  const remainingColTemplate = monthsHidden
+    ? ''
+    : remainingMonthLabels.map((_, i) => widthOf(`month${lastMonth + i}`, MONTH_DEFAULT_PX)).join(' ');
   const gridTemplateColumns =
-    `minmax(180px,1fr) 48px 64px 64px 64px 72px ` +
-    `72px ${pastColTemplate} ` +
-    `72px ${remainingColTemplate} ` +
-    `64px 64px 100px`;
+    `${labelWidth} ${widthOf('model', DEFAULT_COL_PX.model)} ${widthOf('totalN1', DEFAULT_COL_PX.totalN1)} ` +
+    `${widthOf('vendu', DEFAULT_COL_PX.vendu)} ${widthOf('prevu', DEFAULT_COL_PX.prevu)} ${widthOf('total', DEFAULT_COL_PX.total)} ` +
+    `${widthOf('avgPast', DEFAULT_COL_PX.avgPast)} ${pastColTemplate} ` +
+    `${widthOf('avgRemaining', DEFAULT_COL_PX.avgRemaining)} ${remainingColTemplate} ` +
+    `${widthOf('venduNextYear', DEFAULT_COL_PX.venduNextYear)} ${widthOf('prevuNextYear', DEFAULT_COL_PX.prevuNextYear)} ${widthOf('trend', DEFAULT_COL_PX.trend)}`;
 
   const loading = estimationLoading;
 
@@ -1451,17 +1532,18 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
             )
           }
         />
-        {li.effectiveByMonth.slice(0, lastMonth).map((v, i) => (
-          <CascadeCell
-            key={i}
-            value={v}
-            tint={editedTint(li, `m${i}`) ?? 'grey'}
-            disabled={cumulDisabled}
-            onCommit={(newValue) =>
-              handleFill(li, [i + 1], newValue, t('timeEstimation.history.editMonth', { month: monthLabel(i) }), `m${i}`)
-            }
-          />
-        ))}
+        {!monthsHidden &&
+          li.effectiveByMonth.slice(0, lastMonth).map((v, i) => (
+            <CascadeCell
+              key={i}
+              value={v}
+              tint={editedTint(li, `m${i}`) ?? 'grey'}
+              disabled={cumulDisabled}
+              onCommit={(newValue) =>
+                handleFill(li, [i + 1], newValue, t('timeEstimation.history.editMonth', { month: monthLabel(i) }), `m${i}`)
+              }
+            />
+          ))}
         <CascadeCell
           value={lastMonth < 12 ? li.avgRemaining : null}
           tint={editedTint(li, 'avgRemaining')}
@@ -1476,23 +1558,24 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
             )
           }
         />
-        {li.effectiveByMonth.slice(lastMonth, 12).map((v, i) => (
-          <CascadeCell
-            key={i}
-            value={v}
-            tint={editedTint(li, `m${lastMonth + i}`)}
-            disabled={cumulDisabled}
-            onCommit={(newValue) =>
-              handleFill(
-                li,
-                [lastMonth + i + 1],
-                newValue,
-                t('timeEstimation.history.editMonth', { month: monthLabel(lastMonth + i) }),
-                `m${lastMonth + i}`,
-              )
-            }
-          />
-        ))}
+        {!monthsHidden &&
+          li.effectiveByMonth.slice(lastMonth, 12).map((v, i) => (
+            <CascadeCell
+              key={i}
+              value={v}
+              tint={editedTint(li, `m${lastMonth + i}`)}
+              disabled={cumulDisabled}
+              onCommit={(newValue) =>
+                handleFill(
+                  li,
+                  [lastMonth + i + 1],
+                  newValue,
+                  t('timeEstimation.history.editMonth', { month: monthLabel(lastMonth + i) }),
+                  `m${lastMonth + i}`,
+                )
+              }
+            />
+          ))}
         <CascadeCell
           value={li.venduNextYear}
           tint="pink"
@@ -1639,6 +1722,12 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
           >
             {allCollapsed ? t('timeEstimation.grid.expandAll') : t('timeEstimation.grid.collapseAll')}
           </button>
+          <button
+            onClick={() => setMonthsHidden(!monthsHidden)}
+            className="rounded border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+          >
+            {monthsHidden ? t('timeEstimation.grid.showMonths') : t('timeEstimation.grid.hideMonths')}
+          </button>
           <div className="flex overflow-hidden rounded border border-slate-300 text-xs">
             <button
               onClick={() => setGroupBy('client')}
@@ -1702,26 +1791,75 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
           className="sticky top-0 z-10 grid items-center gap-2 border-b border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-500"
           style={{ gridTemplateColumns }}
         >
-          <span>{groupBy === 'client' ? t('timeEstimation.grid.employeeHeader') : t('timeEstimation.grid.clientMissionHeader')}</span>
-          <span className="text-right">{t('timeEstimation.grid.remunerationModelHeader')}</span>
-          <span className="text-right">{t('timeEstimation.grid.totalN1')}</span>
-          <span className="rounded bg-rose-50 px-1 text-right text-rose-700">{t('timeEstimation.grid.vendu')}</span>
-          <span className="rounded bg-rose-50 px-1 text-right text-rose-700">{t('timeEstimation.grid.prevu')}</span>
-          <span className="text-right">{t('timeEstimation.grid.total')}</span>
-          <span className="text-right">{t('timeEstimation.grid.avgPast')}</span>
-          {pastMonthLabels.map((label, i) => (
-            <span key={i} className="text-right capitalize">
-              {label}
-            </span>
-          ))}
-          <span className="text-right">{t('timeEstimation.grid.avgRemaining')}</span>
-          {remainingMonthLabels.map((label, i) => (
-            <span key={i} className="text-right capitalize">
-              {label}
-            </span>
-          ))}
-          <span className="rounded bg-rose-50 px-1 text-right text-rose-700">{t('timeEstimation.grid.venduNextYear')}</span>
-          <span className="rounded bg-rose-50 px-1 text-right text-rose-700">{t('timeEstimation.grid.prevuNextYear')}</span>
+          <span className="relative">
+            {groupBy === 'client' ? t('timeEstimation.grid.employeeHeader') : t('timeEstimation.grid.clientMissionHeader')}
+            <ColumnResizeHandle
+              columnId="label"
+              minWidth={LABEL_MIN_PX}
+              onResize={setColumnWidth}
+              title={t('timeEstimation.grid.columnResizeHint')}
+            />
+          </span>
+          <span className="relative text-right">
+            {t('timeEstimation.grid.remunerationModelHeader')}
+            <ColumnResizeHandle columnId="model" minWidth={COL_MIN_PX} onResize={setColumnWidth} title={t('timeEstimation.grid.columnResizeHint')} />
+          </span>
+          <span className="relative text-right">
+            {t('timeEstimation.grid.totalN1')}
+            <ColumnResizeHandle columnId="totalN1" minWidth={COL_MIN_PX} onResize={setColumnWidth} title={t('timeEstimation.grid.columnResizeHint')} />
+          </span>
+          <span className="relative rounded bg-rose-50 px-1 text-right text-rose-700">
+            {t('timeEstimation.grid.vendu')}
+            <ColumnResizeHandle columnId="vendu" minWidth={COL_MIN_PX} onResize={setColumnWidth} title={t('timeEstimation.grid.columnResizeHint')} />
+          </span>
+          <span className="relative rounded bg-rose-50 px-1 text-right text-rose-700">
+            {t('timeEstimation.grid.prevu')}
+            <ColumnResizeHandle columnId="prevu" minWidth={COL_MIN_PX} onResize={setColumnWidth} title={t('timeEstimation.grid.columnResizeHint')} />
+          </span>
+          <span className="relative text-right">
+            {t('timeEstimation.grid.total')}
+            <ColumnResizeHandle columnId="total" minWidth={COL_MIN_PX} onResize={setColumnWidth} title={t('timeEstimation.grid.columnResizeHint')} />
+          </span>
+          <span className="relative text-right">
+            {t('timeEstimation.grid.avgPast')}
+            <ColumnResizeHandle columnId="avgPast" minWidth={COL_MIN_PX} onResize={setColumnWidth} title={t('timeEstimation.grid.columnResizeHint')} />
+          </span>
+          {!monthsHidden &&
+            pastMonthLabels.map((label, i) => (
+              <span key={i} className="relative text-right capitalize">
+                {label}
+                <ColumnResizeHandle
+                  columnId={`month${i}`}
+                  minWidth={COL_MIN_PX}
+                  onResize={setColumnWidth}
+                  title={t('timeEstimation.grid.columnResizeHint')}
+                />
+              </span>
+            ))}
+          <span className="relative text-right">
+            {t('timeEstimation.grid.avgRemaining')}
+            <ColumnResizeHandle columnId="avgRemaining" minWidth={COL_MIN_PX} onResize={setColumnWidth} title={t('timeEstimation.grid.columnResizeHint')} />
+          </span>
+          {!monthsHidden &&
+            remainingMonthLabels.map((label, i) => (
+              <span key={i} className="relative text-right capitalize">
+                {label}
+                <ColumnResizeHandle
+                  columnId={`month${lastMonth + i}`}
+                  minWidth={COL_MIN_PX}
+                  onResize={setColumnWidth}
+                  title={t('timeEstimation.grid.columnResizeHint')}
+                />
+              </span>
+            ))}
+          <span className="relative rounded bg-rose-50 px-1 text-right text-rose-700">
+            {t('timeEstimation.grid.venduNextYear')}
+            <ColumnResizeHandle columnId="venduNextYear" minWidth={COL_MIN_PX} onResize={setColumnWidth} title={t('timeEstimation.grid.columnResizeHint')} />
+          </span>
+          <span className="relative rounded bg-rose-50 px-1 text-right text-rose-700">
+            {t('timeEstimation.grid.prevuNextYear')}
+            <ColumnResizeHandle columnId="prevuNextYear" minWidth={COL_MIN_PX} onResize={setColumnWidth} title={t('timeEstimation.grid.columnResizeHint')} />
+          </span>
           <span className="text-right">{t('timeEstimation.grid.trend')}</span>
         </div>
 
@@ -1750,7 +1888,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
                 >
                   <span className="flex items-center gap-2 truncate">
                     <span className="text-white">{isCollapsed ? '▸' : '▾'}</span>
-                    <span className="truncate text-sm font-semibold text-white">{group.label}</span>
+                    <TruncatedLabel text={group.label} className="truncate text-sm font-semibold text-white" />
                     <span className="shrink-0 text-xs text-white">· {group.rows.length}</span>
                   </span>
                   <span />
@@ -1759,17 +1897,19 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
                   <span className="text-right text-xs tabular-nums text-white">{fmt(groupAgg.prevu)}</span>
                   <span className="text-right text-xs tabular-nums font-medium text-white">{fmt(groupAgg.total)}</span>
                   <span className="text-right text-xs tabular-nums text-white">{fmt(groupAgg.avgPast)}</span>
-                  {pastMonthLabels.map((_, i) => (
-                    <span key={i} className="text-right text-xs tabular-nums text-white">
-                      {fmt(groupAgg[`m${i}`])}
-                    </span>
-                  ))}
+                  {!monthsHidden &&
+                    pastMonthLabels.map((_, i) => (
+                      <span key={i} className="text-right text-xs tabular-nums text-white">
+                        {fmt(groupAgg[`m${i}`])}
+                      </span>
+                    ))}
                   <span className="text-right text-xs tabular-nums text-white">{fmt(groupAgg.avgRemaining)}</span>
-                  {remainingMonthLabels.map((_, i) => (
-                    <span key={i} className="text-right text-xs tabular-nums text-white">
-                      {fmt(groupAgg[`m${lastMonth + i}`])}
-                    </span>
-                  ))}
+                  {!monthsHidden &&
+                    remainingMonthLabels.map((_, i) => (
+                      <span key={i} className="text-right text-xs tabular-nums text-white">
+                        {fmt(groupAgg[`m${lastMonth + i}`])}
+                      </span>
+                    ))}
                   <span className="text-right text-xs tabular-nums text-white">{fmt(groupAgg.venduNextYear)}</span>
                   <span className="text-right text-xs tabular-nums text-white">{fmt(groupAgg.prevuNextYear)}</span>
                   <span />
@@ -1842,7 +1982,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
                                   {cumulCollapsed ? '▸' : '▾'}
                                 </button>
                               )}
-                              <span className="truncate">{rowLabel}</span>
+                              <TruncatedLabel text={rowLabel} className="truncate" />
                               {/* Skipped on a cumul (drag-grouped) aggregate row — it mixes
                                   several employees' own rows, so a single icon here would
                                   misrepresent them; each member's own row below carries its
@@ -1877,7 +2017,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
                                   sub,
                                   false,
                                   <span className="flex items-center gap-1.5 truncate pl-11 text-xs text-slate-600">
-                                    <span className="truncate">{employeeName(employeeById.get(sub.employeeId))}</span>
+                                    <TruncatedLabel text={employeeName(employeeById.get(sub.employeeId))} className="truncate" />
                                     <RowOriginMarker isManual={sub.isManual} onRemove={() => handleDeleteManualRow(sub)} t={t} />
                                     <CommentFlag
                                       comment={sub.comment}

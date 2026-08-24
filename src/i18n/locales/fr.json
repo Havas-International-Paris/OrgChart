@@ -492,6 +492,8 @@
       "collapseAll": "Tout replier",
       "byClient": "Par client",
       "byEmployee": "Par employé",
+      "hideMonths": "Masquer les mois",
+      "showMonths": "Afficher les mois",
       "employeeHeader": "Salarié",
       "clientMissionHeader": "Client",
       "vendu": "% vendu",
@@ -518,7 +520,8 @@
       "remunerationModelCommissionTooltip": "Commission",
       "remunerationModelUnsetTooltip": "Non défini — cliquer pour choisir",
       "remunerationModelClickHint": "cliquer pour changer",
-      "commentAddTooltip": "Ajouter un commentaire"
+      "commentAddTooltip": "Ajouter un commentaire",
+      "columnResizeHint": "Faire glisser pour redimensionner"
     },
     "commentPopover": {
       "placeholder": "Saisir un commentaire…",

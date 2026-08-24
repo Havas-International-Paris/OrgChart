@@ -492,6 +492,8 @@
       "collapseAll": "Collapse all",
       "byClient": "By client",
       "byEmployee": "By employee",
+      "hideMonths": "Hide months",
+      "showMonths": "Show months",
       "employeeHeader": "Employee",
       "clientMissionHeader": "Client",
       "vendu": "% sold",
@@ -518,7 +520,8 @@
       "remunerationModelCommissionTooltip": "Commission",
       "remunerationModelUnsetTooltip": "Not set — click to choose",
       "remunerationModelClickHint": "click to change",
-      "commentAddTooltip": "Add a comment"
+      "commentAddTooltip": "Add a comment",
+      "columnResizeHint": "Drag to resize column"
     },
     "commentPopover": {
       "placeholder": "Type a comment…",

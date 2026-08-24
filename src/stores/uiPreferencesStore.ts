@@ -38,6 +38,24 @@ interface UiPreferencesState {
   // else — same rationale as gridDensity/splitFraction above.
   chatProviderId: string | null;
   setChatProviderId: (id: string | null) => void;
+  // Time Estimation grid's per-column widths in px, keyed by a stable column
+  // id — absence of a key means "use that column's built-in default." Month
+  // columns are keyed by calendar month index ('month0'..'month11'), NOT by
+  // position in pastMonthLabels/remainingMonthLabels — those arrays' lengths
+  // shift as `lastMonth` advances through the year, so a resize of "March's
+  // column" must stay March's column regardless of which side of the past/
+  // remaining split it currently falls on. See TimeEstimationGrid.tsx's
+  // gridTemplateColumns construction.
+  timeEstimationColumnWidths: Record<string, number>;
+  setTimeEstimationColumnWidth: (columnId: string, width: number) => void;
+  // Whether the 12 individual month columns (Jan-Dec of the current year N)
+  // are hidden, leaving only the Avg past/Avg remaining summary columns —
+  // see the "hide N months" toggle in TimeEstimationGrid.tsx. Persisted like
+  // the width prefs above (not a plain useState like groupBy/collapsedGroups
+  // in that file) because this is a durable "make the grid fit my screen"
+  // layout choice, not per-session exploration state.
+  timeEstimationMonthsHidden: boolean;
+  setTimeEstimationMonthsHidden: (hidden: boolean) => void;
 }
 
 // Deliberately separate from selectionStore.ts: these are per-browser UI
@@ -59,6 +77,11 @@ export const useUiPreferencesStore = create<UiPreferencesState>()(
       setChatWidthFraction: (fraction) => set({ chatWidthFraction: fraction }),
       chatProviderId: null,
       setChatProviderId: (id) => set({ chatProviderId: id }),
+      timeEstimationColumnWidths: {},
+      setTimeEstimationColumnWidth: (columnId, width) =>
+        set((s) => ({ timeEstimationColumnWidths: { ...s.timeEstimationColumnWidths, [columnId]: width } })),
+      timeEstimationMonthsHidden: false,
+      setTimeEstimationMonthsHidden: (hidden) => set({ timeEstimationMonthsHidden: hidden }),
     }),
     { name: 'orgchart-ui-prefs' },
   ),
