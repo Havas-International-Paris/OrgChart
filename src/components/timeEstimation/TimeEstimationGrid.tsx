@@ -422,7 +422,7 @@ function QuickAddRow<T extends { id: string }>({
   }
 
   return (
-    <div className="grid items-center gap-2 border-t border-dashed border-slate-200 px-3 py-1.5 text-sm" style={{ gridTemplateColumns }}>
+    <div className="grid w-max items-center gap-2 border-t border-dashed border-slate-200 px-3 py-1.5 text-sm" style={{ gridTemplateColumns }}>
       <div ref={containerRef} className="relative pl-5">
         <input
           type="text"
@@ -1760,6 +1760,23 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
         )}
       </div>
 
+      {/* Every row div below (header, group-header, primary, sub-row, and
+          QuickAddRow's own) needs `w-max` — without it, a block-level
+          `display:grid` div with no explicit width defaults to filling its
+          containing block (this scroll container's own width), not its
+          actual grid content width. Since gridTemplateColumns' tracks sum to
+          more than that container width, the extra columns render as
+          unclipped overflow silently escaping the row's own box (still
+          visually in the right place, since the ancestor scroll container
+          clips correctly) — but `position: sticky`'s compositor-driven scroll
+          tracking only reliably owns the sticky element's OWN box, not
+          content overflowing it. The result, reported live: scrolling right
+          to expose the trend/N+1 columns (past the row's un-widened box),
+          then scrolling rows vertically, showed row values bleeding through
+          the sticky header there specifically — columns within the row's
+          true (unwidened) box stayed correctly covered. `w-max` sizes each
+          row to its real content width so nothing overflows its own box in
+          the first place. */}
       <div
         ref={scrollContainerRef}
         onDragOver={handleContainerDragOver}
@@ -1767,7 +1784,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
         data-time-estimation-grid
       >
         <div
-          className="sticky top-0 z-10 grid items-center gap-2 border-b border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-500"
+          className="sticky top-0 z-10 grid w-max items-center gap-2 border-b border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-500"
           style={{ gridTemplateColumns }}
         >
           <span className="relative">
@@ -1818,7 +1835,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
               <div key={group.key} className="border-b border-slate-100 last:border-0">
                 <button
                   onClick={() => toggleGroup(group.key)}
-                  className="grid w-full items-center gap-2 bg-neutral-700 px-3 py-2 text-left hover:bg-neutral-600"
+                  className="grid w-max items-center gap-2 bg-neutral-700 px-3 py-2 text-left hover:bg-neutral-600"
                   style={{ gridTemplateColumns }}
                 >
                   <span className="flex items-center gap-2 truncate">
@@ -1899,7 +1916,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
                             setDragEmployeeId(null);
                             stopAutoScroll();
                           }}
-                          className={`grid items-center gap-2 border-t border-slate-100 px-3 py-1.5 text-sm ${
+                          className={`grid w-max items-center gap-2 border-t border-slate-100 px-3 py-1.5 text-sm ${
                             dropTargetKey === dropKey ? 'bg-indigo-50 ring-1 ring-inset ring-indigo-300' : ''
                           }`}
                           style={{ gridTemplateColumns }}
@@ -1945,7 +1962,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
                             return (
                               <div
                                 key={sub.employeeId}
-                                className="grid items-center gap-2 border-t border-slate-50 bg-slate-50/50 px-3 py-1 text-sm"
+                                className="grid w-max items-center gap-2 border-t border-slate-50 bg-slate-50/50 px-3 py-1 text-sm"
                                 style={{ gridTemplateColumns }}
                               >
                                 {renderRowCells(
