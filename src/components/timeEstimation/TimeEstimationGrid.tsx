@@ -25,27 +25,12 @@ import { useUiPreferencesStore } from '../../stores/uiPreferencesStore';
 
 type GroupBy = 'client' | 'employee';
 
-// Default column widths, matching the literals the old hardcoded
-// gridTemplateColumns string used — the resolver below falls back to these
-// when a column has no stored override, so a first-time user (or an old
-// localStorage blob predating column resize) sees the exact same layout as
-// before, byte-for-byte.
-const DEFAULT_COL_PX: Record<string, number> = {
-  model: 48,
-  totalN1: 64,
-  vendu: 64,
-  prevu: 64,
-  total: 72,
-  avgPast: 72,
-  avgRemaining: 72,
-  venduNextYear: 64,
-  prevuNextYear: 64,
-  trend: 100,
-};
-const MONTH_DEFAULT_PX = 56;
+// Only the label column (employee/client name) is resizable — per user
+// feedback, letting every column resize was more control than wanted. All
+// other columns keep the fixed widths they always had, hardcoded directly
+// in the gridTemplateColumns construction below.
 const LABEL_MIN_PX = 120;
-const COL_MIN_PX = 40;
-const COL_MAX_PX = 500;
+const LABEL_MAX_PX = 500;
 
 export interface LineItem {
   employeeId: string;
@@ -592,16 +577,16 @@ function RemunerationModelBadge({
 // e.buttons becomes 0 and further moves are no-ops. Writes to the store on
 // every pointermove, same as AppShell's divider — this grid tops out at a
 // few hundred rows (see CLAUDE.md), so continuous re-render during drag is
-// fine and simpler than buffering to commit-on-release.
+// fine and simpler than buffering to commit-on-release. Only the label
+// column (employee/client name) is resizable, per user feedback — every
+// other column keeps a fixed width, so this only ever has one caller.
 function ColumnResizeHandle({
-  columnId,
   minWidth,
   onResize,
   title,
 }: {
-  columnId: string;
   minWidth: number;
-  onResize: (columnId: string, width: number) => void;
+  onResize: (width: number) => void;
   title: string;
 }) {
   function handlePointerDown(e: React.PointerEvent<HTMLDivElement>) {
@@ -614,8 +599,8 @@ function ColumnResizeHandle({
     if (e.buttons !== 1) return;
     const rect = e.currentTarget.parentElement?.getBoundingClientRect();
     if (!rect) return;
-    const width = Math.min(COL_MAX_PX, Math.max(minWidth, e.clientX - rect.left));
-    onResize(columnId, width);
+    const width = Math.min(LABEL_MAX_PX, Math.max(minWidth, e.clientX - rect.left));
+    onResize(width);
   }
 
   return (
@@ -630,8 +615,8 @@ function ColumnResizeHandle({
 
 export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId: string }) {
   const { t, i18n } = useTranslation();
-  const columnWidths = useUiPreferencesStore((s) => s.timeEstimationColumnWidths);
-  const setColumnWidth = useUiPreferencesStore((s) => s.setTimeEstimationColumnWidth);
+  const labelColumnWidth = useUiPreferencesStore((s) => s.timeEstimationLabelColumnWidth);
+  const setLabelColumnWidth = useUiPreferencesStore((s) => s.setTimeEstimationLabelColumnWidth);
   const monthsHidden = useUiPreferencesStore((s) => s.timeEstimationMonthsHidden);
   const setMonthsHidden = useUiPreferencesStore((s) => s.setTimeEstimationMonthsHidden);
   const { employees } = useEmployees(registryOrgChartId);
@@ -1467,23 +1452,17 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
     await createGroup(clientMissionId, targetEmployeeId, sourceEmployeeId);
   }
 
-  function widthOf(columnId: string, defaultPx: number): string {
-    const stored = columnWidths[columnId];
-    return `${stored ?? defaultPx}px`;
-  }
-  const labelWidth = columnWidths.label ? `${columnWidths.label}px` : 'minmax(180px,1fr)';
-  const pastColTemplate = monthsHidden
-    ? ''
-    : pastMonthLabels.map((_, i) => widthOf(`month${i}`, MONTH_DEFAULT_PX)).join(' ');
-  const remainingColTemplate = monthsHidden
-    ? ''
-    : remainingMonthLabels.map((_, i) => widthOf(`month${lastMonth + i}`, MONTH_DEFAULT_PX)).join(' ');
+  const labelWidth = labelColumnWidth ? `${labelColumnWidth}px` : 'minmax(180px,1fr)';
+  const pastColTemplate = monthsHidden ? '' : pastMonthLabels.map(() => '56px').join(' ');
+  const remainingColTemplate = monthsHidden ? '' : remainingMonthLabels.map(() => '56px').join(' ');
+  // Trend N comes right after the month columns, ahead of the N+1 forecast
+  // pair — per user feedback, seeing this year's trend before next year's
+  // forecast reads more naturally than the trend trailing behind it.
   const gridTemplateColumns =
-    `${labelWidth} ${widthOf('model', DEFAULT_COL_PX.model)} ${widthOf('totalN1', DEFAULT_COL_PX.totalN1)} ` +
-    `${widthOf('vendu', DEFAULT_COL_PX.vendu)} ${widthOf('prevu', DEFAULT_COL_PX.prevu)} ${widthOf('total', DEFAULT_COL_PX.total)} ` +
-    `${widthOf('avgPast', DEFAULT_COL_PX.avgPast)} ${pastColTemplate} ` +
-    `${widthOf('avgRemaining', DEFAULT_COL_PX.avgRemaining)} ${remainingColTemplate} ` +
-    `${widthOf('venduNextYear', DEFAULT_COL_PX.venduNextYear)} ${widthOf('prevuNextYear', DEFAULT_COL_PX.prevuNextYear)} ${widthOf('trend', DEFAULT_COL_PX.trend)}`;
+    `${labelWidth} 48px 64px 64px 64px 72px ` +
+    `72px ${pastColTemplate} ` +
+    `72px ${remainingColTemplate} ` +
+    `100px 64px 64px`;
 
   const loading = estimationLoading;
 
@@ -1576,6 +1555,9 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
               }
             />
           ))}
+        <span className="flex justify-end text-slate-400">
+          <TrendSparkline points={points} projectedFromIndex={lastMonth} width={90} height={24} />
+        </span>
         <CascadeCell
           value={li.venduNextYear}
           tint="pink"
@@ -1588,9 +1570,6 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
           disabled={cumulDisabled}
           onCommit={(v) => handleEditPrevuNextYear(li, v)}
         />
-        <span className="flex justify-end text-slate-400">
-          <TrendSparkline points={points} projectedFromIndex={lastMonth} width={90} height={24} />
-        </span>
       </>
     );
   }
@@ -1793,74 +1772,30 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
         >
           <span className="relative">
             {groupBy === 'client' ? t('timeEstimation.grid.employeeHeader') : t('timeEstimation.grid.clientMissionHeader')}
-            <ColumnResizeHandle
-              columnId="label"
-              minWidth={LABEL_MIN_PX}
-              onResize={setColumnWidth}
-              title={t('timeEstimation.grid.columnResizeHint')}
-            />
+            <ColumnResizeHandle minWidth={LABEL_MIN_PX} onResize={setLabelColumnWidth} title={t('timeEstimation.grid.columnResizeHint')} />
           </span>
-          <span className="relative text-right">
-            {t('timeEstimation.grid.remunerationModelHeader')}
-            <ColumnResizeHandle columnId="model" minWidth={COL_MIN_PX} onResize={setColumnWidth} title={t('timeEstimation.grid.columnResizeHint')} />
-          </span>
-          <span className="relative text-right">
-            {t('timeEstimation.grid.totalN1')}
-            <ColumnResizeHandle columnId="totalN1" minWidth={COL_MIN_PX} onResize={setColumnWidth} title={t('timeEstimation.grid.columnResizeHint')} />
-          </span>
-          <span className="relative rounded bg-rose-50 px-1 text-right text-rose-700">
-            {t('timeEstimation.grid.vendu')}
-            <ColumnResizeHandle columnId="vendu" minWidth={COL_MIN_PX} onResize={setColumnWidth} title={t('timeEstimation.grid.columnResizeHint')} />
-          </span>
-          <span className="relative rounded bg-rose-50 px-1 text-right text-rose-700">
-            {t('timeEstimation.grid.prevu')}
-            <ColumnResizeHandle columnId="prevu" minWidth={COL_MIN_PX} onResize={setColumnWidth} title={t('timeEstimation.grid.columnResizeHint')} />
-          </span>
-          <span className="relative text-right">
-            {t('timeEstimation.grid.total')}
-            <ColumnResizeHandle columnId="total" minWidth={COL_MIN_PX} onResize={setColumnWidth} title={t('timeEstimation.grid.columnResizeHint')} />
-          </span>
-          <span className="relative text-right">
-            {t('timeEstimation.grid.avgPast')}
-            <ColumnResizeHandle columnId="avgPast" minWidth={COL_MIN_PX} onResize={setColumnWidth} title={t('timeEstimation.grid.columnResizeHint')} />
-          </span>
+          <span className="text-right">{t('timeEstimation.grid.remunerationModelHeader')}</span>
+          <span className="text-right">{t('timeEstimation.grid.totalN1')}</span>
+          <span className="rounded bg-rose-50 px-1 text-right text-rose-700">{t('timeEstimation.grid.vendu')}</span>
+          <span className="rounded bg-rose-50 px-1 text-right text-rose-700">{t('timeEstimation.grid.prevu')}</span>
+          <span className="text-right">{t('timeEstimation.grid.total')}</span>
+          <span className="text-right">{t('timeEstimation.grid.avgPast')}</span>
           {!monthsHidden &&
             pastMonthLabels.map((label, i) => (
-              <span key={i} className="relative text-right capitalize">
+              <span key={i} className="text-right capitalize">
                 {label}
-                <ColumnResizeHandle
-                  columnId={`month${i}`}
-                  minWidth={COL_MIN_PX}
-                  onResize={setColumnWidth}
-                  title={t('timeEstimation.grid.columnResizeHint')}
-                />
               </span>
             ))}
-          <span className="relative text-right">
-            {t('timeEstimation.grid.avgRemaining')}
-            <ColumnResizeHandle columnId="avgRemaining" minWidth={COL_MIN_PX} onResize={setColumnWidth} title={t('timeEstimation.grid.columnResizeHint')} />
-          </span>
+          <span className="text-right">{t('timeEstimation.grid.avgRemaining')}</span>
           {!monthsHidden &&
             remainingMonthLabels.map((label, i) => (
-              <span key={i} className="relative text-right capitalize">
+              <span key={i} className="text-right capitalize">
                 {label}
-                <ColumnResizeHandle
-                  columnId={`month${lastMonth + i}`}
-                  minWidth={COL_MIN_PX}
-                  onResize={setColumnWidth}
-                  title={t('timeEstimation.grid.columnResizeHint')}
-                />
               </span>
             ))}
-          <span className="relative rounded bg-rose-50 px-1 text-right text-rose-700">
-            {t('timeEstimation.grid.venduNextYear')}
-            <ColumnResizeHandle columnId="venduNextYear" minWidth={COL_MIN_PX} onResize={setColumnWidth} title={t('timeEstimation.grid.columnResizeHint')} />
-          </span>
-          <span className="relative rounded bg-rose-50 px-1 text-right text-rose-700">
-            {t('timeEstimation.grid.prevuNextYear')}
-            <ColumnResizeHandle columnId="prevuNextYear" minWidth={COL_MIN_PX} onResize={setColumnWidth} title={t('timeEstimation.grid.columnResizeHint')} />
-          </span>
           <span className="text-right">{t('timeEstimation.grid.trend')}</span>
+          <span className="rounded bg-rose-50 px-1 text-right text-rose-700">{t('timeEstimation.grid.venduNextYear')}</span>
+          <span className="rounded bg-rose-50 px-1 text-right text-rose-700">{t('timeEstimation.grid.prevuNextYear')}</span>
         </div>
 
         {loading && <p className="p-3 text-sm text-slate-400">{t('timeEstimation.grid.loading')}</p>}
@@ -1910,9 +1845,9 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
                         {fmt(groupAgg[`m${lastMonth + i}`])}
                       </span>
                     ))}
+                  <span />
                   <span className="text-right text-xs tabular-nums text-white">{fmt(groupAgg.venduNextYear)}</span>
                   <span className="text-right text-xs tabular-nums text-white">{fmt(groupAgg.prevuNextYear)}</span>
-                  <span />
                 </button>
 
                 {!isCollapsed &&

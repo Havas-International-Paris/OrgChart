@@ -502,7 +502,7 @@
       "total": "% total",
       "venduNextYear": "% sold N+1",
       "prevuNextYear": "% expected N+1",
-      "trend": "Trend",
+      "trend": "Trend N",
       "loading": "Loading…",
       "empty": "No data yet.",
       "cumulSuffix": "(rolled up)",

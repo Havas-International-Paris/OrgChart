@@ -502,7 +502,7 @@
       "total": "% total",
       "venduNextYear": "% vendu N+1",
       "prevuNextYear": "% prévu N+1",
-      "trend": "Tendance",
+      "trend": "Tendance N",
       "loading": "Chargement…",
       "empty": "Aucune donnée pour le moment.",
       "cumulSuffix": "(cumul)",
