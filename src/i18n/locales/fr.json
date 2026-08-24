@@ -512,7 +512,27 @@
       "originManualTooltip": "Ajouté manuellement",
       "manualRowDeleteHint": "Supprimer cette ligne et ses données saisies à la main (les données importées sont conservées)",
       "quickAddPlaceholder": "+ Ajouter un salarié…",
-      "quickAddClientMissionPlaceholder": "+ Ajouter un client/mission…"
+      "quickAddClientMissionPlaceholder": "+ Ajouter un client/mission…",
+      "remunerationModelHeader": "Modèle",
+      "remunerationModelRetainerTooltip": "Retainer",
+      "remunerationModelCommissionTooltip": "Commission",
+      "commentAddTooltip": "Ajouter un commentaire"
+    },
+    "commentPopover": {
+      "placeholder": "Saisir un commentaire…",
+      "save": "Enregistrer",
+      "cancel": "Annuler",
+      "delete": "Supprimer"
+    },
+    "filters": {
+      "clientMission": "Client/Mission",
+      "employee": "Salarié",
+      "remunerationModel": "Modèle",
+      "actualPresence": "Temps réel présent",
+      "periodN1": "N-1",
+      "periodN": "N",
+      "periodN1Plus": "N+1",
+      "reset": "Réinitialiser les filtres"
     },
     "history": {
       "editMonth": "Modifier {{month}}",
@@ -525,7 +545,10 @@
       "editVenduNextYear": "Modifier le % vendu N+1",
       "editPrevuNextYear": "Modifier le % prévu N+1",
       "addManualRow": "Ajouter une ligne",
-      "deleteManualRow": "Retirer une ligne ajoutée manuellement"
+      "deleteManualRow": "Retirer une ligne ajoutée manuellement",
+      "addComment": "Ajouter un commentaire",
+      "editComment": "Modifier le commentaire",
+      "deleteComment": "Supprimer le commentaire"
     },
     "addRowModal": {
       "title": "Ajouter une ligne",

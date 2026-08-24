@@ -471,6 +471,27 @@ export interface Database {
         Update: Record<string, never>;
         Relationships: [];
       };
+      time_row_comments: {
+        Row: {
+          id: string;
+          employee_id: string;
+          client_mission_id: string;
+          comment_text: string;
+          created_at: string;
+          updated_at: string;
+          created_by: string | null;
+        };
+        Insert: {
+          id?: string;
+          employee_id: string;
+          client_mission_id: string;
+          comment_text: string;
+          updated_at?: string;
+          created_by?: string | null;
+        };
+        Update: Record<string, never>;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {

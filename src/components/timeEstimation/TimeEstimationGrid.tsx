@@ -8,6 +8,15 @@ import { useTimeEstimation } from '../../hooks/useTimeEstimation';
 import { averageOverRange, sumMetricRows } from '../../lib/timeEstimationMath';
 import { TrendSparkline } from './TrendSparkline';
 import { AddTimeEstimationRowModal } from './AddTimeEstimationRowModal';
+import { CommentFlag } from './CommentFlag';
+import { FilterDropdown, type FilterDropdownOption } from '../shared/FilterDropdown';
+import { Tooltip } from '../shared/Tooltip';
+import {
+  emptyTimeEstimationFilters,
+  hasActiveTimeEstimationFilters,
+  matchesTimeEstimationFilters,
+  type TimeEstimationFilters,
+} from '../../lib/timeEstimationFilters';
 import type { Assignment, ClientMission, Employee, RemunerationModel } from '../../types/domain';
 import { useTimeEstimationHistoryStore } from '../../stores/timeEstimationHistoryStore';
 import { withSuppressedRecording } from '../../stores/historyStore';
@@ -47,6 +56,10 @@ export interface LineItem {
   // reads it (no separate boolean anywhere in the DB — existence of the
   // time_manual_rows row IS the flag, see 0029_time_manual_rows.sql).
   isManual: boolean;
+  // The row's free-text note (time_row_comments), or null if none exists —
+  // drives CommentFlag's grey/red state. Like isManual, existence of the
+  // row IS the signal; no separate boolean.
+  comment: string | null;
 }
 
 function employeeName(employee: Employee | undefined): string {
@@ -54,30 +67,35 @@ function employeeName(employee: Employee | undefined): string {
 }
 
 // Rounded to the nearest whole percent — per user feedback, decimals aren't
-// of interest here. Still routed through one function so every cell (grey
-// disabled span, group-header aggregate, or an editable field's own
-// resting/blurred display) rounds identically and stays column-aligned.
-// A value that rounds to 0 displays the same as null (blank dash) — per
-// user feedback, 0 and "nothing entered" are equivalent to them, and
-// showing zeroes as blank makes the genuinely non-zero cells stand out.
-// This is display-only: 0 and null stay distinct in the underlying data
-// (e.g. vendu/prevu's mutual-exclusivity bucketing still needs a real 0 to
-// tell "committed to this model, nothing entered" apart from "no
-// assignment at all") — only how they're PRESENTED is unified here.
+// of interest here for a normal-sized value. Still routed through one
+// function so every cell (grey disabled span, group-header aggregate, or an
+// editable field's own resting/blurred display) rounds identically and
+// stays column-aligned.
+// An EXACT 0 displays the same as null (blank dash) — per user feedback, 0
+// and "nothing entered" are equivalent to them. This is display-only: 0 and
+// null stay distinct in the underlying data (e.g. vendu/prevu's mutual-
+// exclusivity bucketing still needs a real 0 to tell "committed to this
+// model, nothing entered" apart from "no assignment at all") — only how
+// they're PRESENTED is unified here. Deliberately NOT "rounds to 0" — a
+// genuine small value under 1% (e.g. 0.4) must still be visible, so it gets
+// one decimal place instead of being rounded away to the same blank as a
+// true 0 (a real bug: it made the "actual time present" filter and the
+// grid's own display disagree — a row could pass the filter as "present"
+// while every cell it drove read blank).
 function fmt(value: number | null | undefined): string {
-  if (value == null) return '—';
-  const rounded = Math.round(value);
-  return rounded === 0 ? '—' : `${rounded}%`;
+  if (value == null || value === 0) return '—';
+  if (Math.abs(value) < 1) return `${value.toFixed(1)}%`;
+  return `${Math.round(value)}%`;
 }
 
-// Same whole-percent rounding and zero-as-blank rule as fmt(), without the
-// "%" — what a CascadeCell's <input> shows outside of an active edit, so a
-// value carrying float noise (e.g. an average like 12.333333) doesn't
-// visually stretch the column and break the row's alignment.
+// Same rounding/zero-as-blank rules as fmt(), without the "%" — what a
+// CascadeCell's <input> shows outside of an active edit, so a value
+// carrying float noise (e.g. an average like 12.333333) doesn't visually
+// stretch the column and break the row's alignment.
 function roundedInputValue(value: number | null | undefined): string {
-  if (value == null) return '';
-  const rounded = Math.round(value);
-  return rounded === 0 ? '' : String(rounded);
+  if (value == null || value === 0) return '';
+  if (Math.abs(value) < 1) return value.toFixed(1);
+  return String(Math.round(value));
 }
 
 function lineItemMetrics(li: LineItem): Record<string, number | null> {
@@ -225,7 +243,9 @@ function CascadeCell({
 
   if (disabled) {
     return (
-      <span className={`block rounded px-1 text-right text-xs tabular-nums text-slate-400 ${tint ? TINT_BG[tint] : ''}`}>{fmt(value)}</span>
+      <Tooltip content={value != null ? `${value.toFixed(1)}%` : ''}>
+        <span className={`block rounded px-1 text-right text-xs tabular-nums text-slate-400 ${tint ? TINT_BG[tint] : ''}`}>{fmt(value)}</span>
+      </Tooltip>
     );
   }
 
@@ -258,6 +278,7 @@ function CascadeCell({
   }
 
   return (
+    <Tooltip content={value != null ? `${value.toFixed(1)}%` : ''}>
     <div className={`relative rounded ${tint ? TINT_BG[tint] : ''}`}>
       <input
         ref={inputRef}
@@ -288,6 +309,22 @@ function CascadeCell({
         }}
         onBlur={commit}
         onKeyDown={(e) => {
+          // Marks dirty on any content-editing keystroke, not just onChange.
+          // React silently skips firing onChange when the resulting DOM
+          // value is byte-identical to what it last tracked — selecting all
+          // of an already-committed "5" and typing "5" again never actually
+          // changes the underlying string, so no 'input' event reaches
+          // React at all (a real, documented React input-tracking quirk,
+          // confirmed live: it affects the exact same keystrokes a real
+          // user would type, not just synthetic/automated input). Without
+          // this, retyping the identical value silently did nothing —
+          // dirtyRef never became true, so commit()'s guard skipped the
+          // write and no green tint appeared, exactly as reported. Excludes
+          // ctrl/meta-held keys so Ctrl+Z (etc., handled below) doesn't
+          // falsely mark the field dirty.
+          if (!e.ctrlKey && !e.metaKey && (e.key.length === 1 || e.key === 'Backspace' || e.key === 'Delete')) {
+            dirtyRef.current = true;
+          }
           if (e.key === 'Enter') e.currentTarget.blur();
           if (e.key === 'Escape') {
             dirtyRef.current = false;
@@ -315,6 +352,7 @@ function CascadeCell({
       />
       <span className="pointer-events-none absolute right-1 top-1/2 -translate-y-1/2 text-xs text-slate-400">%</span>
     </div>
+    </Tooltip>
   );
 }
 
@@ -436,12 +474,11 @@ function RowOriginMarker({ isManual, onRemove, t }: { isManual: boolean; onRemov
   if (isManual) {
     return (
       <span className="flex shrink-0 items-center gap-0.5">
-        <span
-          title={t('timeEstimation.grid.originManualTooltip')}
-          className="flex h-4 w-4 items-center justify-center rounded text-[10px] font-semibold leading-none text-indigo-400"
-        >
-          a
-        </span>
+        <Tooltip content={t('timeEstimation.grid.originManualTooltip')}>
+          <span className="flex h-4 w-4 items-center justify-center rounded text-[10px] font-semibold leading-none text-indigo-400">
+            a
+          </span>
+        </Tooltip>
         <button
           type="button"
           onClick={(e) => {
@@ -457,12 +494,11 @@ function RowOriginMarker({ isManual, onRemove, t }: { isManual: boolean; onRemov
     );
   }
   return (
-    <span
-      title={t('timeEstimation.grid.originImportedTooltip')}
-      className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-[10px] font-semibold leading-none text-slate-300"
-    >
-      i
-    </span>
+    <Tooltip content={t('timeEstimation.grid.originImportedTooltip')}>
+      <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-[10px] font-semibold leading-none text-slate-300">
+        i
+      </span>
+    </Tooltip>
   );
 }
 
@@ -484,9 +520,11 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
     timeActualN1Totals,
     timeManualEditMarkers,
     timeManualRows,
+    timeRowComments,
     loading: estimationLoading,
     forecastOf,
     manualRowOf,
+    commentOf,
     groupsByPrimary,
     groupOfMember,
     createGroup,
@@ -494,6 +532,9 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
     createManualRow,
     deleteManualRow,
     restoreManualRow,
+    saveComment,
+    deleteComment,
+    restoreComment,
     purgeManualDataForPair,
     restorePairData,
     saveMonthOverrides,
@@ -508,10 +549,42 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
 
   const [year] = useState(() => new Date().getFullYear());
   const [groupBy, setGroupBy] = useState<GroupBy>('client');
+  const [filters, setFilters] = useState<TimeEstimationFilters>(emptyTimeEstimationFilters);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [collapsedCumul, setCollapsedCumul] = useState<Set<string>>(new Set());
   const [dragEmployeeId, setDragEmployeeId] = useState<string | null>(null);
   const [dropTargetKey, setDropTargetKey] = useState<string | null>(null);
+  // Auto-scrolls the grid while dragging a row near the top/bottom edge —
+  // the browser's own native drag-and-drop auto-scroll only ever reliably
+  // triggered scrolling DOWN, never up (reported live), so this replaces
+  // reliance on that inconsistent native behavior with a symmetric,
+  // hand-built one driven off the same signed `speed` in both directions.
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const autoScrollFrameRef = useRef<number | null>(null);
+  function handleContainerDragOver(e: React.DragEvent<HTMLDivElement>) {
+    if (!dragEmployeeId) return;
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    const EDGE = 48; // px from top/bottom that triggers scrolling
+    const distanceFromTop = e.clientY - rect.top;
+    const distanceFromBottom = rect.bottom - e.clientY;
+    let speed = 0;
+    if (distanceFromTop < EDGE) speed = -Math.ceil((EDGE - distanceFromTop) / 4);
+    else if (distanceFromBottom < EDGE) speed = Math.ceil((EDGE - distanceFromBottom) / 4);
+
+    if (autoScrollFrameRef.current != null) cancelAnimationFrame(autoScrollFrameRef.current);
+    if (speed === 0) return;
+    const step = () => {
+      container.scrollTop += speed;
+      autoScrollFrameRef.current = requestAnimationFrame(step);
+    };
+    autoScrollFrameRef.current = requestAnimationFrame(step);
+  }
+  function stopAutoScroll() {
+    if (autoScrollFrameRef.current != null) cancelAnimationFrame(autoScrollFrameRef.current);
+    autoScrollFrameRef.current = null;
+  }
   const [addRowOpen, setAddRowOpen] = useState(false);
   // Optimistic override for vendu/prevu (both years), keyed by
   // employeeId::clientMissionId — useAssignments.refresh() is a full,
@@ -679,6 +752,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
           avgPast: 0,
           avgRemaining: 0,
           isManual: false,
+          comment: null,
         };
         map.set(key, li);
       }
@@ -751,6 +825,11 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
       li.isManual = true;
     }
 
+    for (const c of timeRowComments) {
+      const li = getOrCreate(c.employee_id, c.client_mission_id);
+      li.comment = c.comment_text;
+    }
+
     for (const li of map.values()) {
       // Past months (i < lastMonth) never consult overrideByMonth — a past
       // month is entirely import/manual-edit-driven via time_actuals now,
@@ -764,7 +843,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
     }
 
     return map;
-  }, [assignments, timeActuals, timeForecastMonths, timeActualN1Totals, timeManualRows, lastMonth, year]);
+  }, [assignments, timeActuals, timeForecastMonths, timeActualN1Totals, timeManualRows, timeRowComments, lastMonth, year]);
 
   // Overlays the optimistic vendu/prevu override on top of baseLineItems.
   // The override itself clears on a generation-tracked timeout (see
@@ -928,6 +1007,42 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
     }
     await apply();
     useTimeEstimationHistoryStore.getState().push({ label: t('timeEstimation.history.editN1Total'), undo, redo: apply });
+  }
+
+  // Comment popover's Save — covers both "new" and "edit" (saveComment is a
+  // true upsert either way, see 0030_time_row_comments.sql's unique
+  // constraint). Same capture-prior/apply/undo/push-Command shape as
+  // handleEditN1Total; never touches another table, so no
+  // withSuppressedRecording wrapping is needed (unlike handleDeleteManualRow).
+  async function handleSaveComment(li: LineItem, text: string) {
+    const priorComment = commentOf(li.employeeId, li.clientMissionId);
+    async function apply() {
+      await saveComment(li.employeeId, li.clientMissionId, text);
+    }
+    async function undo() {
+      if (priorComment) await saveComment(li.employeeId, li.clientMissionId, priorComment.comment_text);
+      else await deleteComment(li.employeeId, li.clientMissionId);
+    }
+    await apply();
+    useTimeEstimationHistoryStore.getState().push({
+      label: t(priorComment ? 'timeEstimation.history.editComment' : 'timeEstimation.history.addComment'),
+      undo,
+      redo: apply,
+    });
+  }
+
+  async function handleDeleteComment(li: LineItem) {
+    const priorComment = commentOf(li.employeeId, li.clientMissionId);
+    if (!priorComment) return;
+    async function apply() {
+      await deleteComment(li.employeeId, li.clientMissionId);
+    }
+    await apply();
+    useTimeEstimationHistoryStore.getState().push({
+      label: t('timeEstimation.history.deleteComment'),
+      undo: () => restoreComment(priorComment).then(() => {}),
+      redo: apply,
+    });
   }
 
   // Serializes concurrent edits to the SAME (employee, client) assignment
@@ -1185,7 +1300,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
   const pastColTemplate = pastMonthLabels.map(() => '56px').join(' ');
   const remainingColTemplate = remainingMonthLabels.map(() => '56px').join(' ');
   const gridTemplateColumns =
-    `minmax(180px,1fr) 64px 64px 64px 72px ` +
+    `minmax(180px,1fr) 48px 64px 64px 64px 72px ` +
     `72px ${pastColTemplate} ` +
     `72px ${remainingColTemplate} ` +
     `64px 64px 100px`;
@@ -1197,6 +1312,21 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
     return (
       <>
         {labelSlot}
+        <span className="flex items-center justify-center">
+          {!cumulDisabled && li.remunerationModel && (
+            <Tooltip
+              content={t(
+                li.remunerationModel === 'retainer'
+                  ? 'timeEstimation.grid.remunerationModelRetainerTooltip'
+                  : 'timeEstimation.grid.remunerationModelCommissionTooltip',
+              )}
+            >
+              <span className="flex h-4 w-4 items-center justify-center rounded text-[10px] font-semibold leading-none text-slate-500">
+                {li.remunerationModel === 'retainer' ? 'R' : 'C'}
+              </span>
+            </Tooltip>
+          )}
+        </span>
         <CascadeCell
           value={li.n1Total}
           tint={editedTint(li, 'n1Total') ?? 'grey'}
@@ -1293,6 +1423,66 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
   // mode each employee IS already the top-level grouping unit, so members
   // just render inline like any other line — see CLAUDE.md for why nesting
   // is only meaningful in 'client' mode.
+  function toggleClientMissionFilter(id: string) {
+    setFilters((prev) => {
+      const next = new Set(prev.clientMissionIds);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return { ...prev, clientMissionIds: next };
+    });
+  }
+  function toggleEmployeeFilter(id: string) {
+    setFilters((prev) => {
+      const next = new Set(prev.employeeIds);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return { ...prev, employeeIds: next };
+    });
+  }
+  function toggleRemunerationModelFilter(key: string) {
+    setFilters((prev) => {
+      const next = new Set(prev.remunerationModels);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return { ...prev, remunerationModels: next };
+    });
+  }
+  function toggleActualPresenceFilter(key: string) {
+    setFilters((prev) => {
+      const next = new Set(prev.actualPresence);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return { ...prev, actualPresence: next };
+    });
+  }
+
+  const clientMissionFilterOptions = useMemo<FilterDropdownOption[]>(
+    () => clientsMissions.map((cm) => ({ key: cm.id, label: cm.name })).sort((a, b) => a.label.localeCompare(b.label)),
+    [clientsMissions],
+  );
+  const employeeFilterOptions = useMemo<FilterDropdownOption[]>(
+    () => employees.map((e) => ({ key: e.id, label: employeeName(e) })).sort((a, b) => a.label.localeCompare(b.label)),
+    [employees],
+  );
+  const remunerationModelFilterOptions: FilterDropdownOption[] = [
+    { key: 'retainer', label: t('timeEstimation.grid.remunerationModelRetainerTooltip') },
+    { key: 'commission', label: t('timeEstimation.grid.remunerationModelCommissionTooltip') },
+  ];
+  const actualPresenceFilterOptions: FilterDropdownOption[] = [
+    { key: 'n1', label: t('timeEstimation.filters.periodN1') },
+    { key: 'n', label: t('timeEstimation.filters.periodN') },
+    { key: 'n1plus', label: t('timeEstimation.filters.periodN1Plus') },
+  ];
+
+  const filteredLineItems = useMemo<Map<string, LineItem>>(() => {
+    if (!hasActiveTimeEstimationFilters(filters)) return lineItems;
+    const map = new Map<string, LineItem>();
+    for (const [key, li] of lineItems) {
+      if (matchesTimeEstimationFilters(li, filters)) map.set(key, li);
+    }
+    return map;
+  }, [lineItems, filters]);
+
   const topGroups = useMemo(() => {
     type TopRow = { primary: LineItem; members: LineItem[] };
     type TopGroup = { key: string; label: string; rows: TopRow[] };
@@ -1300,7 +1490,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
 
     if (groupBy === 'client') {
       const byClient = new Map<string, LineItem[]>();
-      for (const li of lineItems.values()) {
+      for (const li of filteredLineItems.values()) {
         const list = byClient.get(li.clientMissionId) ?? [];
         list.push(li);
         byClient.set(li.clientMissionId, list);
@@ -1311,7 +1501,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
           if (groupOfMember(clientMissionId, li.employeeId)) continue; // rendered nested under its primary
           const memberGroups = groupsByPrimary(clientMissionId, li.employeeId);
           const members = memberGroups
-            .map((g) => lineItems.get(`${g.member_employee_id}::${clientMissionId}`))
+            .map((g) => filteredLineItems.get(`${g.member_employee_id}::${clientMissionId}`))
             .filter((m): m is LineItem => m != null);
           rows.push({ primary: li, members });
         }
@@ -1320,7 +1510,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
       }
     } else {
       const byEmployee = new Map<string, LineItem[]>();
-      for (const li of lineItems.values()) {
+      for (const li of filteredLineItems.values()) {
         const list = byEmployee.get(li.employeeId) ?? [];
         list.push(li);
         byEmployee.set(li.employeeId, list);
@@ -1333,7 +1523,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
     }
 
     return result.sort((a, b) => a.label.localeCompare(b.label));
-  }, [groupBy, lineItems, employeeById, clientMissionById, groupOfMember, groupsByPrimary]);
+  }, [groupBy, filteredLineItems, employeeById, clientMissionById, groupOfMember, groupsByPrimary]);
 
   const allCollapsed = topGroups.length > 0 && topGroups.every((g) => collapsedGroups.has(g.key));
 
@@ -1372,12 +1562,54 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto rounded border border-slate-200" data-time-estimation-grid>
+      <div className="flex flex-wrap items-center gap-2">
+        <FilterDropdown
+          title={t('timeEstimation.filters.clientMission')}
+          options={clientMissionFilterOptions}
+          selected={filters.clientMissionIds}
+          onToggle={toggleClientMissionFilter}
+        />
+        <FilterDropdown
+          title={t('timeEstimation.filters.employee')}
+          options={employeeFilterOptions}
+          selected={filters.employeeIds}
+          onToggle={toggleEmployeeFilter}
+        />
+        <FilterDropdown
+          title={t('timeEstimation.filters.remunerationModel')}
+          options={remunerationModelFilterOptions}
+          selected={filters.remunerationModels}
+          onToggle={toggleRemunerationModelFilter}
+        />
+        <FilterDropdown
+          title={t('timeEstimation.filters.actualPresence')}
+          options={actualPresenceFilterOptions}
+          selected={filters.actualPresence}
+          onToggle={toggleActualPresenceFilter}
+        />
+        {hasActiveTimeEstimationFilters(filters) && (
+          <button
+            type="button"
+            onClick={() => setFilters(emptyTimeEstimationFilters())}
+            className="rounded px-2.5 py-1 text-xs text-slate-500 hover:bg-slate-100 hover:underline"
+          >
+            {t('timeEstimation.filters.reset')}
+          </button>
+        )}
+      </div>
+
+      <div
+        ref={scrollContainerRef}
+        onDragOver={handleContainerDragOver}
+        className="min-h-0 flex-1 overflow-auto rounded border border-slate-200"
+        data-time-estimation-grid
+      >
         <div
           className="sticky top-0 z-10 grid items-center gap-2 border-b border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-500"
           style={{ gridTemplateColumns }}
         >
           <span>{groupBy === 'client' ? t('timeEstimation.grid.employeeHeader') : t('timeEstimation.grid.clientMissionHeader')}</span>
+          <span className="text-right">{t('timeEstimation.grid.remunerationModelHeader')}</span>
           <span className="text-right">{t('timeEstimation.grid.totalN1')}</span>
           <span className="rounded bg-rose-50 px-1 text-right text-rose-700">{t('timeEstimation.grid.vendu')}</span>
           <span className="rounded bg-rose-50 px-1 text-right text-rose-700">{t('timeEstimation.grid.prevu')}</span>
@@ -1427,6 +1659,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
                     <span className="truncate text-sm font-semibold text-white">{group.label}</span>
                     <span className="shrink-0 text-xs text-white">· {group.rows.length}</span>
                   </span>
+                  <span />
                   <span className="text-right text-xs tabular-nums text-white">{fmt(groupAgg.n1Total)}</span>
                   <span className="text-right text-xs tabular-nums text-white">{fmt(groupAgg.vendu)}</span>
                   <span className="text-right text-xs tabular-nums text-white">{fmt(groupAgg.prevu)}</span>
@@ -1482,6 +1715,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
                           onDragEnd={() => {
                             setDragEmployeeId(null);
                             setDropTargetKey(null);
+                            stopAutoScroll();
                           }}
                           onDragOver={(e) => {
                             if (!draggable || !dragEmployeeId) return;
@@ -1494,6 +1728,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
                             setDropTargetKey(null);
                             if (dragEmployeeId) handleDrop(primary.clientMissionId, primary.employeeId, dragEmployeeId);
                             setDragEmployeeId(null);
+                            stopAutoScroll();
                           }}
                           className={`grid items-center gap-2 border-t border-slate-100 px-3 py-1.5 text-sm ${
                             dropTargetKey === dropKey ? 'bg-indigo-50 ring-1 ring-inset ring-indigo-300' : ''
@@ -1519,7 +1754,14 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
                                   misrepresent them; each member's own row below carries its
                                   own accurate icon instead. */}
                               {!hasGroup && (
-                                <RowOriginMarker isManual={primary.isManual} onRemove={() => handleDeleteManualRow(primary)} t={t} />
+                                <>
+                                  <RowOriginMarker isManual={primary.isManual} onRemove={() => handleDeleteManualRow(primary)} t={t} />
+                                  <CommentFlag
+                                    comment={primary.comment}
+                                    onSave={(text) => handleSaveComment(primary, text)}
+                                    onDelete={() => handleDeleteComment(primary)}
+                                  />
+                                </>
                               )}
                               {hasGroup && <span className="shrink-0 text-xs italic text-slate-400">{t('timeEstimation.grid.cumulSuffix')}</span>}
                             </span>,
@@ -1543,6 +1785,11 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
                                   <span className="flex items-center gap-1.5 truncate pl-11 text-xs text-slate-600">
                                     <span className="truncate">{employeeName(employeeById.get(sub.employeeId))}</span>
                                     <RowOriginMarker isManual={sub.isManual} onRemove={() => handleDeleteManualRow(sub)} t={t} />
+                                    <CommentFlag
+                                      comment={sub.comment}
+                                      onSave={(text) => handleSaveComment(sub, text)}
+                                      onDelete={() => handleDeleteComment(sub)}
+                                    />
                                     {isMember && group && (
                                       <button
                                         type="button"

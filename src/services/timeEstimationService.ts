@@ -11,6 +11,7 @@ import type {
   TimeImportBatch,
   TimeManualEditMarker,
   TimeManualRow,
+  TimeRowComment,
 } from '../types/domain';
 
 // PostgREST caps an unbounded `select('*')` at this project's configured
@@ -499,6 +500,72 @@ export async function restoreTimeManualRow(row: TimeManualRow): Promise<TimeManu
     .single();
   if (error) throw error;
   return data as TimeManualRow;
+}
+
+export async function fetchTimeRowComments(): Promise<TimeRowComment[]> {
+  return fetchAllRows<TimeRowComment>('time_row_comments');
+}
+
+// Creates or overwrites the comment for (employeeId, clientMissionId) — the
+// unique (employee_id, client_mission_id) constraint (0030_time_row_comments.sql)
+// makes this a true upsert, so the popover's Save button always calls this
+// same function whether it's a brand-new comment or an edit of an existing
+// one.
+export async function upsertTimeRowComment(
+  employeeId: string,
+  clientMissionId: string,
+  commentText: string,
+): Promise<TimeRowComment> {
+  const { data: userData } = await supabase.auth.getUser();
+  const { data, error } = await supabase
+    .from('time_row_comments')
+    .upsert(
+      {
+        employee_id: employeeId,
+        client_mission_id: clientMissionId,
+        comment_text: commentText,
+        updated_at: new Date().toISOString(),
+        created_by: userData.user?.id ?? null,
+      },
+      { onConflict: 'employee_id,client_mission_id' },
+    )
+    .select()
+    .single();
+  if (error) throw error;
+  return data as TimeRowComment;
+}
+
+// "Nothing to delete" is a normal outcome (e.g. undoing a create that never
+// actually landed) — no assertRowsAffected, same reasoning as
+// deleteTimeManualEditMarker above.
+export async function deleteTimeRowComment(employeeId: string, clientMissionId: string): Promise<void> {
+  const { error } = await supabase
+    .from('time_row_comments')
+    .delete()
+    .eq('employee_id', employeeId)
+    .eq('client_mission_id', clientMissionId);
+  if (error) throw error;
+}
+
+// Undo body for a delete — re-inserts the exact captured row under its
+// original id (this app's identity-stable-undo convention, see
+// restoreTimeManualRow above). Deliberately not a plain upsertTimeRowComment
+// call, which would stamp a fresh created_by/updated_at and lose provenance.
+export async function restoreTimeRowComment(comment: TimeRowComment): Promise<TimeRowComment> {
+  const { data, error } = await supabase
+    .from('time_row_comments')
+    .insert({
+      id: comment.id,
+      employee_id: comment.employee_id,
+      client_mission_id: comment.client_mission_id,
+      comment_text: comment.comment_text,
+      updated_at: comment.updated_at,
+      created_by: comment.created_by,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data as TimeRowComment;
 }
 
 // Backs TimeEstimationGrid.tsx's "×" delete on a manually-added row — per

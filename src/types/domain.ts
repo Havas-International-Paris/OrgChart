@@ -311,3 +311,16 @@ export interface TimeManualRow {
   created_at: string;
   created_by: string | null;
 }
+
+// A free-text note on an (employee, client_mission) row — see
+// 0030_time_row_comments.sql. No `year`, same reasoning as TimeManualRow
+// above: the comment belongs to the pairing, not a specific period.
+export interface TimeRowComment {
+  id: string;
+  employee_id: string;
+  client_mission_id: string;
+  comment_text: string;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+}

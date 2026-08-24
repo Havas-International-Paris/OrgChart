@@ -12,6 +12,7 @@ import type {
   TimeImportBatch,
   TimeManualEditMarker,
   TimeManualRow,
+  TimeRowComment,
 } from '../types/domain';
 
 // What purgeManualDataForPair deleted (and restorePairData can put back) —
@@ -48,6 +49,7 @@ export function useTimeEstimation() {
   const [clientAliases, setClientAliases] = useState<TimeClientAlias[]>([]);
   const [timeManualEditMarkers, setTimeManualEditMarkers] = useState<TimeManualEditMarker[]>([]);
   const [timeManualRows, setTimeManualRows] = useState<TimeManualRow[]>([]);
+  const [timeRowComments, setTimeRowComments] = useState<TimeRowComment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -65,18 +67,20 @@ export function useTimeEstimation() {
   const refresh = useCallback(async () => {
     const requestId = ++latestRequestRef.current;
     try {
-      const [actuals, forecasts, forecastMonths, n1Totals, groups, batches, empAliases, cliAliases, editMarkers, manualRows] = await Promise.all([
-        timeEstimationService.fetchTimeActuals(),
-        timeEstimationService.fetchTimeForecasts(),
-        timeEstimationService.fetchTimeForecastMonths(),
-        timeEstimationService.fetchTimeActualN1Totals(),
-        timeEstimationService.fetchTimeActualGroups(),
-        timeEstimationService.fetchTimeImportBatches(),
-        timeEstimationService.fetchTimeEmployeeAliases(),
-        timeEstimationService.fetchTimeClientAliases(),
-        timeEstimationService.fetchTimeManualEditMarkers(),
-        timeEstimationService.fetchTimeManualRows(),
-      ]);
+      const [actuals, forecasts, forecastMonths, n1Totals, groups, batches, empAliases, cliAliases, editMarkers, manualRows, comments] =
+        await Promise.all([
+          timeEstimationService.fetchTimeActuals(),
+          timeEstimationService.fetchTimeForecasts(),
+          timeEstimationService.fetchTimeForecastMonths(),
+          timeEstimationService.fetchTimeActualN1Totals(),
+          timeEstimationService.fetchTimeActualGroups(),
+          timeEstimationService.fetchTimeImportBatches(),
+          timeEstimationService.fetchTimeEmployeeAliases(),
+          timeEstimationService.fetchTimeClientAliases(),
+          timeEstimationService.fetchTimeManualEditMarkers(),
+          timeEstimationService.fetchTimeManualRows(),
+          timeEstimationService.fetchTimeRowComments(),
+        ]);
       if (requestId !== latestRequestRef.current) return;
       setTimeActuals(actuals);
       setTimeForecasts(forecasts);
@@ -88,6 +92,7 @@ export function useTimeEstimation() {
       setClientAliases(cliAliases);
       setTimeManualEditMarkers(editMarkers);
       setTimeManualRows(manualRows);
+      setTimeRowComments(comments);
       setError(null);
     } catch (err) {
       if (requestId !== latestRequestRef.current) return;
@@ -179,6 +184,12 @@ export function useTimeEstimation() {
     (employeeId: string, clientMissionId: string) =>
       timeManualRows.find((r) => r.employee_id === employeeId && r.client_mission_id === clientMissionId) ?? null,
     [timeManualRows],
+  );
+
+  const commentOf = useCallback(
+    (employeeId: string, clientMissionId: string) =>
+      timeRowComments.find((c) => c.employee_id === employeeId && c.client_mission_id === clientMissionId) ?? null,
+    [timeRowComments],
   );
 
   const monthOverridesOf = useCallback(
@@ -587,6 +598,60 @@ export function useTimeEstimation() {
     [refresh],
   );
 
+  // Creates or overwrites the row's comment (the unique constraint on
+  // time_row_comments makes this a true upsert) — optimistic-then-write,
+  // same shape as saveEditMarker below. TimeEstimationGrid.tsx captures the
+  // prior comment itself and pushes its own undo/redo Command.
+  const saveComment = useCallback(
+    async (employeeId: string, clientMissionId: string, commentText: string) => {
+      const now = new Date().toISOString();
+      setTimeRowComments((prev) => {
+        const idx = prev.findIndex((c) => c.employee_id === employeeId && c.client_mission_id === clientMissionId);
+        if (idx >= 0) {
+          const next = [...prev];
+          next[idx] = { ...next[idx], comment_text: commentText, updated_at: now };
+          return next;
+        }
+        return [
+          ...prev,
+          {
+            id: `optimistic-${employeeId}-${clientMissionId}`,
+            employee_id: employeeId,
+            client_mission_id: clientMissionId,
+            comment_text: commentText,
+            created_at: now,
+            updated_at: now,
+            created_by: null,
+          },
+        ];
+      });
+      const saved = await timeEstimationService.upsertTimeRowComment(employeeId, clientMissionId, commentText);
+      await refresh();
+      return saved;
+    },
+    [refresh],
+  );
+
+  const deleteComment = useCallback(
+    async (employeeId: string, clientMissionId: string) => {
+      setTimeRowComments((prev) => prev.filter((c) => !(c.employee_id === employeeId && c.client_mission_id === clientMissionId)));
+      await timeEstimationService.deleteTimeRowComment(employeeId, clientMissionId);
+      await refresh();
+    },
+    [refresh],
+  );
+
+  // Undo body for deleteComment — re-inserts the exact captured row under
+  // its original id, same identity-stable-undo convention as restoreManualRow.
+  const restoreComment = useCallback(
+    async (comment: TimeRowComment) => {
+      const restored = await timeEstimationService.restoreTimeRowComment(comment);
+      await refresh();
+      return restored;
+    },
+    [refresh],
+  );
+
   // Deletes ONLY the manually-entered data for (employeeId, clientMissionId)
   // — an import must never lose data to this action (per user feedback: the
   // grid's "×" on a manually-added row originally purged everything for the
@@ -732,6 +797,7 @@ export function useTimeEstimation() {
     clientAliases,
     timeManualEditMarkers,
     timeManualRows,
+    timeRowComments,
     loading,
     error,
     refresh,
@@ -740,6 +806,7 @@ export function useTimeEstimation() {
     n1TotalOf,
     monthOverridesOf,
     manualRowOf,
+    commentOf,
     groupsByPrimary,
     groupOfMember,
     saveMonthOverrides,
@@ -755,6 +822,9 @@ export function useTimeEstimation() {
     createManualRow,
     deleteManualRow,
     restoreManualRow,
+    saveComment,
+    deleteComment,
+    restoreComment,
     purgeManualDataForPair,
     restorePairData,
     resolveEmployeeAlias,

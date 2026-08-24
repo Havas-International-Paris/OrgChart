@@ -512,7 +512,27 @@
       "originManualTooltip": "Manually added",
       "manualRowDeleteHint": "Remove this row and its manually-entered data (imported data stays)",
       "quickAddPlaceholder": "+ Add an employee…",
-      "quickAddClientMissionPlaceholder": "+ Add a client/mission…"
+      "quickAddClientMissionPlaceholder": "+ Add a client/mission…",
+      "remunerationModelHeader": "Model",
+      "remunerationModelRetainerTooltip": "Retainer",
+      "remunerationModelCommissionTooltip": "Commission",
+      "commentAddTooltip": "Add a comment"
+    },
+    "commentPopover": {
+      "placeholder": "Type a comment…",
+      "save": "Save",
+      "cancel": "Cancel",
+      "delete": "Delete"
+    },
+    "filters": {
+      "clientMission": "Client/Mission",
+      "employee": "Employee",
+      "remunerationModel": "Model",
+      "actualPresence": "Actual time present",
+      "periodN1": "N-1",
+      "periodN": "N",
+      "periodN1Plus": "N+1",
+      "reset": "Reset filters"
     },
     "history": {
       "editMonth": "Edit {{month}}",
@@ -525,7 +545,10 @@
       "editVenduNextYear": "Edit % sold N+1",
       "editPrevuNextYear": "Edit % expected N+1",
       "addManualRow": "Add row",
-      "deleteManualRow": "Remove manually-added row"
+      "deleteManualRow": "Remove manually-added row",
+      "addComment": "Add comment",
+      "editComment": "Edit comment",
+      "deleteComment": "Delete comment"
     },
     "addRowModal": {
       "title": "Add a row",
