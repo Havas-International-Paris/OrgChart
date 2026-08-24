@@ -516,6 +516,8 @@
       "remunerationModelHeader": "Modèle",
       "remunerationModelRetainerTooltip": "Retainer",
       "remunerationModelCommissionTooltip": "Commission",
+      "remunerationModelUnsetTooltip": "Non défini — cliquer pour choisir",
+      "remunerationModelClickHint": "cliquer pour changer",
       "commentAddTooltip": "Ajouter un commentaire"
     },
     "commentPopover": {
@@ -542,6 +544,7 @@
       "editN1Total": "Modifier le Total N-1",
       "editVendu": "Modifier le % vendu",
       "editPrevu": "Modifier le % prévu",
+      "editRemunerationModel": "Définir le modèle de rémunération",
       "editVenduNextYear": "Modifier le % vendu N+1",
       "editPrevuNextYear": "Modifier le % prévu N+1",
       "addManualRow": "Ajouter une ligne",

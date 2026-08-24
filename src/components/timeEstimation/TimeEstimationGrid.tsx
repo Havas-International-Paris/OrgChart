@@ -502,6 +502,65 @@ function RowOriginMarker({ isManual, onRemove, t }: { isManual: boolean; onRemov
   );
 }
 
+// The current year's Retainer/Commission badge. `editable` is true only for
+// a row with no % sold/expected value yet on the relevant column (the
+// caller checks li.vendu/li.prevu, see renderRowCells) — that's exactly the
+// case a real percentage was never typed, so there's nothing to lose by
+// letting the model itself be picked by hand instead. A row with real data
+// keeps the old read-only badge: its model is derived from that data and
+// can only change by editing % sold/% expected (typing a value always wins,
+// see handleEditVendu/handleEditPrevu), never by clicking here.
+function RemunerationModelBadge({
+  model,
+  editable,
+  onCycle,
+  t,
+}: {
+  model: RemunerationModel | null;
+  editable: boolean;
+  onCycle: () => void;
+  t: (key: string) => string;
+}) {
+  const letter = model === 'retainer' ? 'R' : model === 'commission' ? 'C' : '?';
+  // The "unset" label already spells out "click to choose" on its own — only
+  // Retainer/Commission's bare model name needs the click-hint appended when
+  // editable, or the unset case would read the instruction twice.
+  const label =
+    model === 'retainer'
+      ? t('timeEstimation.grid.remunerationModelRetainerTooltip')
+      : model === 'commission'
+        ? t('timeEstimation.grid.remunerationModelCommissionTooltip')
+        : t('timeEstimation.grid.remunerationModelUnsetTooltip');
+  if (!editable) {
+    return (
+      <Tooltip content={label}>
+        <span className="flex h-4 w-4 items-center justify-center rounded text-[10px] font-semibold leading-none text-slate-500">
+          {letter}
+        </span>
+      </Tooltip>
+    );
+  }
+  const tooltip = model === null ? label : `${label} — ${t('timeEstimation.grid.remunerationModelClickHint')}`;
+  return (
+    <Tooltip content={tooltip}>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onCycle();
+        }}
+        className={
+          model === null
+            ? 'flex h-4 w-4 items-center justify-center rounded text-[10px] font-semibold leading-none text-slate-300 hover:bg-slate-100 hover:text-slate-600'
+            : 'flex h-4 w-4 items-center justify-center rounded text-[10px] font-semibold leading-none text-slate-500 hover:bg-slate-100'
+        }
+      >
+        {letter}
+      </button>
+    </Tooltip>
+  );
+}
+
 export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId: string }) {
   const { t, i18n } = useTranslation();
   const { employees } = useEmployees(registryOrgChartId);
@@ -510,6 +569,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
     createAssignment,
     updateAssignmentVenduAndModel,
     updateAssignmentVenduAndModelNextYear,
+    updateAssignmentRemuneration,
     deleteAssignment,
     restoreAssignment,
   } = useAssignments(registryOrgChartId);
@@ -1152,6 +1212,45 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
     scheduleOverrideClear(li, ['vendu', 'prevu'], generation);
   }
 
+  // Manual model picker for a row that has neither a % sold nor a %
+  // expected value for the current year — the mutex etp_vendu/
+  // remuneration_model bucketing above only ever assigns a model when a
+  // real percentage is TYPED into one of those two cells, so a row with
+  // neither stays permanently blank ('?', see RemunerationModelBadge)
+  // until this exists. Clicking the badge cycles null → retainer →
+  // commission → null. Never touches etp_vendu — RemunerationModelBadge
+  // only renders this control when the relevant column is already null, so
+  // there is nothing to bucket/move between vendu and prevu here; this
+  // purely records an intent for whichever percentage gets typed later,
+  // and handleEditVendu/handleEditPrevu's own "a real value always means
+  // Retainer/Commission" rule takes back over the moment one is.
+  async function handleCycleRemunerationModel(li: LineItem) {
+    const order: Array<RemunerationModel | null> = [null, 'retainer', 'commission'];
+    const next = order[(order.indexOf(li.remunerationModel) + 1) % order.length];
+    const label = t('timeEstimation.history.editRemunerationModel');
+    await withRowLock(li, async () => {
+      const current = await assignmentService.fetchAssignmentByPair(registryOrgChartId, li.employeeId, li.clientMissionId);
+      if (current) {
+        const priorModel = current.remuneration_model;
+        const assignmentId = current.id;
+        await withSuppressedRecording(() => updateAssignmentRemuneration(assignmentId, next, false));
+        useTimeEstimationHistoryStore.getState().push({
+          label,
+          undo: () => withSuppressedRecording(() => updateAssignmentRemuneration(assignmentId, priorModel, false)),
+          redo: () => withSuppressedRecording(() => updateAssignmentRemuneration(assignmentId, next, false)),
+        });
+      } else if (next !== null) {
+        const created = await withSuppressedRecording(() => createAssignment(li.employeeId, li.clientMissionId, null, null, next));
+        useTimeEstimationHistoryStore.getState().push({
+          label,
+          undo: () => withSuppressedRecording(() => deleteAssignment(created.id)),
+          redo: () => restoreAssignment(created).then(() => {}),
+        });
+      }
+      // else: cycling a pair with no assignment yet back to null — nothing to do.
+    });
+  }
+
   // "% sold N+1"/"% expected N+1" — mirrors handleEditVendu/handleEditPrevu
   // exactly, one shared etp_vendu_next_year column bucketed by its own
   // remuneration_model_next_year flag (0027), kept independent of the
@@ -1313,18 +1412,13 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
       <>
         {labelSlot}
         <span className="flex items-center justify-center">
-          {!cumulDisabled && li.remunerationModel && (
-            <Tooltip
-              content={t(
-                li.remunerationModel === 'retainer'
-                  ? 'timeEstimation.grid.remunerationModelRetainerTooltip'
-                  : 'timeEstimation.grid.remunerationModelCommissionTooltip',
-              )}
-            >
-              <span className="flex h-4 w-4 items-center justify-center rounded text-[10px] font-semibold leading-none text-slate-500">
-                {li.remunerationModel === 'retainer' ? 'R' : 'C'}
-              </span>
-            </Tooltip>
+          {!cumulDisabled && (
+            <RemunerationModelBadge
+              model={li.remunerationModel}
+              editable={li.remunerationModel === 'commission' ? li.prevu === null : li.vendu === null}
+              onCycle={() => handleCycleRemunerationModel(li)}
+              t={t}
+            />
           )}
         </span>
         <CascadeCell
