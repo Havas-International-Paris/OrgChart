@@ -305,7 +305,9 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
   const [clientResolutions, setClientResolutions] = useState<Record<string, ClientResolution>>({});
   const [resolving, setResolving] = useState(false);
   const [committing, setCommitting] = useState(false);
-  const [done, setDone] = useState<{ actualRows: number; n1Rows: number; forecastRows: number; skippedPairs: number } | null>(null);
+  const [done, setDone] = useState<{ actualRows: number; n1Rows: number; forecastRows: number; skippedPairs: number; newPairs: number } | null>(
+    null,
+  );
   const [importError, setImportError] = useState<string | null>(null);
   // "Items written so far" vs. "items planned" — recomputed per phase
   // (alias resolution, then the total_pct recompute pass), since each is a
@@ -950,11 +952,24 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
         await refreshEstimation();
       }
 
+      // A pair this import wrote SOME data for (affectedKeys) that wasn't
+      // already in existingPairKeys BEFORE this import ran — existingPairKeys
+      // is a snapshot from useTimeEstimation()'s data as loaded when the
+      // wizard opened, untouched by this function's own writes, so it still
+      // reflects pre-import state here regardless of onlyNewPairs. Shown
+      // unconditionally (not just in "only new pairs" mode) since "how many
+      // brand-new pairs did this add" is useful information either way.
+      let newPairsAdded = 0;
+      for (const key of affectedKeys) {
+        if (!existingPairKeys.has(key)) newPairsAdded += 1;
+      }
+
       setDone({
         actualRows: actualUpsertRows.length,
         n1Rows: n1UpsertRows.length,
         forecastRows: forecastUpsertRows.length,
         skippedPairs: skippedExistingPairKeys.size,
+        newPairs: newPairsAdded,
       });
     } catch (err) {
       setImportError(formatImportError(err));
@@ -994,6 +1009,9 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
               <p className="text-sm text-slate-700">
                 {t('timeEstimation.wizard.done', { actual: done.actualRows, n1: done.n1Rows, forecast: done.forecastRows })}
               </p>
+              {done.newPairs > 0 && (
+                <p className="mt-1 text-sm text-slate-500">{t('timeEstimation.wizard.doneNewPairs', { count: done.newPairs })}</p>
+              )}
               {done.skippedPairs > 0 && (
                 <p className="mt-1 text-sm text-slate-500">{t('timeEstimation.wizard.doneSkippedPairs', { count: done.skippedPairs })}</p>
               )}

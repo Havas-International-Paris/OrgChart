@@ -671,6 +671,8 @@
       "onlyNewPairsHint": "Any pair already in the tool is left completely untouched — nothing is overwritten, including manual edits. Only pairs that don't exist yet are imported.",
       "doneSkippedPairs_one": "{{count}} existing pair was left untouched.",
       "doneSkippedPairs_other": "{{count}} existing pairs were left untouched.",
+      "doneNewPairs_one": "{{count}} new pair was added.",
+      "doneNewPairs_other": "{{count}} new pairs were added.",
       "missingSheets": "Could not find the \"Input N-1\" and/or \"Input N\" tabs in this file.",
       "missingColumns": "Expected columns not found in one of the tabs (check it matches the template).",
       "clientNamePlaceholder": "Client name",

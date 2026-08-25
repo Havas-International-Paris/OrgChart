@@ -671,6 +671,8 @@
       "onlyNewPairsHint": "Toute paire déjà présente dans l'outil reste totalement inchangée — rien n'est écrasé, y compris les modifications manuelles. Seules les paires qui n'existent pas encore sont importées.",
       "doneSkippedPairs_one": "{{count}} paire existante n'a pas été modifiée.",
       "doneSkippedPairs_other": "{{count}} paires existantes n'ont pas été modifiées.",
+      "doneNewPairs_one": "{{count}} nouvelle paire a été ajoutée.",
+      "doneNewPairs_other": "{{count}} nouvelles paires ont été ajoutées.",
       "missingSheets": "Onglets « Input N-1 » et/ou « Input N » introuvables dans ce fichier.",
       "missingColumns": "Colonnes attendues introuvables dans un des onglets (vérifiez qu'il correspond au template).",
       "clientNamePlaceholder": "Nom du client",
