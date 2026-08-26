@@ -21,7 +21,11 @@ export function ImportFromRegistryModal({ registryChartId, onImport, onClose }: 
   const [includeAssignments, setIncludeAssignments] = useState(false);
   const [importing, setImporting] = useState(false);
 
+  // Hard-excludes departed employees regardless of the "hide departed"
+  // toggle — importing someone who's left the company into a working chart
+  // never makes sense, unlike simply seeing them listed elsewhere.
   const filtered = registryEmployees.filter((c) => {
+    if (c.has_left_company) return false;
     const haystack = `${c.first_name} ${c.last_name} ${c.job_title ?? ''} ${c.department ?? ''}`.toLowerCase();
     return haystack.includes(query.toLowerCase());
   });

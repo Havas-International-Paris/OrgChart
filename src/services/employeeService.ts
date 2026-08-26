@@ -36,6 +36,15 @@ export async function setHiddenFromRegistryCandidates(id: string, hidden: boolea
   assertRowsAffected(data, error);
 }
 
+export async function setHasLeftCompany(id: string, hasLeft: boolean): Promise<void> {
+  const { data, error } = await supabase
+    .from('employees')
+    .update({ has_left_company: hasLeft })
+    .eq('id', id)
+    .select();
+  assertRowsAffected(data, error);
+}
+
 export async function createEmployee(orgChartId: string, input: EmployeeInput): Promise<Employee> {
   const { data, error } = await supabase
     .from('employees')
@@ -103,7 +112,10 @@ export async function updateSiblingOrders(
 // (and any manual sibling_order) come back too — createEmployee only takes
 // EmployeeInput, which is why undoing a delete used to silently drop them.
 // created_at/updated_at/created_by/updated_by are deliberately omitted: the
-// set_updated_at / set_audit_fields triggers own those.
+// set_updated_at / set_audit_fields triggers own those. hidden_from_registry_
+// candidates and has_left_company are both included so undoing a delete
+// restores them too, not silently resets them to their DB default — a real
+// gap the first of the two had until has_left_company's own addition caught it.
 export async function restoreEmployee(row: Employee): Promise<Employee> {
   const { data, error } = await supabase
     .from('employees')
@@ -121,6 +133,8 @@ export async function restoreEmployee(row: Employee): Promise<Employee> {
       photo_pan_y: row.photo_pan_y,
       sibling_order: row.sibling_order,
       org_chart_id: row.org_chart_id,
+      hidden_from_registry_candidates: row.hidden_from_registry_candidates,
+      has_left_company: row.has_left_company,
     })
     .select()
     .single();
@@ -139,7 +153,10 @@ export async function restoreEmployee(row: Employee): Promise<Employee> {
 // registry → a working chart, via useRegistryImport.ts) and flux 2 (Phase B,
 // a working chart → the registry, via usePromotionCandidates.ts): both are
 // "copy this employee's core fields into a different chart," just with the
-// source/target swapped.
+// source/target swapped. has_left_company is deliberately excluded too, same
+// reasoning as sibling_order above: someone promoted/imported into a
+// different chart starts fresh there, not carrying over a departure status
+// recorded in a different chart's context.
 export async function importEmployee(targetOrgChartId: string, source: Employee): Promise<Employee> {
   const { data, error } = await supabase
     .from('employees')

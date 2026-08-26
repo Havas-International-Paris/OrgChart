@@ -220,6 +220,28 @@ export function useEmployees(orgChartId: string | null) {
     [employees, orgChartId, refresh, t],
   );
 
+  // Toggling the "has left the company" flag — same undo/redo shape as
+  // updateEmployeePhotoFrame above: capture before, write, refresh, then push
+  // a Command whose undo/redo both just call this same mutator again with
+  // the old/new value (symmetric, so no separate revert function is needed).
+  const updateHasLeftCompany = useCallback(
+    async (id: string, value: boolean): Promise<void> => {
+      const before = employees.find((e) => e.id === id);
+      await employeeService.setHasLeftCompany(id, value);
+      await refresh();
+      if (before && orgChartId) {
+        const name = `${before.first_name} ${before.last_name}`;
+        useHistoryStore.getState().push({
+          label: value ? t('history.markEmployeeLeft', { name }) : t('history.markEmployeeActive', { name }),
+          orgChartId,
+          undo: async () => { await updateHasLeftCompany(id, before.has_left_company); },
+          redo: async () => { await updateHasLeftCompany(id, value); },
+        });
+      }
+    },
+    [employees, orgChartId, refresh, t],
+  );
+
   // Drag-to-reorder support (siblingOrder.ts). `updates` may cover more than
   // just the dragged employee — the first manual reorder in a sibling group
   // backfills real values for every member in the same write (see
@@ -268,6 +290,7 @@ export function useEmployees(orgChartId: string | null) {
     deleteEmployee,
     updateEmployeePhoto,
     updateEmployeePhotoFrame,
+    updateHasLeftCompany,
     updateSiblingOrders,
   };
 }

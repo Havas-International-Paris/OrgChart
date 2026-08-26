@@ -29,6 +29,7 @@ export interface Database {
           created_by: string | null;
           updated_by: string | null;
           hidden_from_registry_candidates: boolean;
+          has_left_company: boolean;
         };
         Insert: {
           id?: string;
@@ -45,6 +46,7 @@ export interface Database {
           sibling_order?: number | null;
           org_chart_id: string;
           hidden_from_registry_candidates?: boolean;
+          has_left_company?: boolean;
         };
         Update: {
           first_name?: string;
@@ -59,6 +61,7 @@ export interface Database {
           photo_pan_y?: number;
           sibling_order?: number | null;
           hidden_from_registry_candidates?: boolean;
+          has_left_company?: boolean;
         };
         Relationships: [];
       };

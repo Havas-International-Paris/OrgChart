@@ -4,6 +4,7 @@ import { useAssignments } from '../../hooks/useAssignments';
 import { useEmployees } from '../../hooks/useEmployees';
 import { useClientsMissions } from '../../hooks/useClientsMissions';
 import { useSelectionStore } from '../../stores/selectionStore';
+import { useUiPreferencesStore } from '../../stores/uiPreferencesStore';
 import type { Assignment, Employee } from '../../types/domain';
 
 type GroupBy = 'client' | 'employee';
@@ -46,6 +47,7 @@ export function AllocationsView() {
   const { assignments, loading: assignmentsLoading } = useAssignments(currentOrgChartId);
   const { employees, loading: employeesLoading } = useEmployees(currentOrgChartId);
   const { clientsMissions, loading: clientsMissionsLoading } = useClientsMissions();
+  const hideDepartedEmployees = useUiPreferencesStore((s) => s.hideDepartedEmployees);
   const [groupBy, setGroupBy] = useState<GroupBy>('client');
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
@@ -55,9 +57,15 @@ export function AllocationsView() {
     [clientsMissions],
   );
 
+  const visibleAssignments = useMemo(
+    () =>
+      hideDepartedEmployees ? assignments.filter((a) => !employeeById.get(a.employee_id)?.has_left_company) : assignments,
+    [assignments, hideDepartedEmployees, employeeById],
+  );
+
   const groups = useMemo<Group[]>(() => {
     const buckets = new Map<string, Assignment[]>();
-    for (const a of assignments) {
+    for (const a of visibleAssignments) {
       const key = groupBy === 'client' ? a.client_mission_id : a.employee_id;
       const list = buckets.get(key);
       if (list) list.push(a);
@@ -104,7 +112,7 @@ export function AllocationsView() {
     }
 
     return result.sort((a, b) => a.label.localeCompare(b.label));
-  }, [assignments, groupBy, employeeById, clientMissionById]);
+  }, [visibleAssignments, groupBy, employeeById, clientMissionById]);
 
   function toggleGroup(key: string) {
     setCollapsed((prev) => {

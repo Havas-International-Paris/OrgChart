@@ -28,6 +28,7 @@ export function useChartActions(currentOrgChartId: string | null, data: ChartDat
     deleteEmployee,
     updateEmployeePhoto,
     updateEmployeePhotoFrame,
+    updateHasLeftCompany,
     relationships,
     managersOf,
     directReportsOf,
@@ -240,8 +241,15 @@ export function useChartActions(currentOrgChartId: string | null, data: ChartDat
       openAssignments: setAssignmentsEmployeeId,
       updateEmployee,
       openPhotoEditor: setPhotoEditEmployeeId,
+      // A visible, permanent-state per-card control, same category as the
+      // three above (not a low-frequency action like delete/add-manager,
+      // which live in NodeContextMenu instead) — see EmployeeNode.tsx's
+      // DepartureFlagBadge.
+      toggleHasLeftCompany: (employeeId, value) => {
+        updateHasLeftCompany(employeeId, value);
+      },
     }),
-    [setAssignmentsEmployeeId, updateEmployee, setPhotoEditEmployeeId],
+    [setAssignmentsEmployeeId, updateEmployee, setPhotoEditEmployeeId, updateHasLeftCompany],
   );
 
   // The card's own right-click context menu (backlog item 34) — absorbs
@@ -282,7 +290,10 @@ export function useChartActions(currentOrgChartId: string | null, data: ChartDat
       const existingManagerIds = new Set(managersOf(employeeId).map((r) => r.manager_id));
       return {
         title: t('chart.linkModal.addManagerTo', { name: currentLabel }),
-        candidates: employees.filter((e) => e.id !== employeeId && !existingManagerIds.has(e.id)),
+        // Hard-excludes departed employees regardless of the global "hide
+        // departed" toggle — linking someone who's left as a new manager/
+        // report never makes sense, unlike simply viewing them in the chart.
+        candidates: employees.filter((e) => e.id !== employeeId && !existingManagerIds.has(e.id) && !e.has_left_company),
         isDisabled: (candidateId: string) => wouldCreateCycle(employeeId, candidateId),
         onLink: async (candidateId: string) => {
           const hasPrimary = managersOf(employeeId).some((r) => r.is_primary);
@@ -294,7 +305,7 @@ export function useChartActions(currentOrgChartId: string | null, data: ChartDat
     const existingReportIds = new Set(directReportsOf(employeeId).map((r) => r.employee_id));
     return {
       title: t('chart.linkModal.addSubordinateTo', { name: currentLabel }),
-      candidates: employees.filter((e) => e.id !== employeeId && !existingReportIds.has(e.id)),
+      candidates: employees.filter((e) => e.id !== employeeId && !existingReportIds.has(e.id) && !e.has_left_company),
       isDisabled: (candidateId: string) => wouldCreateCycle(candidateId, employeeId),
       onLink: async (candidateId: string) => {
         const hasPrimary = managersOf(candidateId).some((r) => r.is_primary);

@@ -245,12 +245,32 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
   const {
     employeeAliases,
     clientAliases,
+    timeActuals,
+    timeActualN1Totals,
     timeForecasts,
     timeManualEditMarkers,
     timeManualRows,
     loading: estimationLoading,
     refresh: refreshEstimation,
   } = useTimeEstimation();
+
+  // A pair (employee, client) already known to the tool, in ANY year — the
+  // "only new pairs" option below skips a pair entirely the moment it shows
+  // up in any of these, since time_manual_rows shows a pair can be "known"
+  // with no figures at all yet (added by hand from the grid, never
+  // imported). Checked against every table that can carry a resolved
+  // identity rather than just time_forecasts, so a pair with only N-1 data,
+  // or only a stray actual, still counts as existing.
+  const existingPairKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const f of timeForecasts) keys.add(`${f.employee_id}::${f.client_mission_id}`);
+    for (const n of timeActualN1Totals) keys.add(`${n.employee_id}::${n.client_mission_id}`);
+    for (const a of timeActuals) {
+      if (a.resolved_employee_id && a.resolved_client_mission_id) keys.add(`${a.resolved_employee_id}::${a.resolved_client_mission_id}`);
+    }
+    for (const r of timeManualRows) keys.add(`${r.employee_id}::${r.client_mission_id}`);
+    return keys;
+  }, [timeForecasts, timeActualN1Totals, timeActuals, timeManualRows]);
 
   // handleFileSelected resolves every raw name against registryEmployees/
   // clientsMissions/employeeAliases/clientAliases — nothing stopped a file
@@ -273,12 +293,21 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
   const [cutoffDetection, setCutoffDetection] = useState<CutoffDetectionResult | null>(null);
   const [cutoffMonth, setCutoffMonth] = useState<number>(6);
   const [importFields, setImportFields] = useState<ImportFieldSelection>({ n1: true, actuals: true, forecast: true });
+  // When on, any (employee, client) pair already known to the tool (see
+  // existingPairKeys above) is left completely untouched by this import —
+  // no N-1/actuals/forecast write, no marker-clearing, no total recompute —
+  // so a re-import can add newly-appeared pairs without risking a manual
+  // edit on an existing one. Off by default: the historical, still most
+  // common case is a full reimport meant to win outright (see handleImport).
+  const [onlyNewPairs, setOnlyNewPairs] = useState(false);
 
   const [employeeResolutions, setEmployeeResolutions] = useState<Record<string, EmployeeResolution>>({});
   const [clientResolutions, setClientResolutions] = useState<Record<string, ClientResolution>>({});
   const [resolving, setResolving] = useState(false);
   const [committing, setCommitting] = useState(false);
-  const [done, setDone] = useState<{ actualRows: number; n1Rows: number; forecastRows: number } | null>(null);
+  const [done, setDone] = useState<{ actualRows: number; n1Rows: number; forecastRows: number; skippedPairs: number; newPairs: number } | null>(
+    null,
+  );
   const [importError, setImportError] = useState<string | null>(null);
   // "Items written so far" vs. "items planned" — recomputed per phase
   // (alias resolution, then the total_pct recompute pass), since each is a
@@ -322,6 +351,7 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
     setProgress(null);
     setClientFilter(new Set());
     setImportFields({ n1: true, actuals: true, forecast: true });
+    setOnlyNewPairs(false);
     try {
       const buffer = await selected.arrayBuffer();
       const { n1Rows: parsedN1, nRows: parsedN } = parseCombinedWorkbook(buffer);
@@ -488,7 +518,13 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
   // there before (upsert on each table's own unique constraint), whether
   // that prior value came from a manual grid edit or an earlier import.
   // Unchecked categories are simply never written, leaving existing data
-  // for them untouched.
+  // for them untouched. `onlyNewPairs` narrows this further, per pair
+  // rather than per category: a pair already in existingPairKeys is skipped
+  // outright at every row-building step below (isNewPair guards), so it
+  // never enters n1UpsertRows/actualUpsertRows/forecastUpsertRows, never
+  // joins affectedKeys, and therefore never triggers marker-clearing,
+  // manual-row-clearing or the total_pct recompute either — a genuinely new
+  // pair from the same file is unaffected and imports exactly as before.
   async function handleImport() {
     if (!allResolved) return;
     setImportError(null);
@@ -596,12 +632,19 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
       // "no data" — the row only exists at all because this pair genuinely
       // appears in the file (isSubtotalRow/forward-fill already excluded
       // anything else upstream in timeImportParsing.ts).
+      const isNewPair = (employeeId: string, clientMissionId: string) => !existingPairKeys.has(`${employeeId}::${clientMissionId}`);
+      const skippedExistingPairKeys = new Set<string>();
+
       const n1UpsertRows: Array<{ employee_id: string; client_mission_id: string; year: number; total_pct: number }> = [];
       if (importFields.n1) {
         for (const row of n1Rows) {
           const employeeId = row.employeeName ? employeeIds.get(row.employeeName) : null;
           const clientMissionId = row.annonceur ? clientIds.get(row.annonceur) : null;
           if (!employeeId || !clientMissionId) continue;
+          if (onlyNewPairs && !isNewPair(employeeId, clientMissionId)) {
+            skippedExistingPairKeys.add(`${employeeId}::${clientMissionId}`);
+            continue;
+          }
           n1UpsertRows.push({ employee_id: employeeId, client_mission_id: clientMissionId, year: year - 1, total_pct: etpFractionToPct(row.n1TotalFraction ?? 0) });
         }
       }
@@ -616,6 +659,10 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
         const employeeId = row.employeeName ? employeeIds.get(row.employeeName) : null;
         const clientMissionId = row.annonceur ? clientIds.get(row.annonceur) : null;
         if (!employeeId || !clientMissionId) continue;
+        if (onlyNewPairs && !isNewPair(employeeId, clientMissionId)) {
+          skippedExistingPairKeys.add(`${employeeId}::${clientMissionId}`);
+          continue;
+        }
         affectedKeys.add(`${employeeId}::${clientMissionId}`);
         row.monthlyFractions.forEach((fraction, i) => {
           const month = i + 1;
@@ -668,6 +715,10 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
           const employeeId = employeeIds.get(rawEmployeeName);
           const clientMissionId = clientIds.get(rawAnnonceur);
           if (!employeeId || !clientMissionId) continue;
+          if (onlyNewPairs && !isNewPair(employeeId, clientMissionId)) {
+            skippedExistingPairKeys.add(`${employeeId}::${clientMissionId}`);
+            continue;
+          }
           n1UpsertRows.push({ employee_id: employeeId, client_mission_id: clientMissionId, year: year - 1, total_pct: 0 });
         }
       }
@@ -678,6 +729,10 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
         const employeeId = employeeIds.get(rawEmployeeName);
         const clientMissionId = clientIds.get(rawAnnonceur);
         if (!employeeId || !clientMissionId) continue;
+        if (onlyNewPairs && !isNewPair(employeeId, clientMissionId)) {
+          skippedExistingPairKeys.add(`${employeeId}::${clientMissionId}`);
+          continue;
+        }
         affectedKeys.add(`${employeeId}::${clientMissionId}`);
         for (let month = 1; month <= 12; month += 1) {
           if (month <= cutoffMonth) {
@@ -897,7 +952,25 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
         await refreshEstimation();
       }
 
-      setDone({ actualRows: actualUpsertRows.length, n1Rows: n1UpsertRows.length, forecastRows: forecastUpsertRows.length });
+      // A pair this import wrote SOME data for (affectedKeys) that wasn't
+      // already in existingPairKeys BEFORE this import ran — existingPairKeys
+      // is a snapshot from useTimeEstimation()'s data as loaded when the
+      // wizard opened, untouched by this function's own writes, so it still
+      // reflects pre-import state here regardless of onlyNewPairs. Shown
+      // unconditionally (not just in "only new pairs" mode) since "how many
+      // brand-new pairs did this add" is useful information either way.
+      let newPairsAdded = 0;
+      for (const key of affectedKeys) {
+        if (!existingPairKeys.has(key)) newPairsAdded += 1;
+      }
+
+      setDone({
+        actualRows: actualUpsertRows.length,
+        n1Rows: n1UpsertRows.length,
+        forecastRows: forecastUpsertRows.length,
+        skippedPairs: skippedExistingPairKeys.size,
+        newPairs: newPairsAdded,
+      });
     } catch (err) {
       setImportError(formatImportError(err));
     } finally {
@@ -932,9 +1005,17 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
 
         <div className="min-h-0 flex-1 overflow-auto px-4 py-4">
           {done ? (
-            <p className="text-sm text-slate-700">
-              {t('timeEstimation.wizard.done', { actual: done.actualRows, n1: done.n1Rows, forecast: done.forecastRows })}
-            </p>
+            <>
+              <p className="text-sm text-slate-700">
+                {t('timeEstimation.wizard.done', { actual: done.actualRows, n1: done.n1Rows, forecast: done.forecastRows })}
+              </p>
+              {done.newPairs > 0 && (
+                <p className="mt-1 text-sm text-slate-500">{t('timeEstimation.wizard.doneNewPairs', { count: done.newPairs })}</p>
+              )}
+              {done.skippedPairs > 0 && (
+                <p className="mt-1 text-sm text-slate-500">{t('timeEstimation.wizard.doneSkippedPairs', { count: done.skippedPairs })}</p>
+              )}
+            </>
           ) : (
             <>
               {step === 'select' && (
@@ -1010,6 +1091,24 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
                         {t('timeEstimation.wizard.importFieldForecast')}
                       </label>
                     </div>
+                  </section>
+
+                  <section className="mb-5">
+                    <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                      {t('timeEstimation.wizard.importModeTitle')}
+                    </h3>
+                    <label className="flex items-start gap-2 text-sm text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={onlyNewPairs}
+                        onChange={() => setOnlyNewPairs((prev) => !prev)}
+                        className="mt-0.5"
+                      />
+                      <span>
+                        {t('timeEstimation.wizard.onlyNewPairsLabel')}
+                        <span className="mt-0.5 block text-xs text-slate-400">{t('timeEstimation.wizard.onlyNewPairsHint')}</span>
+                      </span>
+                    </label>
                   </section>
 
                   <section>

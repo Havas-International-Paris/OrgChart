@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useUiPreferencesStore } from '../stores/uiPreferencesStore';
 
 export interface ChatToolCall {
   id: string;
@@ -87,6 +88,7 @@ export function useChat(
   const abortRef = useRef<AbortController | null>(null);
   const [providers, setProviders] = useState<ChatProviderOption[]>([]);
   const [activeProviderId, setActiveProviderId] = useState<string | null>(null);
+  const hideDepartedEmployees = useUiPreferencesStore((s) => s.hideDepartedEmployees);
 
   useEffect(() => {
     abortRef.current?.abort();
@@ -152,7 +154,12 @@ export function useChat(
             'Content-Type': 'application/json',
             Authorization: `Bearer ${accessToken}`,
           },
-          body: JSON.stringify({ orgChartId, messages: history, provider: providerId ?? undefined }),
+          body: JSON.stringify({
+            orgChartId,
+            messages: history,
+            provider: providerId ?? undefined,
+            hideDepartedEmployees,
+          }),
           signal: controller.signal,
         });
 
@@ -221,7 +228,7 @@ export function useChat(
         abortRef.current = null;
       }
     },
-    [orgChartId, accessToken, providerId, sending, messages, t, onWriteToolResult],
+    [orgChartId, accessToken, providerId, sending, messages, t, onWriteToolResult, hideDepartedEmployees],
   );
 
   return { messages, sendMessage, sending, statusLabel, error, providers, activeProviderId };

@@ -9,6 +9,7 @@ import { useClientsMissions } from '../../hooks/useClientsMissions';
 import { departmentColorMap } from '../../lib/departmentColor';
 import { companyColorMap } from '../../lib/companyColor';
 import { useSelectionStore } from '../../stores/selectionStore';
+import { useUiPreferencesStore } from '../../stores/uiPreferencesStore';
 
 // Every dataset the chart reads, plus the lookups derived from them. Split out
 // of OrgChartView so that file stops opening with forty destructured names
@@ -24,7 +25,7 @@ import { useSelectionStore } from '../../stores/selectionStore';
 // last one silently win for both.
 export function useChartData(orgChartId: string | null) {
   const {
-    employees,
+    employees: allEmployees,
     loading: employeesLoading,
     createEmployee,
     restoreEmployee,
@@ -32,11 +33,12 @@ export function useChartData(orgChartId: string | null) {
     deleteEmployee,
     updateEmployeePhoto,
     updateEmployeePhotoFrame,
+    updateHasLeftCompany,
     updateSiblingOrders,
   } = useEmployees(orgChartId);
 
   const {
-    relationships,
+    relationships: allRelationships,
     loading: relationshipsLoading,
     managersOf,
     directReportsOf,
@@ -46,6 +48,32 @@ export function useChartData(orgChartId: string | null) {
     reassignManager,
     wouldCreateCycle,
   } = useReportingGraph(orgChartId);
+
+  // A departed employee (and every relationship touching them) is fully
+  // excluded from the chart's own graph right here, at the single source
+  // every downstream hook reads from (useChartVisibility's tree walk,
+  // useChartNodes' elk layout and edge construction) — not by dimming, per
+  // the user's explicit choice. This is deliberately a full-relayout-style
+  // input change (same code path already proven safe by switching org
+  // charts), not incremental node removal mid-session, which is the
+  // exotic path this app's layout engine has a documented history of
+  // subtle bugs around. A still-active employee whose only primary manager
+  // is hidden this way simply becomes a root (no special-case code needed:
+  // root detection is just "no primary edge as employee_id" against
+  // whatever's left) — they are NOT auto-reparented to the departed
+  // manager's own manager, a deliberate simplification. The underlying
+  // reporting_relationships rows are never touched — purely a display-time
+  // filter, fully reversible by unchecking the preference.
+  const hideDepartedEmployees = useUiPreferencesStore((s) => s.hideDepartedEmployees);
+  const employees = useMemo(
+    () => (hideDepartedEmployees ? allEmployees.filter((e) => !e.has_left_company) : allEmployees),
+    [allEmployees, hideDepartedEmployees],
+  );
+  const relationships = useMemo(() => {
+    if (!hideDepartedEmployees) return allRelationships;
+    const visibleIds = new Set(employees.map((e) => e.id));
+    return allRelationships.filter((r) => visibleIds.has(r.employee_id) && visibleIds.has(r.manager_id));
+  }, [allRelationships, employees, hideDepartedEmployees]);
 
   const { assignments, assignmentsOf, totalEtpOf, totalEtpReelOf, createAssignment, restoreAssignment } =
     useAssignments(orgChartId);
@@ -120,6 +148,7 @@ export function useChartData(orgChartId: string | null) {
     deleteEmployee,
     updateEmployeePhoto,
     updateEmployeePhotoFrame,
+    updateHasLeftCompany,
     updateSiblingOrders,
 
     relationships,
