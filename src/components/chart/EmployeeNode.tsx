@@ -117,8 +117,10 @@ function CollapseBadge({
 // be clickable to toggle either way, so an indicator only shown once
 // already-departed couldn't be used to mark someone departed in the first
 // place. Uses this app's own plain-Unicode-glyph convention (no icon
-// library dependency anywhere in this app) rather than introducing one:
-// a literal flag, filled when departed, outlined when active.
+// library dependency anywhere in this app) rather than introducing one: a
+// circled-X (⊗, red) reads as "no longer here" more clearly than a flag
+// pictograph did — same glyph pair as EmployeeGrid.tsx's own departure
+// column, kept in sync per user feedback.
 function DepartureFlagBadge({ hasLeft, onToggle }: { hasLeft: boolean; onToggle: () => void }) {
   const { t } = useTranslation();
   return (
@@ -133,7 +135,7 @@ function DepartureFlagBadge({ hasLeft, onToggle }: { hasLeft: boolean; onToggle:
         hasLeft ? 'border-red-300 text-red-600' : 'border-slate-200 text-slate-300'
       }`}
     >
-      {hasLeft ? '⚑' : '⚐'}
+      {hasLeft ? '⊗' : '○'}
     </button>
   );
 }
