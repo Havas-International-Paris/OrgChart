@@ -358,6 +358,7 @@ export function EmployeeGrid() {
           <thead>
             <tr role="row" className="border-b border-slate-200 text-left text-slate-500">
               <th className="w-10" />
+              <th className="w-10" />
               {EDITABLE_FIELDS.map((field) => (
                 <th key={field} className={`${rowPad} px-2 font-medium`}>
                   <button
@@ -373,20 +374,19 @@ export function EmployeeGrid() {
               <th className={`${rowPad} px-2 font-medium`}>{t('grid.employees.managersHeader')}</th>
               <th className={`${rowPad} px-2 font-medium`}>{t('grid.employees.clientsMissionsHeader')}</th>
               <th className="w-10" />
-              <th className="w-10" />
             </tr>
           </thead>
           <tbody>
             {loading && (
               <tr role="row">
-                <td colSpan={10} className="p-4 text-center text-slate-400">
+                <td colSpan={11} className="p-4 text-center text-slate-400">
                   {t('grid.employees.loading')}
                 </td>
               </tr>
             )}
             {!loading && rows.length === 0 && (
               <tr role="row">
-                <td colSpan={10} className="p-4 text-center text-slate-400">
+                <td colSpan={11} className="p-4 text-center text-slate-400">
                   {t('grid.employees.empty')}
                 </td>
               </tr>
@@ -427,6 +427,17 @@ export function EmployeeGrid() {
                         size={avatarSize}
                         onOpen={setPhotoEditEmployeeId}
                       />
+                    )}
+                  </td>
+                  <td role="gridcell" className={`${rowPad} px-2`}>
+                    {isDraftRow ? null : (
+                      <button
+                        onClick={() => updateHasLeftCompany(row.id, !row.has_left_company)}
+                        title={row.has_left_company ? t('grid.employees.markActive') : t('grid.employees.markDeparted')}
+                        className={row.has_left_company ? 'text-red-600' : 'text-slate-300 hover:text-slate-500'}
+                      >
+                        {row.has_left_company ? '⊗' : '○'}
+                      </button>
                     )}
                   </td>
                   {EDITABLE_FIELDS.map((field) => (
@@ -472,17 +483,6 @@ export function EmployeeGrid() {
                         className="text-slate-400 hover:text-red-600"
                       >
                         ✕
-                      </button>
-                    )}
-                  </td>
-                  <td role="gridcell" className={`${rowPad} px-2`}>
-                    {isDraftRow ? null : (
-                      <button
-                        onClick={() => updateHasLeftCompany(row.id, !row.has_left_company)}
-                        title={row.has_left_company ? t('grid.employees.markActive') : t('grid.employees.markDeparted')}
-                        className={row.has_left_company ? 'text-red-600' : 'text-slate-300 hover:text-slate-500'}
-                      >
-                        {row.has_left_company ? '⚑' : '⚐'}
                       </button>
                     )}
                   </td>
