@@ -263,6 +263,81 @@ describe('layoutWithElk', () => {
   });
 });
 
+// Real production bug (reported by the user, 2026-08-25): Marcelo Gabriel
+// Pedernera's team (reached via Nicolas de Vulpian → Léa Lapébie) visually
+// interleaved with Antoine Panicucci's own team (reached via a completely
+// different lineage, Léa Furio) on the same rank. Marcelo has sibling_order
+// placing him LAST among Léa Lapébie's three children, and carries 5 direct
+// reports of his own — wide enough that applySiblingOrder packing him into
+// the rightmost slot (a real, deterministic step, not modeled here) can push
+// his whole subtree past his own siblings' bounds and land his card between
+// two of the cousin branch's own children. resolveOverlaps is where that
+// scrambled state either gets fixed or just spaced out further apart — these
+// tests start from that already-scrambled state directly (same reasoning as
+// the "production data" resolveOverlaps tests above: forcing elk's own
+// heuristics to reproduce the exact scramble on a small fixture isn't
+// reliable, so the scrambled input is crafted by hand instead) and drive
+// resolveOverlaps itself, with and without the orderIndex fix.
+describe('resolveOverlaps canonical ordering', () => {
+  it('restores true branch order instead of just spacing out a scrambled one', () => {
+    const nodes: Node[] = [
+      node('annelaure'),
+      node('berkecan'),
+      node('marcelo'),
+      node('w1'),
+      node('emma'),
+      node('edouard'),
+      node('alice'),
+      node('david'),
+    ];
+    const edges: Edge[] = [edge('marcelo', 'w1')];
+    // marcelo (x=550) already sits strictly between two cousins (emma=500,
+    // edouard=700) it belongs entirely before — the scrambled state
+    // applySiblingOrder's own repacking can produce.
+    const positions = new Map([
+      ['annelaure', { x: 0, y: 0 }],
+      ['berkecan', { x: 250, y: 0 }],
+      ['marcelo', { x: 550, y: 0 }],
+      ['emma', { x: 500, y: 0 }],
+      ['edouard', { x: 700, y: 0 }],
+      ['alice', { x: 900, y: 0 }],
+      ['david', { x: 1100, y: 0 }],
+      ['w1', { x: 550, y: NODE_HEIGHT + 64 }],
+    ]);
+    const orderIndex = new Map([
+      ['annelaure', 0],
+      ['berkecan', 1],
+      ['marcelo', 2],
+      ['w1', 3],
+      ['emma', 4],
+      ['edouard', 5],
+      ['alice', 6],
+      ['david', 7],
+    ]);
+
+    resolveOverlaps(positions, nodes, edges, NODE_WIDTH, SIBLING_GAP, orderIndex);
+
+    const marceloRight = positions.get('marcelo')!.x + NODE_WIDTH / 2;
+    expect(marceloRight).toBeLessThanOrEqual(positions.get('emma')!.x - NODE_WIDTH / 2);
+    expect(marceloRight).toBeLessThanOrEqual(positions.get('edouard')!.x - NODE_WIDTH / 2);
+  });
+
+  it('without a canonical order, sorting by current x just spaces out the scrambled interleaving instead of fixing it', () => {
+    const nodes: Node[] = [node('marcelo'), node('emma'), node('edouard')];
+    const positions = new Map([
+      ['marcelo', { x: 550, y: 0 }],
+      ['emma', { x: 500, y: 0 }],
+      ['edouard', { x: 700, y: 0 }],
+    ]);
+
+    resolveOverlaps(positions, nodes, []);
+
+    // marcelo ends up strictly BETWEEN emma and edouard — this is the bug.
+    expect(positions.get('emma')!.x).toBeLessThan(positions.get('marcelo')!.x);
+    expect(positions.get('marcelo')!.x).toBeLessThan(positions.get('edouard')!.x);
+  });
+});
+
 // Real production bug (2026-07-30): two unreordered leaf cards on the same
 // rank — Mithun Prabhu Muthuraman / Juliette Roger — overlapped by ~17px.
 // `sibling_order` was confirmed null for both, so applySiblingOrder never ran

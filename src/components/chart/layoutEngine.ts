@@ -137,14 +137,20 @@ export async function layoutWithElk<T extends Node>(
     (result.children ?? []).map((c) => [c.id, { x: (c.x ?? 0) + nodeWidth / 2, y: (c.y ?? 0) + nodeHeight / 2 }]),
   );
 
+  // Captured BEFORE any pass below mutates centerById, so the canonical
+  // order's elk-order fallback (see computeCanonicalOrder) reflects elk's own
+  // untouched output rather than a position a later pass already shifted.
+  const rawXById = new Map<string, number>(nodes.map((n) => [n.id, centerById.get(n.id)!.x]));
+  const orderIndex = computeCanonicalOrder(nodes, edges, rawXById, siblingOrderOf);
+
   // applySiblingOrder/centerParentsOverChildren/resolveOverlaps are all
   // rank-keyed (grouped by y) and naturally stay confined to one component
   // at a time on elk's own raw, unaligned output — different disconnected
   // trees essentially never share elk's own scattered y values, so nothing
   // here needs the trees pre-aligned to run correctly.
   if (siblingOrderOf) applySiblingOrder(centerById, nodes, edges, siblingOrderOf, nodeWidth, siblingGap);
-  centerParentsOverChildren(centerById, nodes, edges, nodeWidth, siblingGap);
-  resolveOverlaps(centerById, nodes, edges, nodeWidth, siblingGap);
+  centerParentsOverChildren(centerById, nodes, edges, nodeWidth, siblingGap, orderIndex);
+  resolveOverlaps(centerById, nodes, edges, nodeWidth, siblingGap, orderIndex);
   // Runs LAST, deliberately, not first: it measures each tree's bounding
   // box to decide how tightly to pack it against its neighbour, and the two
   // passes above can widen a tree's own true footprint after the fact (e.g.
@@ -246,6 +252,68 @@ export function packDisconnectedTrees(
     }
     cursor += tree.maxX - tree.minX + nodeWidth + siblingGap;
   }
+}
+
+// Derives a single, whole-tree left-to-right ordering from structure alone
+// (parent chain + sibling_order), independent of any pass's mutable x.
+// centerParentsOverChildren/resolveOverlaps below sort each rank by this
+// instead of by current x — sorting by x let one sibling group's own
+// repacking (applySiblingOrder, below) silently scramble a DIFFERENT,
+// unrelated branch's rank order. Real production case (reported by the user,
+// 2026-08-25): Marcelo Gabriel Pedernera has sibling_order placing him last
+// among Léa Lapébie's three children, and carries a 5-report team of his own
+// — wide enough that packing him into the rightmost slot pushed his whole
+// subtree past his own group's bounds, into the column belonging to a cousin
+// branch several levels over (Antoine Panicucci, reached via a completely
+// different lineage: Thierry Joly → Léa Furio → Antoine). Both team's cards
+// ended up interleaved on the same rank. resolveOverlaps' adjacent-pair
+// spacing fix couldn't help — it sorted that rank by current x, which was
+// exactly the value applySiblingOrder had just scrambled, so it only spaced
+// out whatever order the cards already ended up in rather than restoring the
+// true one. Sorting by structure instead makes that scramble impossible:
+// each parent's own children are ordered by explicit sibling_order when
+// EVERY child has one (same backfill-on-first-touch rule applySiblingOrder
+// itself uses below), else by elk's own raw x for that group (the
+// pre-pass snapshot in rawXById, so a later pass's shifting can't
+// retroactively change a group's fallback order). A pre-order DFS from every
+// root assigns each node one incrementing index — nodes with no common
+// ancestor still get a total order (root-to-root, by the same rule), so any
+// rank can be sorted by one number instead of by position.
+function computeCanonicalOrder(
+  nodes: Node[],
+  edges: Edge[],
+  rawXById: Map<string, number>,
+  siblingOrderOf?: (id: string) => number | null,
+): Map<string, number> {
+  const parentOf = new Map<string, string>();
+  for (const e of edges) parentOf.set(e.target, e.source);
+
+  const groups = new Map<string, string[]>();
+  for (const n of nodes) {
+    const key = parentOf.get(n.id) ?? ROOT_GROUP_KEY;
+    const members = groups.get(key) ?? [];
+    members.push(n.id);
+    groups.set(key, members);
+  }
+
+  const sortedChildrenOf = new Map<string, string[]>();
+  for (const [key, members] of groups) {
+    const sorted =
+      siblingOrderOf && members.every((id) => siblingOrderOf(id) != null)
+        ? [...members].sort((a, b) => siblingOrderOf(a)! - siblingOrderOf(b)!)
+        : [...members].sort((a, b) => rawXById.get(a)! - rawXById.get(b)!);
+    sortedChildrenOf.set(key, sorted);
+  }
+
+  const orderIndex = new Map<string, number>();
+  let counter = 0;
+  function visit(id: string) {
+    orderIndex.set(id, counter++);
+    for (const childId of sortedChildrenOf.get(id) ?? []) visit(childId);
+  }
+  for (const rootId of sortedChildrenOf.get(ROOT_GROUP_KEY) ?? []) visit(rootId);
+
+  return orderIndex;
 }
 
 // elk itself has no per-node ordering/rank input — it computes horizontal
@@ -401,12 +469,23 @@ function applySiblingOrder(
 // judges "is this card centred over its team," and how dagre itself centred
 // a parent, regardless of how much horizontal room any one child's own
 // subtree occupies underneath it.
+//
+// `orderIndex`, when supplied, sorts each rank by computeCanonicalOrder's
+// structure-derived order rather than by current x before doing the adjacent-
+// overlap push below — current x is exactly what an earlier pass
+// (applySiblingOrder, for a wide-subtree sibling pushed to an outer slot) can
+// have already scrambled across an unrelated branch's territory; sorting by
+// x again here would just space out that scrambled order instead of
+// restoring it. Optional and defaulting to an x-sort so the direct unit
+// tests below (and any caller with no tree-wide order to give) keep their
+// existing local-only behaviour.
 function centerParentsOverChildren(
   positions: Map<string, Position>,
   nodes: Node[],
   edges: Edge[],
   nodeWidth: number = NODE_WIDTH,
   siblingGap: number = SIBLING_GAP,
+  orderIndex?: Map<string, number>,
 ): void {
   const childrenOf = new Map<string, string[]>();
   for (const e of edges) {
@@ -439,7 +518,9 @@ function centerParentsOverChildren(
       positions.get(id)!.x = (Math.min(...xs) + Math.max(...xs)) / 2;
     }
 
-    const sorted = [...ids].sort((a, b) => positions.get(a)!.x - positions.get(b)!.x);
+    const sorted = [...ids].sort((a, b) =>
+      orderIndex ? orderIndex.get(a)! - orderIndex.get(b)! : positions.get(a)!.x - positions.get(b)!.x,
+    );
     for (let i = 1; i < sorted.length; i += 1) {
       const prevRight = positions.get(sorted[i - 1])!.x + nodeWidth / 2;
       const currLeft = positions.get(sorted[i])!.x - nodeWidth / 2;
@@ -473,12 +554,16 @@ function centerParentsOverChildren(
 // own internal compaction pass at production scale, which a small unit-test
 // fixture can't reliably reproduce on demand the way it can for
 // applySiblingOrder above.
+//
+// `orderIndex` is optional for the same reason and same fallback as
+// centerParentsOverChildren's own — see that function's comment.
 export function resolveOverlaps(
   positions: Map<string, Position>,
   nodes: Node[],
   edges: Edge[],
   nodeWidth: number = NODE_WIDTH,
   siblingGap: number = SIBLING_GAP,
+  orderIndex?: Map<string, number>,
 ): void {
   const childrenOf = new Map<string, string[]>();
   for (const e of edges) {
@@ -502,7 +587,11 @@ export function resolveOverlaps(
 
   const ranks = [...idsByRank.keys()].sort((a, b) => a - b);
   for (const y of ranks) {
-    const ids = idsByRank.get(y)!.sort((a, b) => positions.get(a)!.x - positions.get(b)!.x);
+    const ids = idsByRank
+      .get(y)!
+      .sort((a, b) =>
+        orderIndex ? orderIndex.get(a)! - orderIndex.get(b)! : positions.get(a)!.x - positions.get(b)!.x,
+      );
     for (let i = 1; i < ids.length; i += 1) {
       const prevRight = positions.get(ids[i - 1])!.x + nodeWidth / 2;
       const currLeft = positions.get(ids[i])!.x - nodeWidth / 2;

@@ -197,7 +197,28 @@ export function useChartNodes({
       // real per-node data is attached later, in the styled nodes memo below.
       data: {},
     }));
-    const primaryEdgeAll = primaryEdges.map((r) => ({ id: r.id, source: r.manager_id, target: r.employee_id }));
+    // elk's `considerModelOrder` (layoutEngine.ts) reads this array's own
+    // order as a layout hint for which siblings it keeps contiguous/left-to-
+    // right — but `primaryEdges` (fetchReportingRelationships) has no
+    // `.order(...)` of its own, so its row order is whatever Postgres
+    // happens to return. That's fully deterministic for a normal edit
+    // history, but a bulk import inserts many rows in the same transaction
+    // with identical `created_at` timestamps, and Postgres's tie-break for
+    // those is physical/plan order — effectively arbitrary from this app's
+    // perspective. A real report (2026-08-25): Thatcha Rasagopal's branch,
+    // entirely bulk-imported, rendered with her grandchildren badly
+    // off-center under their own parent, while hand-added branches (whose
+    // relationship rows were inserted one at a time, and so already read in
+    // a sensible order) looked fine. Sorting by each edge's TARGET
+    // employee's index in `employees` (already `.order('last_name')`, see
+    // employeeService.ts) gives every manager's children a stable,
+    // alphabetical left-to-right order absent an explicit sibling_order —
+    // consistent with how the grid itself already sorts, and confirmed live
+    // to fix Thatcha's branch.
+    const employeeIndexById = new Map(employees.map((e, i) => [e.id, i]));
+    const primaryEdgeAll = [...primaryEdges]
+      .sort((a, b) => (employeeIndexById.get(a.employee_id) ?? 0) - (employeeIndexById.get(b.employee_id) ?? 0))
+      .map((r) => ({ id: r.id, source: r.manager_id, target: r.employee_id }));
     layoutWithElk(
       rawNodes,
       primaryEdgeAll,
