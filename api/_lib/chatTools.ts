@@ -26,6 +26,10 @@ export function supabaseForUser(accessToken: string): SupabaseClient<Database> {
 export interface ToolContext {
   supabase: SupabaseClient<Database>;
   orgChartId: string;
+  // Mirrors the client's uiPreferencesStore "hide departed employees"
+  // toggle — every employee-listing query below excludes has_left_company
+  // rows when true, same default-on behavior as the grid/chart.
+  hideDepartedEmployees: boolean;
 }
 
 export interface ToolDefinition {
@@ -115,7 +119,7 @@ const findEmployee: ToolDefinition = {
       jobTitle: { type: 'string', description: 'Exact job title / poste name.' },
     },
   },
-  async run({ supabase, orgChartId }, args) {
+  async run({ supabase, orgChartId, hideDepartedEmployees }, args) {
     let query = supabase
       .from('employees')
       .select('id, first_name, last_name, job_title, department')
@@ -126,6 +130,7 @@ const findEmployee: ToolDefinition = {
     if (typeof args.jobTitle === 'string' && args.jobTitle) {
       query = query.eq('job_title', args.jobTitle);
     }
+    if (hideDepartedEmployees) query = query.eq('has_left_company', false);
     const { data, error } = await query.order('last_name');
     if (error) throw error;
     const name = typeof args.name === 'string' ? args.name.trim().toLowerCase() : '';
@@ -147,17 +152,16 @@ const getManagerChain: ToolDefinition = {
     },
     required: ['employeeId'],
   },
-  async run({ supabase, orgChartId }, args) {
+  async run({ supabase, orgChartId, hideDepartedEmployees }, args) {
     const employeeId = args.employeeId as string;
     const { data: relationships, error: relError } = await supabase
       .from('reporting_relationships')
       .select('employee_id, manager_id, is_primary')
       .eq('org_chart_id', orgChartId);
     if (relError) throw relError;
-    const { data: employees, error: empError } = await supabase
-      .from('employees')
-      .select('id, first_name, last_name, job_title, department')
-      .eq('org_chart_id', orgChartId);
+    let empQuery = supabase.from('employees').select('id, first_name, last_name, job_title, department').eq('org_chart_id', orgChartId);
+    if (hideDepartedEmployees) empQuery = empQuery.eq('has_left_company', false);
+    const { data: employees, error: empError } = await empQuery;
     if (empError) throw empError;
     const employeeById = new Map(employees?.map((e) => [e.id, e]));
 
@@ -201,7 +205,7 @@ const getDirectReports: ToolDefinition = {
     },
     required: ['managerId'],
   },
-  async run({ supabase, orgChartId }, args) {
+  async run({ supabase, orgChartId, hideDepartedEmployees }, args) {
     const managerId = args.managerId as string;
     const includeSubtree = args.includeSubtree === true;
     const { data: relationships, error: relError } = await supabase
@@ -210,10 +214,9 @@ const getDirectReports: ToolDefinition = {
       .eq('org_chart_id', orgChartId)
       .eq('is_primary', true);
     if (relError) throw relError;
-    const { data: employees, error: empError } = await supabase
-      .from('employees')
-      .select('id, first_name, last_name, job_title, department')
-      .eq('org_chart_id', orgChartId);
+    let empQuery = supabase.from('employees').select('id, first_name, last_name, job_title, department').eq('org_chart_id', orgChartId);
+    if (hideDepartedEmployees) empQuery = empQuery.eq('has_left_company', false);
+    const { data: employees, error: empError } = await empQuery;
     if (empError) throw empError;
     const employeeById = new Map(employees?.map((e) => [e.id, e]));
 
@@ -265,11 +268,10 @@ const getDepartmentStats: ToolDefinition = {
   description:
     'Return headcount per department (Business Unit) in the currently open org chart, plus the total headcount.',
   parametersJsonSchema: { type: 'object', properties: {} },
-  async run({ supabase, orgChartId }) {
-    const { data, error } = await supabase
-      .from('employees')
-      .select('department')
-      .eq('org_chart_id', orgChartId);
+  async run({ supabase, orgChartId, hideDepartedEmployees }) {
+    let query = supabase.from('employees').select('department').eq('org_chart_id', orgChartId);
+    if (hideDepartedEmployees) query = query.eq('has_left_company', false);
+    const { data, error } = await query;
     if (error) throw error;
     const counts = new Map<string, number>();
     for (const row of data ?? []) {
@@ -313,7 +315,7 @@ const getTeamEtpReport: ToolDefinition = {
       },
     },
   },
-  async run({ supabase, orgChartId }, args) {
+  async run({ supabase, orgChartId, hideDepartedEmployees }, args) {
     const managerId = typeof args.managerId === 'string' ? args.managerId : undefined;
     const includeSubtree = args.includeSubtree !== false;
 
@@ -342,6 +344,7 @@ const getTeamEtpReport: ToolDefinition = {
       .select('id, first_name, last_name, job_title, department')
       .eq('org_chart_id', orgChartId);
     if (scopeIds) employeesQuery = employeesQuery.in('id', scopeIds);
+    if (hideDepartedEmployees) employeesQuery = employeesQuery.eq('has_left_company', false);
     const { data: employees, error: empError } = await employeesQuery;
     if (empError) throw empError;
 
@@ -405,11 +408,10 @@ const getOrgHierarchyReport: ToolDefinition = {
   description:
     "Return the full reporting structure of the currently open org chart in one call: every employee with their primary manager, any secondary/functional managers, and their direct-report count — plus the list of employees who have no primary manager at all (the top of the org; normally very few). Use this for any org-wide structural question — orphaned employees, unusually large or small teams, overall shape of the hierarchy — instead of calling get_manager_chain or get_direct_reports once per person.",
   parametersJsonSchema: { type: 'object', properties: {} },
-  async run({ supabase, orgChartId }) {
-    const { data: employees, error: empError } = await supabase
-      .from('employees')
-      .select('id, first_name, last_name, job_title, department')
-      .eq('org_chart_id', orgChartId);
+  async run({ supabase, orgChartId, hideDepartedEmployees }) {
+    let empQuery = supabase.from('employees').select('id, first_name, last_name, job_title, department').eq('org_chart_id', orgChartId);
+    if (hideDepartedEmployees) empQuery = empQuery.eq('has_left_company', false);
+    const { data: employees, error: empError } = await empQuery;
     if (empError) throw empError;
 
     const { data: relationships, error: relError } = await supabase

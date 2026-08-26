@@ -62,6 +62,7 @@
     "clientMission": "Clients",
     "timeSold": "Temps vendu",
     "timeActual": "Temps réel",
+    "hideDepartedEmployees": "Afficher uniquement les salariés actifs",
     "reset": "Réinitialiser"
   },
   "undoRedo": {
@@ -141,7 +142,9 @@
       "editAssignments": "Modifier les affectations",
       "add2": "+ Ajouter",
       "secondary": "(secondaire)",
-      "delete": "Supprimer"
+      "delete": "Supprimer",
+      "markDeparted": "Marquer comme parti",
+      "markActive": "Marquer comme actif"
     },
     "clientsMissions": {
       "title": "Clients",
@@ -222,6 +225,8 @@
       "isolateTeam": "Isoler cette personne et son équipe",
       "collapseTeam": "Réduire l’équipe",
       "expandTeam": "Déplier l’équipe",
+      "markDeparted": "Marquer comme parti",
+      "markActive": "Marquer comme actif",
       "chooseJobTitle": "Choisir un poste…",
       "addJobTitle": "+ poste",
       "chooseBusinessUnit": "Choisir une business unit…",
@@ -455,6 +460,8 @@
     "updateEmployee": "Modifier {{name}}",
     "updateEmployeeConflict": "Modifier {{name}} — ⚠ quelqu'un d'autre vient aussi de le modifier",
     "reframePhoto": "Recadrer la photo de {{name}}",
+    "markEmployeeLeft": "Marquer {{name}} comme parti",
+    "markEmployeeActive": "Marquer {{name}} comme actif",
     "createJobTitle": "Créer le poste {{name}}",
     "renameJobTitle": "Renommer le poste {{name}}",
     "deleteJobTitle": "Supprimer le poste {{name}}",

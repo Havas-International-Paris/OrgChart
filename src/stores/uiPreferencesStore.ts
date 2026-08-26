@@ -52,6 +52,15 @@ interface UiPreferencesState {
   // layout choice, not per-session exploration state.
   timeEstimationMonthsHidden: boolean;
   setTimeEstimationMonthsHidden: (hidden: boolean) => void;
+  // Global "show only active employees" preference — unlike every other
+  // field in this store, defaults to true (on) rather than a neutral/off
+  // state, since the whole point is that departed employees stay out of the
+  // way unless someone deliberately asks to see them. Lives here rather than
+  // selectionStore.ts because it isn't chart-relative (a person's departure
+  // status has nothing to do with which org chart is open) and is meant to
+  // be a durable personal preference, not a per-session exploration filter.
+  hideDepartedEmployees: boolean;
+  setHideDepartedEmployees: (hide: boolean) => void;
 }
 
 // Deliberately separate from selectionStore.ts: these are per-browser UI
@@ -77,6 +86,8 @@ export const useUiPreferencesStore = create<UiPreferencesState>()(
       setTimeEstimationLabelColumnWidth: (width) => set({ timeEstimationLabelColumnWidth: width }),
       timeEstimationMonthsHidden: false,
       setTimeEstimationMonthsHidden: (hidden) => set({ timeEstimationMonthsHidden: hidden }),
+      hideDepartedEmployees: true,
+      setHideDepartedEmployees: (hide) => set({ hideDepartedEmployees: hide }),
     }),
     { name: 'orgchart-ui-prefs' },
   ),

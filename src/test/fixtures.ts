@@ -29,6 +29,7 @@ export function emp(id: string, overrides: Partial<Employee> = {}): Employee {
     created_by: null,
     updated_by: null,
     hidden_from_registry_candidates: false,
+    has_left_company: false,
     ...overrides,
   };
 }

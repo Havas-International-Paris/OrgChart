@@ -7,6 +7,7 @@ import { useClientsMissions } from '../../hooks/useClientsMissions';
 import { useEmployees } from '../../hooks/useEmployees';
 import { useAssignments } from '../../hooks/useAssignments';
 import { useSelectionStore } from '../../stores/selectionStore';
+import { useUiPreferencesStore } from '../../stores/uiPreferencesStore';
 import { useActiveFilterCount } from '../../hooks/useActiveFilterCount';
 import { departmentColorMap } from '../../lib/departmentColor';
 import { companyColorMap } from '../../lib/companyColor';
@@ -49,6 +50,8 @@ export function FiltersBar({ orgChartId }: FiltersBarProps) {
   const etpReelRange = useSelectionStore((s) => s.etpReelRange);
   const setEtpReelRange = useSelectionStore((s) => s.setEtpReelRange);
   const resetAllFilters = useSelectionStore((s) => s.resetAllFilters);
+  const hideDepartedEmployees = useUiPreferencesStore((s) => s.hideDepartedEmployees);
+  const setHideDepartedEmployees = useUiPreferencesStore((s) => s.setHideDepartedEmployees);
 
   const departmentColorByName = useMemo(() => departmentColorMap(departments), [departments]);
   const companyColorByName = useMemo(() => companyColorMap(companies), [companies]);
@@ -170,6 +173,14 @@ export function FiltersBar({ orgChartId }: FiltersBarProps) {
           onChange={setEtpReelRange}
         />
       </div>
+      <label className="flex items-center gap-1.5 text-xs text-slate-600">
+        <input
+          type="checkbox"
+          checked={hideDepartedEmployees}
+          onChange={(e) => setHideDepartedEmployees(e.target.checked)}
+        />
+        {t('filters.hideDepartedEmployees')}
+      </label>
       {activeFilterCount > 0 && (
         <button
           type="button"

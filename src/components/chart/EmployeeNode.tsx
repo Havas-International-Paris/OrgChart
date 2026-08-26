@@ -19,6 +19,7 @@ export interface EmployeeNodeActions {
     changes: Partial<Pick<Employee, 'first_name' | 'last_name' | 'job_title' | 'department'>>,
   ) => Promise<Employee>;
   openPhotoEditor: (employeeId: string) => void;
+  toggleHasLeftCompany: (employeeId: string, value: boolean) => void;
 }
 
 // Extends Record<string, unknown> because @xyflow/react v12's Node<T> now
@@ -103,6 +104,36 @@ function CollapseBadge({
       style={{ borderColor: trackColor, color: swatch }}
     >
       {label}
+    </button>
+  );
+}
+
+// The card's own clickable "has left the company" flag — structurally the
+// same shape as CollapseBadge (22px circle, white bg, bordered, z-[6],
+// nodrag, stopPropagation) but pinned to the top-right corner instead of
+// horizontally centered, since that's the one corner none of the other
+// badges (focus/collapse, both centered; the descendant-count badge,
+// bottom-right) already occupy. Always visible in both states — it has to
+// be clickable to toggle either way, so an indicator only shown once
+// already-departed couldn't be used to mark someone departed in the first
+// place. Uses this app's own plain-Unicode-glyph convention (no icon
+// library dependency anywhere in this app) rather than introducing one:
+// a literal flag, filled when departed, outlined when active.
+function DepartureFlagBadge({ hasLeft, onToggle }: { hasLeft: boolean; onToggle: () => void }) {
+  const { t } = useTranslation();
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggle();
+      }}
+      title={hasLeft ? t('chart.node.markActive') : t('chart.node.markDeparted')}
+      className={`nodrag absolute -top-[11px] right-1 z-[6] flex h-[22px] w-[22px] items-center justify-center rounded-full border bg-white text-[12px] leading-none shadow-sm hover:bg-slate-50 ${
+        hasLeft ? 'border-red-300 text-red-600' : 'border-slate-200 text-slate-300'
+      }`}
+    >
+      {hasLeft ? '⚑' : '⚐'}
     </button>
   );
 }
@@ -361,6 +392,10 @@ function EmployeeNodeImpl({ data }: NodeProps<Node<EmployeeNodeData>>) {
           title={isExpanded ? t('chart.node.collapseTeam') : t('chart.node.expandTeam')}
         />
       )}
+      <DepartureFlagBadge
+        hasLeft={employee.has_left_company}
+        onToggle={() => actions.toggleHasLeftCompany(employee.id, !employee.has_left_company)}
+      />
 
       <div className="flex items-center gap-2">
         <PhotoAvatar

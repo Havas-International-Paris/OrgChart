@@ -62,6 +62,7 @@
     "clientMission": "Clients",
     "timeSold": "Time sold",
     "timeActual": "Time actual",
+    "hideDepartedEmployees": "Show only active employees",
     "reset": "Reset"
   },
   "undoRedo": {
@@ -141,7 +142,9 @@
       "editAssignments": "Edit assignments",
       "add2": "+ Add",
       "secondary": "(secondary)",
-      "delete": "Delete"
+      "delete": "Delete",
+      "markDeparted": "Mark as departed",
+      "markActive": "Mark as active"
     },
     "clientsMissions": {
       "title": "Clients",
@@ -222,6 +225,8 @@
       "isolateTeam": "Isolate this person and their team",
       "collapseTeam": "Collapse team",
       "expandTeam": "Expand team",
+      "markDeparted": "Mark as departed",
+      "markActive": "Mark as active",
       "chooseJobTitle": "Choose a job title…",
       "addJobTitle": "+ job title",
       "chooseBusinessUnit": "Choose a business unit…",
@@ -455,6 +460,8 @@
     "updateEmployee": "Edit {{name}}",
     "updateEmployeeConflict": "Edit {{name}} — ⚠ someone else just edited this too",
     "reframePhoto": "Reframe {{name}}'s photo",
+    "markEmployeeLeft": "Mark {{name}} as departed",
+    "markEmployeeActive": "Mark {{name}} as active",
     "createJobTitle": "Create job title {{name}}",
     "renameJobTitle": "Rename job title {{name}}",
     "deleteJobTitle": "Delete job title {{name}}",

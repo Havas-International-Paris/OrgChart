@@ -23,6 +23,7 @@ function makeEmployee(id: string, first_name: string, last_name: string): Employ
     created_by: null,
     updated_by: null,
     hidden_from_registry_candidates: false,
+    has_left_company: false,
   };
 }
 

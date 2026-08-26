@@ -38,6 +38,10 @@ interface ChatRequestBody {
   // env-based resolution when omitted, so LLM_PROVIDER still controls the
   // default a fresh/no-selection client gets.
   provider?: string;
+  // Mirrors the client's uiPreferencesStore "hide departed employees"
+  // toggle — chatTools.ts's employee-listing queries exclude has_left_company
+  // rows when this is true, same default-on behavior as the grid/chart.
+  hideDepartedEmployees?: boolean;
 }
 
 function readJsonBody(req: IncomingMessage): Promise<unknown> {
@@ -158,7 +162,7 @@ export async function chatHandler(req: IncomingMessage, res: ServerResponse): Pr
     return;
   }
 
-  const { orgChartId, messages, provider: requestedProvider } = body;
+  const { orgChartId, messages, provider: requestedProvider, hideDepartedEmployees } = body;
   if (!orgChartId || !Array.isArray(messages) || messages.length === 0) {
     sendJsonError(res, 400, 'orgChartId and a non-empty messages array are required.');
     return;
@@ -216,7 +220,7 @@ export async function chatHandler(req: IncomingMessage, res: ServerResponse): Pr
   try {
     await provider.run({
       messages,
-      toolCtx: { supabase, orgChartId },
+      toolCtx: { supabase, orgChartId, hideDepartedEmployees: hideDepartedEmployees ?? false },
       emit: (event, data) => sseWrite(res, event, data),
     });
   } finally {

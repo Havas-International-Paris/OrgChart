@@ -65,6 +65,7 @@ function emptyDraft(orgChartId: string): Employee {
     created_by: null,
     updated_by: null,
     hidden_from_registry_candidates: false,
+    has_left_company: false,
   };
 }
 
@@ -97,7 +98,9 @@ export function EmployeeGrid() {
     deleteEmployee,
     updateEmployeePhoto,
     updateEmployeePhotoFrame,
+    updateHasLeftCompany,
   } = useEmployees(currentOrgChartId);
+  const hideDepartedEmployees = useUiPreferencesStore((s) => s.hideDepartedEmployees);
   const { replacePhoto, saveFrame, deletePhoto } = usePhotoActions(employees, updateEmployeePhoto, updateEmployeePhotoFrame);
   const [photoEditEmployeeId, setPhotoEditEmployeeId] = useState<string | null>(null);
   const { relationships, managersOf, addRelationship, restoreRelationship, wouldCreateCycle, replaceManagersForEmployee } =
@@ -147,6 +150,7 @@ export function EmployeeGrid() {
   const etpReelRange = useSelectionStore((s) => s.etpReelRange);
 
   const employeeById = useMemo(() => new Map(employees.map((e) => [e.id, e])), [employees]);
+  const activeEmployeesForPicking = useMemo(() => employees.filter((e) => !e.has_left_company), [employees]);
   const clientMissionById = useMemo(
     () => new Map(clientsMissions.map((cm) => [cm.id, cm])),
     [clientsMissions],
@@ -205,9 +209,10 @@ export function EmployeeGrid() {
   );
 
   const sortedEmployees = useMemo(() => {
+    const byDeparture = hideDepartedEmployees ? employees.filter((e) => !e.has_left_company) : employees;
     const byClientMission = matchingEmployeeIds
-      ? employees.filter((e) => matchingEmployeeIds.has(e.id))
-      : employees;
+      ? byDeparture.filter((e) => matchingEmployeeIds.has(e.id))
+      : byDeparture;
     const byDept =
       deptFilterNames.size > 0
         ? byClientMission.filter((e) => e.department !== null && deptFilterNames.has(e.department))
@@ -246,6 +251,7 @@ export function EmployeeGrid() {
     return sorted;
   }, [
     employees,
+    hideDepartedEmployees,
     matchingEmployeeIds,
     deptFilterNames,
     jobTitleFilterNames,
@@ -367,19 +373,20 @@ export function EmployeeGrid() {
               <th className={`${rowPad} px-2 font-medium`}>{t('grid.employees.managersHeader')}</th>
               <th className={`${rowPad} px-2 font-medium`}>{t('grid.employees.clientsMissionsHeader')}</th>
               <th className="w-10" />
+              <th className="w-10" />
             </tr>
           </thead>
           <tbody>
             {loading && (
               <tr role="row">
-                <td colSpan={9} className="p-4 text-center text-slate-400">
+                <td colSpan={10} className="p-4 text-center text-slate-400">
                   {t('grid.employees.loading')}
                 </td>
               </tr>
             )}
             {!loading && rows.length === 0 && (
               <tr role="row">
-                <td colSpan={9} className="p-4 text-center text-slate-400">
+                <td colSpan={10} className="p-4 text-center text-slate-400">
                   {t('grid.employees.empty')}
                 </td>
               </tr>
@@ -468,6 +475,17 @@ export function EmployeeGrid() {
                       </button>
                     )}
                   </td>
+                  <td role="gridcell" className={`${rowPad} px-2`}>
+                    {isDraftRow ? null : (
+                      <button
+                        onClick={() => updateHasLeftCompany(row.id, !row.has_left_company)}
+                        title={row.has_left_company ? t('grid.employees.markActive') : t('grid.employees.markDeparted')}
+                        className={row.has_left_company ? 'text-red-600' : 'text-slate-300 hover:text-slate-500'}
+                      >
+                        {row.has_left_company ? '⚑' : '⚐'}
+                      </button>
+                    )}
+                  </td>
                 </tr>
               );
             })}
@@ -477,7 +495,10 @@ export function EmployeeGrid() {
       {editingManagersFor && (
         <ManagerEditorModal
           employee={editingManagersFor}
-          allEmployees={employees}
+          // Hard-excludes departed employees regardless of the "hide
+          // departed" toggle — assigning a departed person as a new manager
+          // never makes sense, unlike simply seeing them listed elsewhere.
+          allEmployees={activeEmployeesForPicking}
           currentManagers={managersOf(editingManagersFor.id)}
           wouldCreateCycle={wouldCreateCycle}
           onSave={(desired) => replaceManagersForEmployee(editingManagersFor.id, desired)}

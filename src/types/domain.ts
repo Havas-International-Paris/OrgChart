@@ -34,6 +34,13 @@ export interface Employee {
   // hide/unhide toggle. Added in Phase A's migration so Phase B needs no
   // migration of its own.
   hidden_from_registry_candidates: boolean;
+  // Set via its own dedicated mutator (setHasLeftCompany/updateHasLeftCompany),
+  // never through EmployeeInput/updateEmployee's plain create/edit flow —
+  // same precedent as hidden_from_registry_candidates above. Drives the
+  // clickable flag on each card/row and the global "hide departed
+  // employees" filter (default on) applied across grids, the chart, and
+  // every employee-picking modal.
+  has_left_company: boolean;
 }
 
 export interface PhotoFrameValues {

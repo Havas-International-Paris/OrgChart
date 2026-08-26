@@ -620,6 +620,19 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
   const monthsHidden = useUiPreferencesStore((s) => s.timeEstimationMonthsHidden);
   const setMonthsHidden = useUiPreferencesStore((s) => s.setTimeEstimationMonthsHidden);
   const { employees } = useEmployees(registryOrgChartId);
+  // Only for NEW-row pickers (QuickAddRow / AddTimeEstimationRowModal) — the
+  // grid's own name resolution for EXISTING rows deliberately keeps reading
+  // the unfiltered `employees` array, so a departed employee's historical
+  // time-tracking data still resolves to their real name instead of "?".
+  // Respects the global toggle (not a hard exclude): adding a NEW row for
+  // someone who's left is unusual but not nonsensical the way linking them
+  // as a manager would be, so it follows the same on/off preference as the
+  // rest of the app rather than being permanently forbidden.
+  const hideDepartedEmployeesGlobal = useUiPreferencesStore((s) => s.hideDepartedEmployees);
+  const pickableEmployees = useMemo(
+    () => (hideDepartedEmployeesGlobal ? employees.filter((e) => !e.has_left_company) : employees),
+    [employees, hideDepartedEmployeesGlobal],
+  );
   const {
     assignments,
     createAssignment,
@@ -1996,7 +2009,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
 
                 {!isCollapsed && groupBy === 'client' && (
                   <QuickAddRow
-                    candidates={employees.filter((e) => !presentEmployeeIds.has(e.id))}
+                    candidates={pickableEmployees.filter((e) => !presentEmployeeIds.has(e.id))}
                     matchesQuery={employeeMatchesQuery}
                     labelOf={(e) => `${e.first_name} ${e.last_name}`}
                     onAdd={(employeeId) => handleQuickAddRow(employeeId, group.key)}
@@ -2021,7 +2034,7 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
 
       {addRowOpen && (
         <AddTimeEstimationRowModal
-          employees={employees}
+          employees={pickableEmployees}
           clientsMissions={clientsMissions}
           existingPairKeys={existingPairKeys}
           findOrCreate={findOrCreate}
