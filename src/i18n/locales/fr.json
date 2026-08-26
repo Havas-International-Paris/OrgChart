@@ -63,7 +63,9 @@
     "timeSold": "Temps vendu",
     "timeActual": "Temps réel",
     "hideDepartedEmployees": "Afficher uniquement les salariés actifs",
-    "reset": "Réinitialiser"
+    "reset": "Réinitialiser",
+    "searchPlaceholder": "Rechercher…",
+    "noMatch": "Aucun résultat"
   },
   "undoRedo": {
     "undo": "Annuler",

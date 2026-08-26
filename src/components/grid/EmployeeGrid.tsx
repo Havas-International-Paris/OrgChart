@@ -145,6 +145,7 @@ export function EmployeeGrid() {
   const searchQuery = useSelectionStore((s) => s.searchQuery);
   const clientMissionFilterIds = useSelectionStore((s) => s.clientMissionFilterIds);
   const deptFilterNames = useSelectionStore((s) => s.deptFilterNames);
+  const companyFilterNames = useSelectionStore((s) => s.companyFilterNames);
   const jobTitleFilterNames = useSelectionStore((s) => s.jobTitleFilterNames);
   const etpVenduRange = useSelectionStore((s) => s.etpVenduRange);
   const etpReelRange = useSelectionStore((s) => s.etpReelRange);
@@ -217,10 +218,14 @@ export function EmployeeGrid() {
       deptFilterNames.size > 0
         ? byClientMission.filter((e) => e.department !== null && deptFilterNames.has(e.department))
         : byClientMission;
+    const byCompany =
+      companyFilterNames.size > 0
+        ? byDept.filter((e) => e.company !== null && companyFilterNames.has(e.company))
+        : byDept;
     const byJobTitle =
       jobTitleFilterNames.size > 0
-        ? byDept.filter((e) => e.job_title !== null && jobTitleFilterNames.has(e.job_title))
-        : byDept;
+        ? byCompany.filter((e) => e.job_title !== null && jobTitleFilterNames.has(e.job_title))
+        : byCompany;
     // Default bounds (0-150) mean "inactive" — same convention as the empty
     // Sets above, kept in sync with selectionStore.ts's own defaults and
     // FiltersPanel.tsx's slider bounds.
@@ -254,6 +259,7 @@ export function EmployeeGrid() {
     hideDepartedEmployees,
     matchingEmployeeIds,
     deptFilterNames,
+    companyFilterNames,
     jobTitleFilterNames,
     etpVenduRange,
     etpReelRange,

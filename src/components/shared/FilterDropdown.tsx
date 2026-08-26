@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 export interface FilterDropdownOption {
   key: string;
@@ -48,7 +49,9 @@ export function FilterDropdown({
   selectAllLabel,
   deselectAllLabel,
 }: FilterDropdownProps) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -59,6 +62,17 @@ export function FilterDropdown({
     document.addEventListener('mousedown', onMouseDown);
     return () => document.removeEventListener('mousedown', onMouseDown);
   }, [open]);
+
+  // Query resets on close so the next open always starts from the full list,
+  // same as LinkExistingEmployeeModal/ManagerEditorModal's own search input.
+  useEffect(() => {
+    if (!open) setQuery('');
+  }, [open]);
+
+  const filteredOptions = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return q ? options.filter((o) => o.label.toLowerCase().includes(q)) : options;
+  }, [options, query]);
 
   if (options.length === 0) return null;
 
@@ -79,6 +93,14 @@ export function FilterDropdown({
       </button>
       {open && (
         <div className="absolute left-0 top-full z-20 mt-1 max-h-80 w-64 overflow-auto rounded-md border border-slate-200 bg-white p-2 shadow-lg">
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={t('filters.searchPlaceholder')}
+            autoFocus
+            className="mb-1.5 w-full rounded border border-slate-200 px-2 py-1 text-sm focus:border-slate-400 focus:outline-none"
+          />
           {onSelectAll && onDeselectAll && (
             <div className="mb-1.5 flex items-center justify-between border-b border-slate-100 pb-1.5 text-xs">
               <button type="button" onClick={onSelectAll} className="text-slate-500 hover:text-slate-800 hover:underline">
@@ -89,7 +111,10 @@ export function FilterDropdown({
               </button>
             </div>
           )}
-          {options.map((option) => {
+          {filteredOptions.length === 0 && (
+            <div className="px-1.5 py-1 text-sm text-slate-400">{t('filters.noMatch')}</div>
+          )}
+          {filteredOptions.map((option) => {
             const checked = selected.has(option.key);
             return (
               <label

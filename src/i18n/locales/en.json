@@ -63,7 +63,9 @@
     "timeSold": "Time sold",
     "timeActual": "Time actual",
     "hideDepartedEmployees": "Show only active employees",
-    "reset": "Reset"
+    "reset": "Reset",
+    "searchPlaceholder": "Search…",
+    "noMatch": "No match"
   },
   "undoRedo": {
     "undo": "Undo",
