@@ -9,6 +9,7 @@ import {
   NODE_WIDTH,
   RANK_SEP,
   SIBLING_GAP,
+  centerParentsOverChildren,
   layoutWithElk,
   packDisconnectedTrees,
   resolveOverlaps,
@@ -409,6 +410,91 @@ describe('resolveOverlaps', () => {
 // position map, since a small fixture can't reliably force elk's own
 // component-packing to reproduce the scatter on demand the way the real
 // (much bigger) graph did.
+// Real user report (screenshots, 2026-08-27): a manager visibly off-centre
+// over its direct report(s), with no drag-to-reorder involved. The cause:
+// centerParentsOverChildren's own rank-local overlap fix (deepest rank first)
+// already catches a collision that exists WITHIN one rank at the time that
+// rank gets its turn — so a same-rank cousin overlap alone isn't enough to
+// reproduce this; it gets fixed before centring ever runs on the shallower
+// rank above it. The real bug needs a SHALLOWER rank's own push (B/A below)
+// to shiftSubtree an already-centred parent's descendants (p1/p2) onto a
+// cousin (`victim`) on a DEEPER rank that centerParentsOverChildren already
+// finished processing (deepest-first) and will never revisit — exactly what
+// resolveOverlaps' own comment calls "a shifted subtree's descendants
+// landing on top of an unrelated cousin subtree several ranks down." Only
+// the trailing whole-graph resolveOverlaps pass in layoutWithElk catches
+// that, and it pushes `victim` with no awareness that C was just centred
+// over victim's old position. A second centring pass afterward (what
+// layoutWithElk now does) must restore that guarantee.
+describe('layoutWithElk parent centring survives the final safety-net resolveOverlaps', () => {
+  it('re-centres a parent whose child was nudged sideways by the whole-graph overlap pass', () => {
+    const nodes: Node[] = [
+      node('r'),
+      node('B'),
+      node('A'),
+      node('p1'),
+      node('p2'),
+      node('C'),
+      node('victim'),
+    ];
+    const edges: Edge[] = [
+      edge('r', 'B'),
+      edge('r', 'A'),
+      edge('r', 'C'),
+      edge('A', 'p1'),
+      edge('A', 'p2'),
+      edge('C', 'victim'),
+    ];
+    const rank1 = NODE_HEIGHT + RANK_SEP;
+    const rank2 = 2 * (NODE_HEIGHT + RANK_SEP);
+    const positions = new Map([
+      ['r', { x: 0, y: 0 }],
+      // B sits close enough to A (which centres over p1/p2 below) to force a
+      // rank-1 push once A's turn comes — A is later in order, so A's whole
+      // subtree (including p1/p2) is the one that gets shifted right.
+      ['B', { x: 250, y: rank1 }],
+      ['A', { x: 0, y: rank1 }],
+      ['C', { x: 0, y: rank1 }],
+      ['p1', { x: 250, y: rank2 }],
+      ['p2', { x: 550, y: rank2 }],
+      // Spaced comfortably clear of p2 (550) at rank2's own turn — no
+      // overlap yet, so rank2 finishes clean and centerParentsOverChildren
+      // moves on, never to revisit it.
+      ['victim', { x: 850, y: rank2 }],
+    ]);
+    const orderIndex = new Map([
+      ['r', 0],
+      ['B', 1],
+      ['A', 2],
+      ['p1', 3],
+      ['p2', 4],
+      ['C', 5],
+      ['victim', 6],
+    ]);
+
+    centerParentsOverChildren(positions, nodes, edges, NODE_WIDTH, SIBLING_GAP, orderIndex);
+    // A's push cascaded to p1/p2, but A stays correctly centred over them —
+    // the push preserves relative centring within A's own subtree.
+    expect(positions.get('A')!.x).toBeCloseTo((positions.get('p1')!.x + positions.get('p2')!.x) / 2);
+    // C is still centred over victim's old, pre-push position — nothing has
+    // touched rank2 since it was finalized.
+    expect(positions.get('C')!.x).toBeCloseTo(positions.get('victim')!.x);
+    // p2 has been pushed right, close enough to victim now to actually
+    // collide — the setup driving this whole scenario.
+    const p2Right = positions.get('p2')!.x + NODE_WIDTH / 2;
+    const victimLeft = positions.get('victim')!.x - NODE_WIDTH / 2;
+    expect(victimLeft - p2Right).toBeLessThan(SIBLING_GAP);
+
+    resolveOverlaps(positions, nodes, edges, NODE_WIDTH, SIBLING_GAP, orderIndex);
+    // victim was pushed clear of p2; C is now stale unless centred again —
+    // this is the bug this test guards against.
+    expect(positions.get('C')!.x).not.toBeCloseTo(positions.get('victim')!.x);
+
+    centerParentsOverChildren(positions, nodes, edges, NODE_WIDTH, SIBLING_GAP, orderIndex);
+    expect(positions.get('C')!.x).toBeCloseTo(positions.get('victim')!.x);
+  });
+});
+
 describe('packDisconnectedTrees', () => {
   it('does nothing for a single-root graph — the overwhelming common case', () => {
     const nodes: Node[] = [node('m'), node('c')];

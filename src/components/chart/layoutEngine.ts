@@ -151,6 +151,24 @@ export async function layoutWithElk<T extends Node>(
   if (siblingOrderOf) applySiblingOrder(centerById, nodes, edges, siblingOrderOf, nodeWidth, siblingGap);
   centerParentsOverChildren(centerById, nodes, edges, nodeWidth, siblingGap, orderIndex);
   resolveOverlaps(centerById, nodes, edges, nodeWidth, siblingGap, orderIndex);
+  // The global resolveOverlaps pass just above can nudge a child sideways to
+  // clear a collision only a whole-graph pass can see — elk's own compaction
+  // imprecision (the Mithun/Juliette case below) or a shifted subtree landing
+  // on an unrelated cousin several ranks down (resolveOverlaps' own comment)
+  // — with no awareness of the parent centerParentsOverChildren just centred
+  // over that child's OLD position. Real user report (screenshot, 2026-08-27):
+  // a manager visibly off-centre over its two reports, in a chart with no
+  // sibling reordering involved at all — the same shortfall the Mithun/
+  // Juliette bug already showed elk can produce organically at production
+  // scale, just landing on a child instead of two unrelated leaves. Re-running
+  // the centre+local-resolve pass restores the guarantee against the now-
+  // settled positions; a second global resolveOverlaps cleans up the only new
+  // thing re-centring can introduce — a parent drifting into its own
+  // sibling's rank after moving to its new midpoint. Two rounds is enough to
+  // converge at this app's chart depth and is cheap (no async work either
+  // pass).
+  centerParentsOverChildren(centerById, nodes, edges, nodeWidth, siblingGap, orderIndex);
+  resolveOverlaps(centerById, nodes, edges, nodeWidth, siblingGap, orderIndex);
   // Runs LAST, deliberately, not first: it measures each tree's bounding
   // box to decide how tightly to pack it against its neighbour, and the two
   // passes above can widen a tree's own true footprint after the fact (e.g.
@@ -462,7 +480,12 @@ function applySiblingOrder(
 // safety net for the one thing rank-local resolution can't see: a shifted
 // subtree's descendants (moved by the same delta as their parent, so never
 // misaligned from IT) landing on top of an unrelated cousin subtree several
-// ranks down, which only a whole-graph pass can catch.
+// ranks down, which only a whole-graph pass can catch. layoutWithElk now
+// re-runs this pass once more after that safety-net resolveOverlaps call, for
+// the same reason in reverse — a global resolveOverlaps can itself nudge a
+// child sideways with no awareness of the parent this function just centred.
+// Exported (like resolveOverlaps/packDisconnectedTrees below) only so
+// layoutEngine.test.ts can drive it directly against a crafted position map.
 //
 // Deliberately centres on the midpoint of children's own card positions
 // (min+max)/2, not a width-weighted average — matches how a person visually
@@ -479,7 +502,7 @@ function applySiblingOrder(
 // restoring it. Optional and defaulting to an x-sort so the direct unit
 // tests below (and any caller with no tree-wide order to give) keep their
 // existing local-only behaviour.
-function centerParentsOverChildren(
+export function centerParentsOverChildren(
   positions: Map<string, Position>,
   nodes: Node[],
   edges: Edge[],
