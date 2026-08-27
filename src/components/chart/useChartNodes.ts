@@ -345,7 +345,18 @@ export function useChartNodes({
       // for a first-ever reassignment or a new drag-to-connect link, and
       // symmetrically someone with zero current managers needs a
       // connectable top handle for the same reason on the incoming side.
-      const outgoingRelationships = directReportsOf(employee.id);
+      //
+      // Filtered to visibleIds, same as primaryEdgeBase/secondaryEdgeBase
+      // above — directReportsOf/managersOf return EVERY relationship
+      // regardless of whether the other endpoint is currently rendered
+      // (collapsed, hidden by focus mode, etc). Without this filter, a
+      // manager with e.g. a secondary/dotted report currently off-screen
+      // got a Handle for it anyway — an orphaned anchor with no edge ever
+      // attached to it, which also inflates (i+1)/(n+1)'s own `n` and
+      // shifts every OTHER, actually-connected handle off its expected
+      // position. Real user report (screenshot, 2026-08-27): a card with 2
+      // visible direct reports showing 4 anchor points.
+      const outgoingRelationships = directReportsOf(employee.id).filter((r) => visibleIds.has(r.employee_id));
       const outgoingHandleIds =
         outgoingRelationships.length > 0
           ? [...outgoingRelationships]
@@ -356,7 +367,7 @@ export function useChartNodes({
               )
               .map((r) => r.id)
           : [`${employee.id}-out`];
-      const incomingRelationships = managersOf(employee.id);
+      const incomingRelationships = managersOf(employee.id).filter((r) => visibleIds.has(r.manager_id));
       const incomingHandleIds =
         incomingRelationships.length > 0
           ? [...incomingRelationships]
