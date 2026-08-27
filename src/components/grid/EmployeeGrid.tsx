@@ -141,6 +141,7 @@ export function EmployeeGrid() {
 
   const selectedEmployeeId = useSelectionStore((s) => s.selectedEmployeeId);
   const setSelectedEmployee = useSelectionStore((s) => s.setSelectedEmployee);
+  const setDetailPanelEmployeeId = useSelectionStore((s) => s.setDetailPanelEmployeeId);
   const setAssignmentsEmployeeId = useSelectionStore((s) => s.setAssignmentsEmployeeId);
   const searchQuery = useSelectionStore((s) => s.searchQuery);
   const clientMissionFilterIds = useSelectionStore((s) => s.clientMissionFilterIds);
@@ -416,7 +417,16 @@ export function EmployeeGrid() {
                 <tr
                   key={row.id}
                   role="row"
-                  onClick={() => !isDraftRow && setSelectedEmployee(row.id)}
+                  onClick={() => {
+                    if (isDraftRow) return;
+                    setSelectedEmployee(row.id);
+                    // Unlike a chart card click (which only selects/highlights
+                    // until a second click), a grid row click is a deliberate
+                    // "find this person" action — keeps opening the chart's
+                    // EmployeeDetailPanel immediately, same as before this field
+                    // existed.
+                    setDetailPanelEmployeeId(row.id);
+                  }}
                   className={`border-b border-slate-100 ${
                     isSelected ? 'bg-slate-100 outline outline-1 outline-slate-900' : 'hover:bg-slate-50'
                   }`}

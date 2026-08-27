@@ -99,37 +99,17 @@ export function useChartNodes({
   const siblingGap = cardDensity === 'compact' ? COMPACT_SIBLING_GAP : SIBLING_GAP;
   const rankSep = cardDensity === 'compact' ? COMPACT_RANK_SEP : RANK_SEP;
 
-  // Hovering highlights the reporting chain the same way pinning (clicking)
-  // a card does; hover takes priority while active, falling back to the
-  // pinned selection once the mouse leaves — un-hovering never clears a
-  // pin, matching the design spec.
-  const [hoverEmployeeId, setHoverEmployeeId] = useState<string | null>(null);
-  // Set while a native edge-reconnect drag is in progress (set/cleared by
-  // handleReconnectStart/handleReconnectEnd below, wired to <ReactFlow>'s
-  // onReconnectStart/onReconnectEnd) — see the mouse handlers at the bottom
-  // for why hover updates must be suppressed during a drag. A ref, not
-  // state: it only gates a synchronous check inside those handlers and never
-  // needs to trigger a render itself — using state here left a real race,
-  // since a node crossed in the same tick as the drag's start could still
-  // read the pre-update value before React's batched setState had flushed.
-  const isReassigningEdgeRef = useRef(false);
   const isDraggingRef = useRef(false);
-  // Debounces the mouseLeave→null transition so crossing the small gap
-  // between two adjacent cards doesn't flash "nothing hovered" for a frame —
-  // React Flow's per-node native mouseenter/mouseleave have no cross-node
-  // ordering guarantee, so leaving card A and entering card B are two
-  // independent events with a real gap between them. A fresh mouseEnter
-  // cancels this before it fires; the guards are re-checked INSIDE the
-  // timeout too, since a drag/reassign can start during the delay.
-  const clearHoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Hovering a LINK (not a card) highlights just its own two endpoint cards
-  // plus the link itself — deliberately narrower than hoverEmployeeId's full
-  // ancestor/descendant chain above, since the point here is to disambiguate
-  // one specific relationship among several that can visually overlap (a
-  // manager with many reports). Same debounce reasoning as clearHoverTimeoutRef,
-  // kept as its own ref/state pair rather than shared: overlapping links make
-  // an A→B leave/enter pair even more likely here than for adjacent cards.
+  // plus the link itself — a separate, narrower feature from the reporting-
+  // chain highlight above (activeEmployeeId), which is now click-only. The
+  // point here is to disambiguate one specific relationship among several
+  // that can visually overlap (a manager with many reports). Debounced
+  // (120ms) so crossing the small gap between two overlapping links doesn't
+  // flash "nothing hovered" for a frame — React Flow's per-edge native
+  // mouseenter/mouseleave have no cross-edge ordering guarantee, same reason
+  // node hover used to debounce before it was removed.
   const [hoveredEdgeId, setHoveredEdgeId] = useState<string | null>(null);
   const clearEdgeHoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleEdgeHoverChange = useCallback((edgeId: string, hovering: boolean) => {
@@ -160,7 +140,11 @@ export function useChartNodes({
   // styling pass).
   const [displacementTargetIds, setDisplacementTargetIds] = useState<Set<string>>(new Set());
 
-  const activeEmployeeId = hoverEmployeeId ?? selectedEmployeeId;
+  // Only an actual click (pin) drives the reporting-chain highlight — hover
+  // no longer does, per user request. selectedEmployeeId is already the
+  // single source of truth here, but the name is kept so the memo below (and
+  // its edge-highlight helper) don't need to be reworded throughout.
+  const activeEmployeeId = selectedEmployeeId;
   const { relatedIds, chainIds } = useReportingChain(activeEmployeeId, relationships, childrenOf);
 
   // elk lays out the *entire* org chart, every employee, regardless of
@@ -259,9 +243,9 @@ export function useChartNodes({
   const handleNodeDragStop = useCallback(
     (_event: unknown, node: Node) => {
       // The drag itself is over the instant this fires — resume the
-      // computedNodes→flowNodes sync (and hover tracking) now, regardless
-      // of whether the resulting mutation below is still in flight, and
-      // clear the live "who's about to be displaced" highlight.
+      // computedNodes→flowNodes sync now, regardless of whether the
+      // resulting mutation below is still in flight, and clear the live
+      // "who's about to be displaced" highlight.
       isDraggingRef.current = false;
       setDisplacementTargetIds(new Set());
 
@@ -401,7 +385,7 @@ export function useChartNodes({
             // Gated on !isDimmed so a card can never be both glowing and
             // faded at once (isDimmed also factors in the separate
             // department-legend filter, which is independent of the active
-            // hover chain).
+            // (click-only) chain).
             isChainHighlighted: !isDimmed && activeEmployeeId !== null && relatedIds.has(employee.id),
             // Static default here — this memo must NOT depend on drag-
             // transient state (it's the expensive per-render styling pass
@@ -508,7 +492,7 @@ export function useChartNodes({
       const state = edgeHighlight(e.source, e.target, relationship.id);
       // Narrower than `state === 'highlighted'`, which also fires from the
       // full ancestor/descendant chain highlight (several hops away) and
-      // from hovering/selecting either endpoint card — this is only true
+      // from selecting either endpoint card — this is only true
       // for the line itself, the trigger for the on-top reveal below
       // (ReportingEdge.tsx's ViewportPortal overlay). A dotted edge can
       // otherwise pass behind an unrelated card; this is how the user gets
@@ -586,16 +570,12 @@ export function useChartNodes({
   // render — an earlier attempt at this same pattern, before that
   // stabilization existed, looped infinitely for exactly that reason.
   //
-  // `isDraggingRef` additionally skips the sync WHILE a drag is in flight:
-  // dragging one node moves the cursor over OTHER cards too, firing their
-  // mouse-enter/leave — which changes hoverEmployeeId, which legitimately
-  // recomputes computedNodes (the hover/chain-highlight dimming depends on
-  // it) — and without this guard, every such recompute would overwrite the
+  // `isDraggingRef` additionally skips the sync WHILE a drag is in flight —
+  // without this guard, a recompute mid-drag (e.g. from the dept filter or
+  // any other computedNodes dependency changing) would overwrite the
   // in-progress drag's live position with the last-committed one, fighting
-  // the drag update every time the cursor crosses another card (visible as
-  // flicker, worse the longer/more cards a drag crosses). Syncing resumes
-  // the instant the drag stops, so the eventual post-mutation layout still
-  // takes over normally.
+  // the drag update. Syncing resumes the instant the drag stops, so the
+  // eventual post-mutation layout still takes over normally.
   useEffect(() => {
     if (isDraggingRef.current) return;
     setFlowNodes(computedNodes);
@@ -610,44 +590,10 @@ export function useChartNodes({
     );
   }, [flowNodes, displacementTargetIds]);
 
-  // Hover is suppressed during either kind of drag: a node reorder, and an edge
-  // grip reassignment. Both move the cursor across unrelated cards on the way to
-  // the target, firing genuine native enter/leave that would otherwise re-dim
-  // most of the chart mid-gesture.
-  const handleNodeMouseEnter = useCallback((_event: unknown, node: Node) => {
-    if (clearHoverTimeoutRef.current) {
-      clearTimeout(clearHoverTimeoutRef.current);
-      clearHoverTimeoutRef.current = null;
-    }
-    if (!isReassigningEdgeRef.current && !isDraggingRef.current) setHoverEmployeeId(node.id);
-  }, []);
-
-  const handleNodeMouseLeave = useCallback(() => {
-    if (isReassigningEdgeRef.current || isDraggingRef.current) return;
-    clearHoverTimeoutRef.current = setTimeout(() => {
-      clearHoverTimeoutRef.current = null;
-      if (!isReassigningEdgeRef.current && !isDraggingRef.current) setHoverEmployeeId(null);
-    }, 120);
-  }, []);
-
   useEffect(() => {
     return () => {
-      if (clearHoverTimeoutRef.current) clearTimeout(clearHoverTimeoutRef.current);
       if (clearEdgeHoverTimeoutRef.current) clearTimeout(clearEdgeHoverTimeoutRef.current);
     };
-  }, []);
-
-  // Wired to <ReactFlow>'s onReconnectStart/onReconnectEnd AND
-  // onConnectStart/onConnectEnd (OrgChartView.tsx) — both a reconnect drag
-  // and a brand-new connect drag cross unrelated cards on the way to their
-  // target the same way, so both reuse this one pair of callbacks. Same
-  // isReassigningEdgeRef the old grip's onDragStateChange callback used to
-  // flip, just retargeted to React Flow's native connection gestures.
-  const handleReconnectStart = useCallback(() => {
-    isReassigningEdgeRef.current = true;
-  }, []);
-  const handleReconnectEnd = useCallback(() => {
-    isReassigningEdgeRef.current = false;
   }, []);
 
   return {
@@ -657,9 +603,5 @@ export function useChartNodes({
     handleNodesChange,
     handleNodeDragStart,
     handleNodeDragStop,
-    handleNodeMouseEnter,
-    handleNodeMouseLeave,
-    handleReconnectStart,
-    handleReconnectEnd,
   };
 }

@@ -28,6 +28,16 @@ const defaultFilterState = {
 interface SelectionState {
   currentOrgChartId: string | null;
   selectedEmployeeId: string | null;
+  // Whose EmployeeDetailPanel is open, if any (OrgChartView.tsx). Deliberately
+  // separate from selectedEmployeeId: a chart card click only ever selects
+  // (highlights), so the panel only opens once this matches selectedEmployeeId
+  // — set explicitly by the "jump to this person" paths (grid row click,
+  // detail-panel-internal navigation, quick-add) and by a second chart-card
+  // click on an already-selected card (OrgChartView.tsx's onNodeClick). No
+  // extra reset-on-selection-change logic is needed: once selectedEmployeeId
+  // moves to a different id, this field is simply stale/mismatched and
+  // useChartActions.ts's detailPanelProps closes the panel on its own.
+  detailPanelEmployeeId: string | null;
   searchQuery: string;
   expandedNodeIds: Set<string>;
   // Nodes with "focus mode" active — isolates each focused person + their
@@ -64,6 +74,7 @@ interface SelectionState {
   etpReelRange: EtpRange;
   setCurrentOrgChartId: (id: string) => void;
   setSelectedEmployee: (id: string | null) => void;
+  setDetailPanelEmployeeId: (id: string | null) => void;
   setSearchQuery: (query: string) => void;
   toggleExpanded: (id: string) => void;
   setExpandedNodeIds: (ids: Set<string>) => void;
@@ -90,6 +101,7 @@ interface SelectionState {
 export const useSelectionStore = create<SelectionState>((set) => ({
   currentOrgChartId: null,
   selectedEmployeeId: null,
+  detailPanelEmployeeId: null,
   searchQuery: '',
   expandedNodeIds: new Set(),
   focusedNodeIds: new Set(),
@@ -102,6 +114,7 @@ export const useSelectionStore = create<SelectionState>((set) => ({
     set({
       currentOrgChartId: id,
       selectedEmployeeId: null,
+      detailPanelEmployeeId: null,
       expandedNodeIds: new Set(),
       focusedNodeIds: new Set(),
       searchQuery: '',
@@ -109,6 +122,7 @@ export const useSelectionStore = create<SelectionState>((set) => ({
       ...defaultFilterState,
     }),
   setSelectedEmployee: (id) => set({ selectedEmployeeId: id }),
+  setDetailPanelEmployeeId: (id) => set({ detailPanelEmployeeId: id }),
   setSearchQuery: (query) => set({ searchQuery: query }),
   setAssignmentsEmployeeId: (id) => set({ assignmentsEmployeeId: id }),
 

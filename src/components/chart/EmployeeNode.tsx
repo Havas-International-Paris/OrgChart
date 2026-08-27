@@ -37,7 +37,7 @@ export interface EmployeeNodeData extends Record<string, unknown> {
   // descendants) is who's nearest to being displaced/swapped if dropped
   // here — a distinct amber treatment from the department-colored chain
   // highlight above, since it means something different ("this is about to
-  // move" vs. "this is in the hovered/selected reporting chain").
+  // move" vs. "this is in the selected reporting chain").
   isDisplacementTarget: boolean;
   // This card is one of the two endpoints (manager or employee) of the
   // currently-HOVERED link — see useChartNodes.ts's hoveredEdgeId. WHICH
@@ -288,15 +288,13 @@ function EmployeeNodeImpl({ data }: NodeProps<Node<EmployeeNodeData>>) {
   // hovering this specific card) takes precedence over everything else — it
   // only ever applies mid-gesture, same reasoning as displacement-target
   // below. Displacement-target (drag-to-reorder, amber) is next — it only
-  // ever applies while a drag is in progress, at which point hover-driven
-  // chain highlighting is deliberately suppressed (see useChartNodes.ts's
-  // isDraggingRef), so there's no real competing signal to lose.
+  // ever applies while a drag is in progress.
   // isHoverEdgeEndpoint (this card is one of the two ends of a
   // currently-hovered LINK) deliberately renders with the EXACT SAME
   // treatment as isChainHighlighted below — colored border + glow, in the
   // card's OWN department color — rather than its own distinct color, so
   // hovering a link reads as "the same kind of highlight" a user already
-  // knows from hovering/selecting a card, not a fourth unrelated color to
+  // knows from selecting a card, not a fourth unrelated color to
   // learn. Chain-highlight otherwise takes precedence over the older
   // isSelected/isMatch styling — activeEmployeeId already falls back to
   // selectedEmployeeId and relatedIds always includes the active id itself,
@@ -332,7 +330,7 @@ function EmployeeNodeImpl({ data }: NodeProps<Node<EmployeeNodeData>>) {
         width: isCompact ? COMPACT_NODE_WIDTH : NODE_WIDTH,
         opacity: isDimmed ? 0.3 : 1,
         // "Editable mode" is exactly isSelected, not the broader
-        // isChainHighlighted a hover/pin can also put an ancestor or
+        // isChainHighlighted a click can also put an ancestor or
         // descendant into — double-click-to-edit, the photo control, and
         // the assignment gauges all specifically gate on isSelected (see
         // startEdit above), so only the actual selected card should read

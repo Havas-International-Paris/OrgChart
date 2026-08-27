@@ -35,6 +35,7 @@ export function OrgChartView() {
   const currentOrgChartId = useSelectionStore((s) => s.currentOrgChartId);
   const selectedEmployeeId = useSelectionStore((s) => s.selectedEmployeeId);
   const setSelectedEmployee = useSelectionStore((s) => s.setSelectedEmployee);
+  const setDetailPanelEmployeeId = useSelectionStore((s) => s.setDetailPanelEmployeeId);
   const setExpandedNodeIds = useSelectionStore((s) => s.setExpandedNodeIds);
   const setFocusedNodeIds = useSelectionStore((s) => s.setFocusedNodeIds);
 
@@ -68,7 +69,7 @@ export function OrgChartView() {
     etpVenduRange,
     etpReelRange,
   });
-  const { reactFlowInstanceRef } = useChartViewport({
+  const { reactFlowInstanceRef, skipPanTo } = useChartViewport({
     currentOrgChartId,
     employees: data.employees,
     employeesLoading: data.employeesLoading,
@@ -173,7 +174,21 @@ export function OrgChartView() {
         onInit={(instance) => {
           reactFlowInstanceRef.current = instance;
         }}
+        // A plain click only selects/highlights the card and never pans the
+        // viewport onto it (skipPanTo, useChartViewport.ts) — recentering on
+        // something you just clicked, already on screen, was judged noisy.
+        // The detail panel likewise doesn't open on this first click; only a
+        // SECOND click on an already-selected card opens it (checked against
+        // selectedEmployeeId's pre-click value here). A click that lands on
+        // an editable field/photo/the assignment gauges never reaches this
+        // handler at all once the card is selected — each of those swallows
+        // its own click via stopPropagation (see EmployeeNode.tsx) so it can
+        // open its own control instead.
         onNodeClick={(_, node) => {
+          skipPanTo(node.id);
+          if (selectedEmployeeId === node.id) {
+            setDetailPanelEmployeeId(node.id);
+          }
           setSelectedEmployee(node.id);
         }}
         onPaneClick={() => {
@@ -196,8 +211,6 @@ export function OrgChartView() {
           event.preventDefault();
           actions.openEdgeContextMenu(edge.id, event.clientX, event.clientY);
         }}
-        onNodeMouseEnter={nodes.handleNodeMouseEnter}
-        onNodeMouseLeave={nodes.handleNodeMouseLeave}
         // Native drag-to-reconnect, replacing the old hand-rolled grip
         // (ReportingEdge.tsx). Each edge sets its own `reconnectable:
         // 'source'` (useChartNodes.ts), so only the manager end is ever
@@ -206,8 +219,6 @@ export function OrgChartView() {
         // drop-rejection and EmployeeNode.tsx's live green/red ring via
         // useConnection().
         onReconnect={(oldEdge, connection) => actions.handleReconnect(oldEdge.id, connection.source)}
-        onReconnectStart={nodes.handleReconnectStart}
-        onReconnectEnd={nodes.handleReconnectEnd}
         // Native drag-to-connect: a shortcut for linking two employees
         // ALREADY visible on the chart, alongside (not instead of) the "+"
         // popover's "Rattacher un existant…", which stays the only way to
@@ -218,10 +229,8 @@ export function OrgChartView() {
         // from a source handle, which keeps the resulting edge's
         // source=manager/target=employee convention intact regardless of
         // which card the user grabs first. Reuses the exact same
-        // isValidConnection/hover-suppression machinery as reconnect above.
+        // isValidConnection machinery as reconnect above.
         onConnect={(connection) => actions.handleConnect(connection.source, connection.target)}
-        onConnectStart={nodes.handleReconnectStart}
-        onConnectEnd={nodes.handleReconnectEnd}
         isValidConnection={(connection) => actions.computeDropValidity(connection.target, connection.source) === 'valid'}
       >
         {showOverlays && (
@@ -252,7 +261,15 @@ export function OrgChartView() {
           assignmentsTotalEtpReel={actions.detailPanelProps.assignmentsTotalEtpReel}
           advertiserNames={actions.detailPanelProps.advertiserNames}
           onClose={() => setSelectedEmployee(null)}
-          onSelectEmployee={setSelectedEmployee}
+          // Jumping to a manager/report from inside an already-open panel is
+          // a deliberate "go there" action, same as a grid row click — keeps
+          // opening that person's panel immediately (and, via the pan effect
+          // in useChartViewport.ts, panning to them), unlike a plain chart
+          // card click.
+          onSelectEmployee={(id) => {
+            setSelectedEmployee(id);
+            setDetailPanelEmployeeId(id);
+          }}
         />
       )}
       {actions.linkModalProps && (
