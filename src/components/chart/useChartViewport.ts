@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import type { Edge, Node, ReactFlowInstance } from '@xyflow/react';
 import type { Employee } from '../../types/domain';
 import { useSelectionStore } from '../../stores/selectionStore';
@@ -149,5 +149,18 @@ export function useChartViewport({
     );
   }, [selectedEmployeeId, computedNodes]);
 
-  return { reactFlowInstanceRef };
+  // Escape hatch for a selection change that must NOT pan — a plain click on
+  // a chart card (OrgChartView.tsx's onNodeClick) selects/highlights the card
+  // without recentering on it, since the user just clicked something already
+  // on screen. Pre-marking lastCenteredIdRef here, synchronously in the click
+  // handler and before setSelectedEmployee's state update even commits, makes
+  // the effect above see "already centered on this id" the moment it runs and
+  // skip its setCenter call. Selections that SHOULD still pan (grid row
+  // click, quick-add, jumping from inside an open detail panel) simply don't
+  // call this.
+  const skipPanTo = useCallback((employeeId: string) => {
+    lastCenteredIdRef.current = employeeId;
+  }, []);
+
+  return { reactFlowInstanceRef, skipPanTo };
 }

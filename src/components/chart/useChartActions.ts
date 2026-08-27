@@ -48,6 +48,8 @@ export function useChartActions(currentOrgChartId: string | null, data: ChartDat
 
   const selectedEmployeeId = useSelectionStore((s) => s.selectedEmployeeId);
   const setSelectedEmployee = useSelectionStore((s) => s.setSelectedEmployee);
+  const detailPanelEmployeeId = useSelectionStore((s) => s.detailPanelEmployeeId);
+  const setDetailPanelEmployeeId = useSelectionStore((s) => s.setDetailPanelEmployeeId);
   const setAssignmentsEmployeeId = useSelectionStore((s) => s.setAssignmentsEmployeeId);
 
   const [linkModal, setLinkModal] = useState<LinkModalState | null>(null);
@@ -81,6 +83,7 @@ export function useChartActions(currentOrgChartId: string | null, data: ChartDat
         createdEdge = await addRelationship(employeeId, created.id, isPrimary);
       });
       setSelectedEmployee(created.id);
+      setDetailPanelEmployeeId(created.id);
 
       if (currentOrgChartId) {
         useHistoryStore.getState().push({
@@ -98,7 +101,7 @@ export function useChartActions(currentOrgChartId: string | null, data: ChartDat
         });
       }
     },
-    [managersOf, createEmployee, restoreEmployee, addRelationship, restoreRelationship, deleteEmployee, setSelectedEmployee, currentOrgChartId, t],
+    [managersOf, createEmployee, restoreEmployee, addRelationship, restoreRelationship, deleteEmployee, setSelectedEmployee, setDetailPanelEmployeeId, currentOrgChartId, t],
   );
 
   const quickAddSubordinate = useCallback(
@@ -113,6 +116,7 @@ export function useChartActions(currentOrgChartId: string | null, data: ChartDat
         createdEdge = await addRelationship(created.id, employeeId, true);
       });
       setSelectedEmployee(created.id);
+      setDetailPanelEmployeeId(created.id);
 
       if (currentOrgChartId) {
         useHistoryStore.getState().push({
@@ -127,7 +131,7 @@ export function useChartActions(currentOrgChartId: string | null, data: ChartDat
         });
       }
     },
-    [createEmployee, restoreEmployee, addRelationship, restoreRelationship, deleteEmployee, setSelectedEmployee, currentOrgChartId, t],
+    [createEmployee, restoreEmployee, addRelationship, restoreRelationship, deleteEmployee, setSelectedEmployee, setDetailPanelEmployeeId, currentOrgChartId, t],
   );
 
   const openLinkManager = useCallback(
@@ -315,7 +319,13 @@ export function useChartActions(currentOrgChartId: string | null, data: ChartDat
   }, [linkModal, employeeById, employees, managersOf, directReportsOf, wouldCreateCycle, addRelationship, t]);
 
   const detailPanelProps = useMemo(() => {
-    if (!selectedEmployeeId) return null;
+    // A plain click on a chart card only ever selects/highlights it — the
+    // panel opens only once detailPanelEmployeeId is explicitly pointed at
+    // the current selection (a second click on an already-selected card, or
+    // one of the "jump to this person" paths: grid row click, quick-add,
+    // navigating from inside an already-open panel). Selecting a DIFFERENT
+    // employee makes this mismatch on its own — no extra reset needed.
+    if (!selectedEmployeeId || detailPanelEmployeeId !== selectedEmployeeId) return null;
     const employee = employeeById.get(selectedEmployeeId);
     if (!employee) return null;
 
@@ -356,6 +366,7 @@ export function useChartActions(currentOrgChartId: string | null, data: ChartDat
     };
   }, [
     selectedEmployeeId,
+    detailPanelEmployeeId,
     employeeById,
     managersOf,
     directReportsOf,
