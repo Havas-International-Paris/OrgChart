@@ -2,6 +2,8 @@
 
 Statut : brouillon pour exécution par Claude Code. Dernière mise à jour : 2026-08-18.
 
+**Mise à jour 2026-08-27** : §5.1 (déplacer le repo hors OneDrive) est fait — le repo principal vit maintenant dans `~/Vibecoding/Orgchart` (et non `~/dev/Orgchart` comme envisagé plus bas dans ce document ; les commandes qui suivent gardent l'ancien chemin cible à titre d'exemple, à adapter si ce plan est repris). L'original OneDrive a été conservé tel quel comme backup, pas supprimé. Les 12 worktrees d'agent qui vivaient sous `.claude/worktrees/` n'ont pas été copiés (liens git absolus, cassés par un déplacement) — ils restent utilisables depuis l'emplacement OneDrive d'origine. Le reste du brief (§5.2 et suivants — un worktree par agent, attribution git séparée) reste un chantier à part (item 64 du backlog), pas encore exécuté.
+
 ## 1. Contexte
 
 Pendant la session du 18 août 2026, OpenCode a committé et pushé un bundle Phase 2 (backlog item 61 — auth/session hardening) sur `main`. Dans le même working tree, un fichier `src/components/timeEstimation/TimeEstimationGrid.tsx` portait des modifications non-committées en cours par **Claude Code** dans une session parallèle. OpenCode a correctement détecté que le fichier n'était pas de son ressort et l'a laissé non-stagé, mais l'incident a failli produire un conflit silencieux. La cause racine : **deux agents de codage partagent le même répertoire de travail**, donc modifient les mêmes fichiers en parallèle.

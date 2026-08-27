@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync, readdirSync } from 'node:fs';
 
-const BASE = '/Users/NICOLAS.DEVULPIAN/Library/CloudStorage/OneDrive-Havas/Documents/Claude/Orgchart';
+const BASE = '/Users/NICOLAS.DEVULPIAN/Vibecoding/Orgchart';
 const CSV = `${BASE}/local-data/linkedin-photos/recap.csv`;
 const PHOTOS = `${BASE}/local-data/linkedin-photos/photos`;
 const emps = JSON.parse(readFileSync(`${BASE}/local-data/linkedin-photos/employees-without-photo.json`, 'utf8'));
