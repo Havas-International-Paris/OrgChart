@@ -670,7 +670,7 @@
       "undecidedWarning_one": "{{count}} élément n'a pas été traité et sera ignoré",
       "undecidedWarning_other": "{{count}} éléments n'ont pas été traités et seront ignorés",
       "clearFilterToReview": "Réinitialiser le filtre pour les traiter",
-      "backToResolve": "Retour",
+      "back": "Retour",
       "reviewEmployeesTitle": "Salariés",
       "reviewEmployeesToCreate_one": "{{count}} nouveau salarié sera créé :",
       "reviewEmployeesToCreate_other": "{{count}} nouveaux salariés seront créés :",

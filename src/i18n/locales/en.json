@@ -670,7 +670,7 @@
       "undecidedWarning_one": "{{count}} item hasn't been reviewed and will be skipped",
       "undecidedWarning_other": "{{count}} items haven't been reviewed and will be skipped",
       "clearFilterToReview": "Clear filter to review them",
-      "backToResolve": "Back",
+      "back": "Back",
       "reviewEmployeesTitle": "Employees",
       "reviewEmployeesToCreate_one": "{{count}} new employee will be created:",
       "reviewEmployeesToCreate_other": "{{count}} new employees will be created:",

@@ -386,14 +386,15 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
       }
       setClientResolutions(cliResolutions);
 
-      // Preselect the client filter to raw names that already resolve to a
-      // real existing client_mission (auto-matched via alias or exact name)
-      // — those are the ones most likely to be a genuine update rather than
-      // a brand-new client, so they're the natural starting focus.
-      const alreadyInBase = Object.entries(cliResolutions)
-        .filter(([, res]) => res.status === 'auto' && res.clientMissionId != null)
-        .map(([rawName]) => rawName);
-      setClientFilter(new Set(alreadyInBase));
+      // The client filter starts EMPTY (= show everyone needing review),
+      // not pre-narrowed — a real user report (2026-08-28): this used to
+      // preselect only already-matched clients ("most likely to be a
+      // genuine update"), which silently hid every brand-new client from
+      // "Clients to resolve"/"Employees to resolve" — exactly the ones that
+      // most need a decision — unless the user thought to clear the filter
+      // themselves. Nothing should be hidden by default; the filter is
+      // still there to narrow down a large file once the user chooses to.
+      setClientFilter(new Set());
 
       setStep('cutoff');
     } catch (err) {
@@ -1340,6 +1341,15 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
           </button>
           {step === 'cutoff' && (
             <button
+              onClick={() => setStep('select')}
+              disabled={resolving || committing}
+              className="rounded border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {t('timeEstimation.wizard.back')}
+            </button>
+          )}
+          {step === 'cutoff' && (
+            <button
               onClick={() => setStep('resolve')}
               disabled={!importFields.n1 && !importFields.actuals && !importFields.forecast}
               title={
@@ -1370,7 +1380,7 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
               disabled={resolving || committing}
               className="rounded border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              {t('timeEstimation.wizard.backToResolve')}
+              {t('timeEstimation.wizard.back')}
             </button>
           )}
           {step === 'review' && !done && (
