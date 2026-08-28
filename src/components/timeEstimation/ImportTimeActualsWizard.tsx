@@ -291,6 +291,10 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
 
   const [clientFilter, setClientFilter] = useState<Set<string>>(new Set());
+  // "Previously ignored" (see employeesPreviouslyIgnoredAll below) can be a
+  // large list — collapsed by default so it doesn't dominate the resolve
+  // step for a routine import with nothing to reconsider.
+  const [showPreviouslyIgnored, setShowPreviouslyIgnored] = useState(false);
 
   const monthLabel = useMemo(() => {
     const locale = i18n.language === 'fr' ? 'fr-FR' : 'en-US';
@@ -337,6 +341,7 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
     setImportError(null);
     setProgress(null);
     setClientFilter(new Set());
+    setShowPreviouslyIgnored(false);
     setImportFields({ n1: false, actuals: false, forecast: false });
     setOnlyNewPairs(true);
     try {
@@ -471,6 +476,35 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
     () => (clientFilter.size === 0 ? clientsNeedingReviewAll : clientsNeedingReviewAll.filter(([rawName]) => clientFilter.has(rawName))),
     [clientsNeedingReviewAll, clientFilter],
   );
+
+  // A raw employee name that was explicitly marked "Ignorer" in a PAST
+  // import gets an alias row with employee_id === null (handleFileSelected
+  // above) — status: 'auto', decision: 'ignore', matching an
+  // already-resolved 'match' alias in every way except its target. That
+  // decision then silently repeats on every future import, forever, with
+  // no way to reconsider it — the resolve step only ever showed
+  // status === 'needs-review' rows. Real user report (2026-08-28): a
+  // 258-employee file where 163 fell into exactly this bucket, with no
+  // visible path to fix any of them. This list surfaces them, collapsed by
+  // default (see showPreviouslyIgnored below) since it can be large, with
+  // the exact same Create/Match/Ignore controls as "needs review" rows —
+  // picking any of them just overwrites this one entry in
+  // employeeResolutions, same mechanism as resolving a brand-new name.
+  const employeesPreviouslyIgnoredAll = useMemo(
+    () => Object.entries(employeeResolutions).filter(([, r]) => r.status === 'auto' && r.decision === 'ignore'),
+    [employeeResolutions],
+  );
+  const employeesPreviouslyIgnored = useMemo(
+    () =>
+      clientFilter.size === 0
+        ? employeesPreviouslyIgnoredAll
+        : employeesPreviouslyIgnoredAll.filter(([rawName]) => {
+            const clients = employeeClientNames.get(rawName);
+            return clients != null && Array.from(clients).some((c) => clientFilter.has(c));
+          }),
+    [employeesPreviouslyIgnoredAll, employeeClientNames, clientFilter],
+  );
+
   const allResolved =
     employeesNeedingReviewAll.every(([, r]) => employeeResolutionAllowsContinue(r)) &&
     clientsNeedingReviewAll.every(([, r]) => clientResolutionAllowsContinue(r));
@@ -488,7 +522,7 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
   // matchesEmployeeName's strict equality check above).
   const suggestedMatchesByRawName = useMemo(() => {
     const map = new Map<string, Employee[]>();
-    for (const [rawName] of employeesNeedingReview) {
+    for (const [rawName] of [...employeesNeedingReview, ...employeesPreviouslyIgnored]) {
       const ranked = registryEmployees
         .map((e) => ({ e, score: employeeNameSimilarity(rawName, e.first_name, e.last_name) }))
         .sort((a, b) => b.score - a.score)
@@ -497,7 +531,7 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
       map.set(rawName, ranked);
     }
     return map;
-  }, [employeesNeedingReview, registryEmployees]);
+  }, [employeesNeedingReview, employeesPreviouslyIgnored, registryEmployees]);
 
   // Resolves every raw name to a real id (writing aliases, creating any new
   // employee/client along the way), then commits straight through — no more
@@ -845,6 +879,123 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
 
   const sortedCandidates = cutoffDetection?.candidates ?? [];
 
+  // Shared row for both "Employees to resolve" (status: 'needs-review') and
+  // "Previously ignored" (status: 'auto', decision: 'ignore', see
+  // employeesPreviouslyIgnoredAll above) — identical Create/Match/Ignore
+  // controls either way, since picking any of them just overwrites this one
+  // entry in employeeResolutions to a fresh { status: 'needs-review', ... }.
+  function renderEmployeeRow(rawName: string, res: EmployeeResolution) {
+    return (
+      <div key={rawName} className="rounded border border-slate-200 px-3 py-2 text-sm">
+        <div className="mb-1 flex items-center justify-between gap-2">
+          <span className="font-medium text-slate-700">{rawName}</span>
+        </div>
+        <p className="mb-2 text-xs text-slate-400">{justificationFor(rawName)}</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() =>
+              setEmployeeResolutions((prev) => {
+                const seeded = splitPersonName(rawName);
+                return {
+                  ...prev,
+                  [rawName]: {
+                    status: 'needs-review',
+                    employeeId: null,
+                    decision: 'create',
+                    createFirstName: prev[rawName]?.createFirstName ?? toTitleCase(seeded.firstName),
+                    createLastName: prev[rawName]?.createLastName ?? toTitleCase(seeded.lastName),
+                  },
+                };
+              })
+            }
+            className={`rounded px-2 py-1 text-xs font-medium ${
+              res.decision === 'create' ? 'bg-slate-900 text-white' : 'border border-slate-300 text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            {t('timeEstimation.wizard.acceptCreate')}
+          </button>
+          <select
+            value={res.decision === 'match' ? (res.employeeId ?? '') : ''}
+            onChange={(e) => {
+              const value = e.target.value;
+              setEmployeeResolutions((prev) => ({
+                ...prev,
+                [rawName]: value
+                  ? { status: 'needs-review', employeeId: value, decision: 'match' }
+                  : { status: 'needs-review', employeeId: null, decision: null },
+              }));
+            }}
+            className="rounded border border-slate-300 px-2 py-1 text-xs"
+          >
+            <option value="">{t('timeEstimation.wizard.matchExisting')}</option>
+            {(() => {
+              const suggestions = suggestedMatchesByRawName.get(rawName) ?? [];
+              const suggestionIds = new Set(suggestions.map((e) => e.id));
+              const rest = sortedRegistryEmployees.filter((e) => !suggestionIds.has(e.id));
+              return (
+                <>
+                  {suggestions.length > 0 && (
+                    <optgroup label={t('timeEstimation.wizard.suggestedMatches')}>
+                      {suggestions.map((e) => (
+                        <option key={e.id} value={e.id}>
+                          {e.first_name} {e.last_name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  <optgroup label={t('timeEstimation.wizard.allEmployees')}>
+                    {rest.map((e) => (
+                      <option key={e.id} value={e.id}>
+                        {e.first_name} {e.last_name}
+                      </option>
+                    ))}
+                  </optgroup>
+                </>
+              );
+            })()}
+          </select>
+          <button
+            type="button"
+            onClick={() =>
+              setEmployeeResolutions((prev) => ({
+                ...prev,
+                [rawName]: { status: 'needs-review', employeeId: null, decision: 'ignore' },
+              }))
+            }
+            className={`rounded px-2 py-1 text-xs font-medium ${
+              res.decision === 'ignore' ? 'bg-slate-900 text-white' : 'border border-slate-300 text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            {t('timeEstimation.wizard.ignore')}
+          </button>
+        </div>
+        {res.decision === 'create' && (
+          <div className="mt-2 flex gap-2">
+            <input
+              type="text"
+              value={res.createFirstName ?? ''}
+              onChange={(e) =>
+                setEmployeeResolutions((prev) => ({ ...prev, [rawName]: { ...prev[rawName], createFirstName: e.target.value } }))
+              }
+              placeholder={t('timeEstimation.wizard.firstNamePlaceholder')}
+              className="flex-1 rounded border border-slate-300 px-2 py-1 text-xs"
+            />
+            <input
+              type="text"
+              value={res.createLastName ?? ''}
+              onChange={(e) =>
+                setEmployeeResolutions((prev) => ({ ...prev, [rawName]: { ...prev[rawName], createLastName: e.target.value } }))
+              }
+              placeholder={t('timeEstimation.wizard.lastNamePlaceholder')}
+              className="flex-1 rounded border border-slate-300 px-2 py-1 text-xs"
+            />
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/30 p-4">
       {/* h-[85vh] (not just max-h) keeps the dialog's size stable regardless
@@ -1073,117 +1224,30 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
                       <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
                         {t('timeEstimation.wizard.employeesToResolve')}
                       </h3>
-                      <div className="space-y-3">
-                        {employeesNeedingReview.map(([rawName, res]) => (
-                          <div key={rawName} className="rounded border border-slate-200 px-3 py-2 text-sm">
-                            <div className="mb-1 flex items-center justify-between gap-2">
-                              <span className="font-medium text-slate-700">{rawName}</span>
-                            </div>
-                            <p className="mb-2 text-xs text-slate-400">{justificationFor(rawName)}</p>
-                            <div className="flex flex-wrap items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setEmployeeResolutions((prev) => {
-                                    const seeded = splitPersonName(rawName);
-                                    return {
-                                      ...prev,
-                                      [rawName]: {
-                                        status: 'needs-review',
-                                        employeeId: null,
-                                        decision: 'create',
-                                        createFirstName: prev[rawName]?.createFirstName ?? toTitleCase(seeded.firstName),
-                                        createLastName: prev[rawName]?.createLastName ?? toTitleCase(seeded.lastName),
-                                      },
-                                    };
-                                  })
-                                }
-                                className={`rounded px-2 py-1 text-xs font-medium ${
-                                  res.decision === 'create' ? 'bg-slate-900 text-white' : 'border border-slate-300 text-slate-600 hover:bg-slate-50'
-                                }`}
-                              >
-                                {t('timeEstimation.wizard.acceptCreate')}
-                              </button>
-                              <select
-                                value={res.decision === 'match' ? (res.employeeId ?? '') : ''}
-                                onChange={(e) => {
-                                  const value = e.target.value;
-                                  setEmployeeResolutions((prev) => ({
-                                    ...prev,
-                                    [rawName]: value
-                                      ? { status: 'needs-review', employeeId: value, decision: 'match' }
-                                      : { status: 'needs-review', employeeId: null, decision: null },
-                                  }));
-                                }}
-                                className="rounded border border-slate-300 px-2 py-1 text-xs"
-                              >
-                                <option value="">{t('timeEstimation.wizard.matchExisting')}</option>
-                                {(() => {
-                                  const suggestions = suggestedMatchesByRawName.get(rawName) ?? [];
-                                  const suggestionIds = new Set(suggestions.map((e) => e.id));
-                                  const rest = sortedRegistryEmployees.filter((e) => !suggestionIds.has(e.id));
-                                  return (
-                                    <>
-                                      {suggestions.length > 0 && (
-                                        <optgroup label={t('timeEstimation.wizard.suggestedMatches')}>
-                                          {suggestions.map((e) => (
-                                            <option key={e.id} value={e.id}>
-                                              {e.first_name} {e.last_name}
-                                            </option>
-                                          ))}
-                                        </optgroup>
-                                      )}
-                                      <optgroup label={t('timeEstimation.wizard.allEmployees')}>
-                                        {rest.map((e) => (
-                                          <option key={e.id} value={e.id}>
-                                            {e.first_name} {e.last_name}
-                                          </option>
-                                        ))}
-                                      </optgroup>
-                                    </>
-                                  );
-                                })()}
-                              </select>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setEmployeeResolutions((prev) => ({
-                                    ...prev,
-                                    [rawName]: { status: 'needs-review', employeeId: null, decision: 'ignore' },
-                                  }))
-                                }
-                                className={`rounded px-2 py-1 text-xs font-medium ${
-                                  res.decision === 'ignore' ? 'bg-slate-900 text-white' : 'border border-slate-300 text-slate-600 hover:bg-slate-50'
-                                }`}
-                              >
-                                {t('timeEstimation.wizard.ignore')}
-                              </button>
-                            </div>
-                            {res.decision === 'create' && (
-                              <div className="mt-2 flex gap-2">
-                                <input
-                                  type="text"
-                                  value={res.createFirstName ?? ''}
-                                  onChange={(e) =>
-                                    setEmployeeResolutions((prev) => ({ ...prev, [rawName]: { ...prev[rawName], createFirstName: e.target.value } }))
-                                  }
-                                  placeholder={t('timeEstimation.wizard.firstNamePlaceholder')}
-                                  className="flex-1 rounded border border-slate-300 px-2 py-1 text-xs"
-                                />
-                                <input
-                                  type="text"
-                                  value={res.createLastName ?? ''}
-                                  onChange={(e) =>
-                                    setEmployeeResolutions((prev) => ({ ...prev, [rawName]: { ...prev[rawName], createLastName: e.target.value } }))
-                                  }
-                                  placeholder={t('timeEstimation.wizard.lastNamePlaceholder')}
-                                  className="flex-1 rounded border border-slate-300 px-2 py-1 text-xs"
-                                />
-                              </div>
-                            )}
+                      <div className="space-y-3">{employeesNeedingReview.map(([rawName, res]) => renderEmployeeRow(rawName, res))}</div>
+                    </section>
+                  )}
+
+                  {employeesPreviouslyIgnoredAll.length > 0 && (
+                    <section className="mb-4">
+                      <button
+                        type="button"
+                        onClick={() => setShowPreviouslyIgnored((v) => !v)}
+                        className="mb-2 flex w-full items-center justify-between text-left text-xs font-semibold uppercase tracking-wide text-amber-600 hover:text-amber-700"
+                      >
+                        <span>
+                          {t('timeEstimation.wizard.previouslyIgnoredToggle', { count: employeesPreviouslyIgnoredAll.length })}
+                        </span>
+                        <span>{showPreviouslyIgnored ? '▲' : '▼'}</span>
+                      </button>
+                      {showPreviouslyIgnored && (
+                        <>
+                          <p className="mb-2 text-xs text-slate-400">{t('timeEstimation.wizard.previouslyIgnoredHint')}</p>
+                          <div className="space-y-3">
+                            {employeesPreviouslyIgnored.map(([rawName, res]) => renderEmployeeRow(rawName, res))}
                           </div>
-                        ))}
-                      </div>
+                        </>
+                      )}
                     </section>
                   )}
 
