@@ -20,6 +20,15 @@ import {
   type InputN1Row,
   type InputNRow,
 } from '../../lib/timeImportParsing';
+import {
+  buildImportRowPlan,
+  clientResolutionAllowsContinue,
+  computeImportDiffSummary,
+  employeeResolutionAllowsContinue,
+  type ClientResolution,
+  type EmployeeResolution,
+  type ImportFieldSelection,
+} from '../../lib/timeImportDiff';
 import type { Employee } from '../../types/domain';
 import { FilterDropdown, type FilterDropdownOption } from '../shared/FilterDropdown';
 
@@ -158,41 +167,6 @@ function parseCombinedWorkbook(buffer: ArrayBuffer): { n1Rows: InputN1Row[]; nRo
   };
 }
 
-interface EmployeeResolution {
-  status: 'auto' | 'needs-review';
-  employeeId: string | null;
-  decision: 'match' | 'create' | 'ignore' | null;
-  // Editable proposal shown when decision === 'create', seeded from
-  // toTitleCase(splitPersonName(rawName)) — the admin can freely correct it
-  // (e.g. force "Alice" alone, fix an unusual capitalization) before commit.
-  createFirstName?: string;
-  createLastName?: string;
-}
-
-interface ClientResolution {
-  status: 'auto' | 'needs-review';
-  clientMissionId: string | null;
-  decision: 'match' | 'create' | null;
-  // Editable proposal shown when decision === 'create', seeded from
-  // toTitleCase(rawName).
-  createName?: string;
-}
-
-// An untouched row (decision === null) is allowed through — handleImport
-// already treats it exactly like an explicit "ignore" (writes a null alias, the
-// row's data is skipped on import), so it must never block Continue. Only a
-// genuinely half-finished explicit choice (picked "create" but left the name
-// blank) is real invalid state that should still block.
-function employeeResolutionAllowsContinue(r: EmployeeResolution): boolean {
-  if (r.decision === 'create') return Boolean(r.createFirstName?.trim()) && Boolean(r.createLastName?.trim());
-  return true;
-}
-
-function clientResolutionAllowsContinue(r: ClientResolution): boolean {
-  if (r.decision === 'create') return Boolean(r.createName?.trim());
-  return true;
-}
-
 // Splits a big upsert payload into fixed-size pieces sent as separate
 // requests — turns one opaque, unbounded call the progress counter can't
 // see inside of into several the counter can tick through as they land.
@@ -221,18 +195,12 @@ function formatImportError(err: unknown): string {
   }
 }
 
-type Step = 'select' | 'cutoff' | 'resolve';
-
-// Which categories of parsed data to actually persist on import — all true
-// by default. Letting the user uncheck a category (e.g. re-importing only
-// N-1 totals without touching this year's actuals/forecast) is the whole
-// point: every checked category is written unconditionally (see handleImport
-// below), no more per-row "keep the existing value" choice.
-interface ImportFieldSelection {
-  n1: boolean;
-  actuals: boolean;
-  forecast: boolean;
-}
+// 'review' is a new step (added 2026-08-28, per user request) between
+// 'resolve' and the actual commit — an aggregate diff summary
+// (computeImportDiffSummary, timeImportDiff.ts) the user must explicitly
+// confirm before handleImport runs, replacing the old direct
+// resolve-step-button → handleImport() call and its window.confirm() gate.
+type Step = 'select' | 'cutoff' | 'resolve' | 'review';
 
 export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { registryOrgChartId: string; onClose: () => void }) {
   const { t, i18n } = useTranslation();
@@ -323,6 +291,19 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
     const fmtMonth = new Intl.DateTimeFormat(locale, { month: 'long' });
     return (month: number) => fmtMonth.format(new Date(year, month - 1, 1));
   }, [year, i18n.language]);
+
+  // Computed lazily — only while the user is actually on the review step —
+  // so a large workbook doesn't pay this cost on the earlier steps. Shares
+  // buildImportRowPlan with handleImport's real commit (via
+  // computeImportDiffSummary), so this preview can never disagree with what
+  // actually gets written.
+  const diffSummary = useMemo(
+    () =>
+      step === 'review'
+        ? computeImportDiffSummary(employeeResolutions, clientResolutions, n1Rows, nRows, existingPairKeys, importFields, onlyNewPairs, year, cutoffMonth)
+        : null,
+    [step, employeeResolutions, clientResolutions, n1Rows, nRows, existingPairKeys, importFields, onlyNewPairs, year, cutoffMonth],
+  );
 
   function justificationFor(rawEmployeeName: string): string {
     const parts: string[] = [];
@@ -625,138 +606,19 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
       // committing phase's unit count (chunk writes + per-pair recompute
       // below) is known up front and the progress counter can run
       // continuously across it, rather than resetting or sitting blank
-      // during whichever part happens to run first.
-
-      // 1. N-1 annual totals — one row per (employee, client), no month. A
-      // null total on a real (employee, client) row means 0% that year, not
-      // "no data" — the row only exists at all because this pair genuinely
-      // appears in the file (isSubtotalRow/forward-fill already excluded
-      // anything else upstream in timeImportParsing.ts).
-      const isNewPair = (employeeId: string, clientMissionId: string) => !existingPairKeys.has(`${employeeId}::${clientMissionId}`);
-      const skippedExistingPairKeys = new Set<string>();
-
-      const n1UpsertRows: Array<{ employee_id: string; client_mission_id: string; year: number; total_pct: number }> = [];
-      if (importFields.n1) {
-        for (const row of n1Rows) {
-          const employeeId = row.employeeName ? employeeIds.get(row.employeeName) : null;
-          const clientMissionId = row.annonceur ? clientIds.get(row.annonceur) : null;
-          if (!employeeId || !clientMissionId) continue;
-          if (onlyNewPairs && !isNewPair(employeeId, clientMissionId)) {
-            skippedExistingPairKeys.add(`${employeeId}::${clientMissionId}`);
-            continue;
-          }
-          n1UpsertRows.push({ employee_id: employeeId, client_mission_id: clientMissionId, year: year - 1, total_pct: etpFractionToPct(row.n1TotalFraction ?? 0) });
-        }
-      }
-
-      // 2. Past months (1..cutoffMonth) → time_actuals.
-      // 3. Future months (cutoffMonth+1..12) → time_forecast_months.
-      const actualUpsertRows: TimeActualUpsertRow[] = [];
-      const forecastUpsertRows: Array<{ employee_id: string; client_mission_id: string; year: number; month: number; pct: number }> = [];
-      const affectedKeys = new Set<string>();
-
-      for (const row of nRows) {
-        const employeeId = row.employeeName ? employeeIds.get(row.employeeName) : null;
-        const clientMissionId = row.annonceur ? clientIds.get(row.annonceur) : null;
-        if (!employeeId || !clientMissionId) continue;
-        if (onlyNewPairs && !isNewPair(employeeId, clientMissionId)) {
-          skippedExistingPairKeys.add(`${employeeId}::${clientMissionId}`);
-          continue;
-        }
-        affectedKeys.add(`${employeeId}::${clientMissionId}`);
-        row.monthlyFractions.forEach((fraction, i) => {
-          const month = i + 1;
-          // A null cell on a real row means 0% that month (e.g. the person
-          // moved to a different client that month), not "no data" — same
-          // reasoning as the N-1 total above. Writing an explicit 0 instead
-          // of skipping the month is also what lets the override-clearing
-          // pass below actually reach every month being re-imported.
-          const pct = etpFractionToPct(fraction ?? 0);
-          if (month <= cutoffMonth) {
-            if (!importFields.actuals) return;
-            actualUpsertRows.push({
-              batch_id: batch.id,
-              year,
-              month,
-              raw_employee_name: row.employeeName ?? '',
-              raw_client_name: row.annonceur ?? '',
-              raw_sous_dossier: null,
-              raw_group_annonceur: null,
-              raw_payroll_name: null,
-              raw_bu_name: row.metiers,
-              etp_pct: pct,
-              resolved_employee_id: employeeId,
-              resolved_client_mission_id: clientMissionId,
-            });
-          } else {
-            if (!importFields.forecast) return;
-            forecastUpsertRows.push({ employee_id: employeeId, client_mission_id: clientMissionId, year, month, pct });
-          }
-        });
-      }
-
-      // A pair present in only ONE of the two sheets is still confirmed to
-      // be in scope for this import (it's mentioned somewhere in the file),
-      // so its total absence from the OTHER sheet is the file's own way of
-      // saying "0% there" — not "no opinion," which is what leaving it
-      // completely untouched would otherwise imply. This is the coarser,
-      // whole-row counterpart of the null-cell-within-a-row → 0 rule above.
-      // Deliberately scoped to pairs the file actually mentions: a pair
-      // absent from BOTH sheets is never touched, so a genuinely partial/
-      // filtered extract (one Business Unit's own file, say) can never zero
-      // out a pair that simply isn't its concern.
-      const n1PairKeys = new Set(n1Rows.filter((r) => r.employeeName && r.annonceur).map((r) => `${r.employeeName}::${r.annonceur}`));
-      const nPairKeys = new Set(nRows.filter((r) => r.employeeName && r.annonceur).map((r) => `${r.employeeName}::${r.annonceur}`));
-
-      if (importFields.n1) {
-        for (const key of nPairKeys) {
-          if (n1PairKeys.has(key)) continue;
-          const [rawEmployeeName, rawAnnonceur] = key.split('::');
-          const employeeId = employeeIds.get(rawEmployeeName);
-          const clientMissionId = clientIds.get(rawAnnonceur);
-          if (!employeeId || !clientMissionId) continue;
-          if (onlyNewPairs && !isNewPair(employeeId, clientMissionId)) {
-            skippedExistingPairKeys.add(`${employeeId}::${clientMissionId}`);
-            continue;
-          }
-          n1UpsertRows.push({ employee_id: employeeId, client_mission_id: clientMissionId, year: year - 1, total_pct: 0 });
-        }
-      }
-
-      for (const key of n1PairKeys) {
-        if (nPairKeys.has(key)) continue;
-        const [rawEmployeeName, rawAnnonceur] = key.split('::');
-        const employeeId = employeeIds.get(rawEmployeeName);
-        const clientMissionId = clientIds.get(rawAnnonceur);
-        if (!employeeId || !clientMissionId) continue;
-        if (onlyNewPairs && !isNewPair(employeeId, clientMissionId)) {
-          skippedExistingPairKeys.add(`${employeeId}::${clientMissionId}`);
-          continue;
-        }
-        affectedKeys.add(`${employeeId}::${clientMissionId}`);
-        for (let month = 1; month <= 12; month += 1) {
-          if (month <= cutoffMonth) {
-            if (!importFields.actuals) continue;
-            actualUpsertRows.push({
-              batch_id: batch.id,
-              year,
-              month,
-              raw_employee_name: rawEmployeeName,
-              raw_client_name: rawAnnonceur,
-              raw_sous_dossier: null,
-              raw_group_annonceur: null,
-              raw_payroll_name: null,
-              raw_bu_name: null,
-              etp_pct: 0,
-              resolved_employee_id: employeeId,
-              resolved_client_mission_id: clientMissionId,
-            });
-          } else {
-            if (!importFields.forecast) continue;
-            forecastUpsertRows.push({ employee_id: employeeId, client_mission_id: clientMissionId, year, month, pct: 0 });
-          }
-        }
-      }
+      // during whichever part happens to run first. The actual row-building
+      // (N-1 totals, past/future months, the cross-sheet zero-fill for a
+      // pair mentioned in only one tab, onlyNewPairs skipping) lives in
+      // buildImportRowPlan (timeImportDiff.ts) — shared with the review
+      // step's preview so the two can never disagree on this logic. batch_id
+      // is attached here, not inside the plan, since the batch row doesn't
+      // exist until the line above.
+      const plan = buildImportRowPlan({ n1Rows, nRows, employeeIds, clientIds, existingPairKeys, importFields, onlyNewPairs, year, cutoffMonth });
+      const n1UpsertRows = plan.n1UpsertRows;
+      const actualUpsertRows: TimeActualUpsertRow[] = plan.actualUpsertRows.map((row) => ({ ...row, batch_id: batch.id }));
+      const forecastUpsertRows = plan.forecastUpsertRows;
+      const affectedKeys = plan.affectedPairKeys;
+      const skippedExistingPairKeys = plan.skippedExistingPairKeys;
 
       // Recompute the stored time_forecasts.total_pct for every affected
       // (employee, client) so it can never drift out of sync with what was
@@ -952,24 +814,19 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
         await refreshEstimation();
       }
 
-      // A pair this import wrote SOME data for (affectedKeys) that wasn't
-      // already in existingPairKeys BEFORE this import ran — existingPairKeys
-      // is a snapshot from useTimeEstimation()'s data as loaded when the
-      // wizard opened, untouched by this function's own writes, so it still
-      // reflects pre-import state here regardless of onlyNewPairs. Shown
-      // unconditionally (not just in "only new pairs" mode) since "how many
-      // brand-new pairs did this add" is useful information either way.
-      let newPairsAdded = 0;
-      for (const key of affectedKeys) {
-        if (!existingPairKeys.has(key)) newPairsAdded += 1;
-      }
-
       setDone({
         actualRows: actualUpsertRows.length,
         n1Rows: n1UpsertRows.length,
         forecastRows: forecastUpsertRows.length,
         skippedPairs: skippedExistingPairKeys.size,
-        newPairs: newPairsAdded,
+        // plan.newPairKeys was computed against existingPairKeys — a
+        // snapshot from useTimeEstimation()'s data as loaded when the
+        // wizard opened, untouched by this function's own writes below — so
+        // it still reflects pre-import state here regardless of
+        // onlyNewPairs. Shown unconditionally (not just in "only new pairs"
+        // mode) since "how many brand-new pairs did this add" is useful
+        // information either way.
+        newPairs: plan.newPairKeys.size,
       });
     } catch (err) {
       setImportError(formatImportError(err));
@@ -1333,14 +1190,127 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
                 </>
               )}
 
+              {/* Diff/review step (added 2026-08-28, per user request): an
+                  aggregate summary of what this import is about to do —
+                  computed purely from state already available before any
+                  network write (computeImportDiffSummary, timeImportDiff.ts)
+                  — that the user must explicitly confirm before handleImport
+                  actually runs. Replaces the old direct
+                  resolve-step-button → handleImport() call and its
+                  window.confirm() gate for undecided rows. */}
+              {step === 'review' && diffSummary && (
+                <>
+                  {(diffSummary.employeesToCreate.length > 0 || diffSummary.employeesMatchedCount > 0 || diffSummary.employeesIgnoredCount > 0) && (
+                    <section className="mb-5">
+                      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                        {t('timeEstimation.wizard.reviewEmployeesTitle')}
+                      </h3>
+                      <div className="flex flex-col gap-1 text-sm text-slate-700">
+                        {diffSummary.employeesToCreate.length > 0 && (
+                          <p>
+                            {t('timeEstimation.wizard.reviewEmployeesToCreate', { count: diffSummary.employeesToCreate.length })}{' '}
+                            {diffSummary.employeesToCreate.join(', ')}
+                          </p>
+                        )}
+                        {diffSummary.employeesMatchedCount > 0 && (
+                          <p>{t('timeEstimation.wizard.reviewEmployeesMatched', { count: diffSummary.employeesMatchedCount })}</p>
+                        )}
+                        {diffSummary.employeesIgnoredCount > 0 && (
+                          <p className="text-amber-600">{t('timeEstimation.wizard.reviewEmployeesIgnored', { count: diffSummary.employeesIgnoredCount })}</p>
+                        )}
+                      </div>
+                    </section>
+                  )}
+
+                  {(diffSummary.clientsToCreate.length > 0 || diffSummary.clientsMatchedCount > 0 || diffSummary.clientsIgnoredCount > 0) && (
+                    <section className="mb-5">
+                      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                        {t('timeEstimation.wizard.reviewClientsTitle')}
+                      </h3>
+                      <div className="flex flex-col gap-1 text-sm text-slate-700">
+                        {diffSummary.clientsToCreate.length > 0 && (
+                          <p>
+                            {t('timeEstimation.wizard.reviewClientsToCreate', { count: diffSummary.clientsToCreate.length })}{' '}
+                            {diffSummary.clientsToCreate.join(', ')}
+                          </p>
+                        )}
+                        {diffSummary.clientsMatchedCount > 0 && (
+                          <p>{t('timeEstimation.wizard.reviewClientsMatched', { count: diffSummary.clientsMatchedCount })}</p>
+                        )}
+                        {diffSummary.clientsIgnoredCount > 0 && (
+                          <p className="text-amber-600">{t('timeEstimation.wizard.reviewClientsIgnored', { count: diffSummary.clientsIgnoredCount })}</p>
+                        )}
+                      </div>
+                    </section>
+                  )}
+
+                  {(diffSummary.newPairsCount > 0 || diffSummary.existingPairsCount > 0 || diffSummary.unresolvedPairsCount > 0) && (
+                    <section className="mb-5">
+                      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">{t('timeEstimation.wizard.reviewPairsTitle')}</h3>
+                      <div className="flex flex-col gap-1 text-sm text-slate-700">
+                        {diffSummary.newPairsCount > 0 && <p>{t('timeEstimation.wizard.reviewPairsNew', { count: diffSummary.newPairsCount })}</p>}
+                        {diffSummary.existingPairsCount > 0 && (
+                          <p>
+                            {onlyNewPairs
+                              ? t('timeEstimation.wizard.reviewPairsSkippedOnlyNew', { count: diffSummary.existingPairsCount })
+                              : t('timeEstimation.wizard.reviewPairsUpdated', { count: diffSummary.existingPairsCount })}
+                          </p>
+                        )}
+                        {diffSummary.unresolvedPairsCount > 0 && (
+                          <p className="text-amber-600">{t('timeEstimation.wizard.reviewPairsUnresolved', { count: diffSummary.unresolvedPairsCount })}</p>
+                        )}
+                      </div>
+                    </section>
+                  )}
+
+                  <section>
+                    <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">{t('timeEstimation.wizard.reviewDataTitle')}</h3>
+                    <div className="flex flex-col gap-1 text-sm text-slate-700">
+                      {/* Unlike the sections above, a CHECKED category showing 0
+                          rows is shown, not hidden — that's a meaningful
+                          "something's misconfigured" signal (e.g. the cutoff
+                          month), not noise like an unremarkable "0 new
+                          employees" would be. An unchecked category is simply
+                          absent, matching the cutoff step's own importFields
+                          checkboxes. */}
+                      {importFields.n1 && (
+                        <p>{t('timeEstimation.wizard.reviewDataN1', { year: year - 1, count: diffSummary.plannedRowCounts.n1 })}</p>
+                      )}
+                      {importFields.actuals && (
+                        <p>
+                          {t('timeEstimation.wizard.reviewDataActuals', {
+                            from: monthLabel(1),
+                            to: monthLabel(cutoffMonth),
+                            count: diffSummary.plannedRowCounts.actuals,
+                          })}
+                        </p>
+                      )}
+                      {importFields.forecast && (
+                        <p>
+                          {t('timeEstimation.wizard.reviewDataForecast', {
+                            from: monthLabel(Math.min(cutoffMonth + 1, 12)),
+                            to: monthLabel(12),
+                            count: diffSummary.plannedRowCounts.forecast,
+                          })}
+                        </p>
+                      )}
+                    </div>
+                  </section>
+
+                  {diffSummary.plannedRowCounts.n1 + diffSummary.plannedRowCounts.actuals + diffSummary.plannedRowCounts.forecast === 0 && (
+                    <p className="mt-4 text-sm font-medium text-amber-600">{t('timeEstimation.wizard.reviewNothingToImport')}</p>
+                  )}
+                </>
+              )}
+
             </>
           )}
         </div>
 
         <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-4 py-3">
-          {step === 'resolve' && importError && (
-            <p className="mr-auto text-xs text-red-600">{t('timeEstimation.wizard.importError', { message: importError })}</p>
-          )}
+          {/* handleImport now only ever runs from the 'review' step, but an
+              error must stay visible there — no longer gated on step === 'resolve'. */}
+          {importError && <p className="mr-auto text-xs text-red-600">{t('timeEstimation.wizard.importError', { message: importError })}</p>}
           {step === 'resolve' && !importError && undecidedCount > 0 && (
             <p className="mr-auto text-xs text-amber-600">
               {t('timeEstimation.wizard.undecidedWarning', { count: undecidedCount })}
@@ -1370,13 +1340,31 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
               {t('timeEstimation.wizard.continueLabel')}
             </button>
           )}
-          {step === 'resolve' && !done && (
+          {/* Advances to the review step instead of importing directly — the
+              review screen (below) is now the confirmation gate, replacing
+              the old window.confirm() popup for undecided rows. */}
+          {step === 'resolve' && (
             <button
-              onClick={() => {
-                if (undecidedCount > 0 && !window.confirm(t('timeEstimation.wizard.confirmSkipUndecided', { count: undecidedCount }))) return;
-                handleImport();
-              }}
-              disabled={!allResolved || resolving || committing}
+              onClick={() => setStep('review')}
+              disabled={!allResolved}
+              className="rounded bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-40"
+            >
+              {t('timeEstimation.wizard.continueLabel')}
+            </button>
+          )}
+          {step === 'review' && !done && (
+            <button
+              onClick={() => setStep('resolve')}
+              disabled={resolving || committing}
+              className="rounded border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {t('timeEstimation.wizard.backToResolve')}
+            </button>
+          )}
+          {step === 'review' && !done && (
+            <button
+              onClick={() => handleImport()}
+              disabled={resolving || committing}
               className="rounded bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-40"
             >
               {resolving
