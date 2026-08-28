@@ -260,14 +260,20 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
 
   const [cutoffDetection, setCutoffDetection] = useState<CutoffDetectionResult | null>(null);
   const [cutoffMonth, setCutoffMonth] = useState<number>(6);
-  const [importFields, setImportFields] = useState<ImportFieldSelection>({ n1: true, actuals: true, forecast: true });
+  // All unchecked by default (changed 2026-08-28, per user request) — an
+  // admin must actively opt each category back in, rather than a re-import
+  // silently overwriting hand-edited data (a manual grid edit, say) the
+  // moment they pick a file. Was all-true by default before this.
+  const [importFields, setImportFields] = useState<ImportFieldSelection>({ n1: false, actuals: false, forecast: false });
   // When on, any (employee, client) pair already known to the tool (see
   // existingPairKeys above) is left completely untouched by this import —
   // no N-1/actuals/forecast write, no marker-clearing, no total recompute —
   // so a re-import can add newly-appeared pairs without risking a manual
-  // edit on an existing one. Off by default: the historical, still most
-  // common case is a full reimport meant to win outright (see handleImport).
-  const [onlyNewPairs, setOnlyNewPairs] = useState(false);
+  // edit on an existing one. On by default (changed 2026-08-28, per user
+  // request, same reasoning as importFields above) — a full reimport
+  // meaning to knowingly overwrite existing pairs is still one click away,
+  // it's just no longer the silent default.
+  const [onlyNewPairs, setOnlyNewPairs] = useState(true);
 
   const [employeeResolutions, setEmployeeResolutions] = useState<Record<string, EmployeeResolution>>({});
   const [clientResolutions, setClientResolutions] = useState<Record<string, ClientResolution>>({});
@@ -331,8 +337,8 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
     setImportError(null);
     setProgress(null);
     setClientFilter(new Set());
-    setImportFields({ n1: true, actuals: true, forecast: true });
-    setOnlyNewPairs(false);
+    setImportFields({ n1: false, actuals: false, forecast: false });
+    setOnlyNewPairs(true);
     try {
       const buffer = await selected.arrayBuffer();
       const { n1Rows: parsedN1, nRows: parsedN } = parseCombinedWorkbook(buffer);
@@ -1335,7 +1341,13 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
           {step === 'cutoff' && (
             <button
               onClick={() => setStep('resolve')}
-              className="rounded bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700"
+              disabled={!importFields.n1 && !importFields.actuals && !importFields.forecast}
+              title={
+                !importFields.n1 && !importFields.actuals && !importFields.forecast
+                  ? t('timeEstimation.wizard.noDataSelectedHint')
+                  : undefined
+              }
+              className="rounded bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {t('timeEstimation.wizard.continueLabel')}
             </button>

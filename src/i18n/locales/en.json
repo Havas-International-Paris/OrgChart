@@ -706,6 +706,7 @@
       "importFieldN1": "N-1 totals",
       "importFieldActuals": "Actual time (past months)",
       "importFieldForecast": "Forecast (upcoming months)",
+      "noDataSelectedHint": "Check at least one data category to import before continuing.",
       "importModeTitle": "Import mode",
       "onlyNewPairsLabel": "Only import new employee/client pairs",
       "onlyNewPairsHint": "Any pair already in the tool is left completely untouched — nothing is overwritten, including manual edits. Only pairs that don't exist yet are imported.",

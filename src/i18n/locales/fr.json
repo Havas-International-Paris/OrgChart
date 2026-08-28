@@ -706,6 +706,7 @@
       "importFieldN1": "Totaux N-1",
       "importFieldActuals": "Temps réel (mois passés)",
       "importFieldForecast": "Prévisionnel (mois à venir)",
+      "noDataSelectedHint": "Cochez au moins une catégorie de données à importer pour continuer.",
       "importModeTitle": "Mode d'import",
       "onlyNewPairsLabel": "N'importer que les nouvelles paires salarié/client",
       "onlyNewPairsHint": "Toute paire déjà présente dans l'outil reste totalement inchangée — rien n'est écrasé, y compris les modifications manuelles. Seules les paires qui n'existent pas encore sont importées.",
