@@ -287,6 +287,13 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
 
   const [employeeResolutions, setEmployeeResolutions] = useState<Record<string, EmployeeResolution>>({});
   const [clientResolutions, setClientResolutions] = useState<Record<string, ClientResolution>>({});
+  // Raw employee names that had a null-employee_id alias at parse time (i.e.
+  // explicitly "Ignorer"-ed in a past import) — tracked separately from
+  // `status` so Screen 2 can still bucket them into their own "previously
+  // ignored" section for display even though their DEFAULT decision is now
+  // seeded the same way as any other needs-review row (see
+  // handleFileSelected), not hardcoded to 'ignore' anymore.
+  const [previouslyIgnoredEmployeeNames, setPreviouslyIgnoredEmployeeNames] = useState<Set<string>>(new Set());
   const [resolving, setResolving] = useState(false);
   const [committing, setCommitting] = useState(false);
   const [done, setDone] = useState<{ actualRows: number; n1Rows: number; forecastRows: number; skippedPairs: number; newPairs: number } | null>(
@@ -361,10 +368,29 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
       );
 
       const empResolutions: Record<string, EmployeeResolution> = {};
+      const previouslyIgnored = new Set<string>();
       for (const rawName of distinctEmployeeNames) {
         const alias = employeeAliases.find((a) => a.raw_name === rawName);
         if (alias) {
-          empResolutions[rawName] = { status: 'auto', employeeId: alias.employee_id, decision: alias.employee_id ? 'match' : 'ignore' };
+          if (alias.employee_id) {
+            empResolutions[rawName] = { status: 'auto', employeeId: alias.employee_id, decision: 'match' };
+          } else {
+            // A raw name explicitly marked "Ignorer" in a past import — still
+            // shown (in its own "previously ignored" section, tracked via
+            // previouslyIgnoredEmployeeNames below, not via `status`) so the
+            // admin can reconsider it, but its DEFAULT resolution is no
+            // longer the remembered ignore: it gets the same Create/Match
+            // default as a genuinely new name, since the alias having
+            // existed at all doesn't make ignoring it forever the right
+            // default. `status: 'needs-review'` (not 'auto') is required
+            // here, not just cosmetic — handleImport's `status === 'auto'`
+            // branch reuses the resolution's employeeId as-is with no
+            // network write, which would silently keep writing null (i.e.
+            // stay ignored) even if the seeded decision below is 'create' or
+            // 'match'.
+            previouslyIgnored.add(rawName);
+            empResolutions[rawName] = seedNeedsReviewEmployeeResolution(rawName, registryEmployees);
+          }
           continue;
         }
         const matches = registryEmployees.filter((e) => matchesEmployeeName(rawName, e.first_name, e.last_name));
@@ -380,6 +406,7 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
         empResolutions[rawName] = seedNeedsReviewEmployeeResolution(rawName, registryEmployees);
       }
       setEmployeeResolutions(empResolutions);
+      setPreviouslyIgnoredEmployeeNames(previouslyIgnored);
 
       const cliResolutions: Record<string, ClientResolution> = {};
       for (const rawName of distinctClientNames) {
@@ -449,19 +476,21 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
     [clientResolutions],
   );
   const employeesNeedingReviewAll = useMemo(
-    () => Object.entries(employeeResolutions).filter(([, r]) => r.status === 'needs-review'),
-    [employeeResolutions],
+    () => Object.entries(employeeResolutions).filter(([rawName, r]) => r.status === 'needs-review' && !previouslyIgnoredEmployeeNames.has(rawName)),
+    [employeeResolutions, previouslyIgnoredEmployeeNames],
   );
   // A raw employee name that was explicitly marked "Ignorer" in a PAST
-  // import gets an alias row with employee_id === null (handleFileSelected
-  // above) — status: 'auto', decision: 'ignore', matching an
-  // already-resolved 'match' alias in every way except its target. That
-  // decision then silently repeats on every future import, forever, with
-  // no way to reconsider it. This list surfaces them for reconsideration —
-  // same Create/Match/Ignore controls as "needs review" rows.
+  // import gets an alias row with employee_id === null — that decision used
+  // to silently repeat on every future import forever; this list surfaces
+  // them for reconsideration instead, bucketed via
+  // previouslyIgnoredEmployeeNames (set once in handleFileSelected) rather
+  // than by any property of the resolution itself, since its DEFAULT
+  // decision is now seeded the same Create/Match way as any other
+  // needs-review row (no longer hardcoded to 'ignore') — same Create/Match/
+  // Ignore controls as "needs review" rows either way.
   const employeesPreviouslyIgnoredAll = useMemo(
-    () => Object.entries(employeeResolutions).filter(([, r]) => r.status === 'auto' && r.decision === 'ignore'),
-    [employeeResolutions],
+    () => Object.entries(employeeResolutions).filter(([rawName]) => previouslyIgnoredEmployeeNames.has(rawName)),
+    [employeeResolutions, previouslyIgnoredEmployeeNames],
   );
 
   // No 'allResolved' gate anymore — Screen 2 no longer requires resolving
