@@ -1,6 +1,7 @@
 import { splitPersonName, toTitleCase, type InputN1Row, type InputNRow } from './timeImportParsing';
 import { employeeNameSimilarity, etpFractionToPct } from './timeEstimationMath';
 import type { TimeActualUpsertRow } from '../services/timeEstimationService';
+import type { TimeManualEditMarker } from '../types/domain';
 
 // Pure logic for ImportTimeActualsWizard.tsx's resolution/diff/selection half
 // — the counterpart to timeImportParsing.ts (which handles the *parsing*
@@ -253,6 +254,34 @@ export function computeAllResolvablePairsSelection(
   return selected;
 }
 
+// "Skip pairs whose forecast was manually edited" (dataOptions screen,
+// nested under the forecast checkbox) — a pair is protected if
+// time_manual_edit_markers has an entry THIS year on one of its own future
+// months (m{cutoffMonth}..m11, 0-indexed the same way handleImport's own
+// touchField does — see ImportTimeActualsWizard.tsx) or on avgRemaining
+// (the "moyenne restante" cell). Deliberately does NOT check the `total`
+// field: it blends past+future into one number, so a manual edit there
+// doesn't necessarily mean the forecast side specifically was hand-set —
+// could equally have been a past-only edit. Returns RESOLVED-id pair keys
+// (`${employeeId}::${clientMissionId}`, same format as existingPairKeys/
+// affectedPairKeys) since markers only ever carry real ids, never raw names.
+export function computeManuallyEditedForecastPairs(
+  markers: TimeManualEditMarker[],
+  year: number,
+  cutoffMonth: number,
+): Set<string> {
+  const protectedPairs = new Set<string>();
+  for (const m of markers) {
+    if (m.year !== year) continue;
+    const monthMatch = /^m(\d+)$/.exec(m.field);
+    const isFutureMonth = monthMatch != null && Number(monthMatch[1]) >= cutoffMonth;
+    if (isFutureMonth || m.field === 'avgRemaining') {
+      protectedPairs.add(`${m.employee_id}::${m.client_mission_id}`);
+    }
+  }
+  return protectedPairs;
+}
+
 export interface ImportRowPlan {
   n1UpsertRows: Array<{ employee_id: string; client_mission_id: string; year: number; total_pct: number }>;
   // batch_id is deliberately absent: the batch row doesn't exist yet at
@@ -265,6 +294,10 @@ export interface ImportRowPlan {
   affectedPairKeys: Set<string>;
   // Subset of affectedPairKeys not already in existingPairKeys.
   newPairKeys: Set<string>;
+  // Pairs whose forecast was skipped because they're in
+  // protectedForecastPairKeys AND the file actually had a future-month value
+  // to write for them — actuals/N-1 for these pairs are unaffected.
+  forecastSkippedProtectedPairKeys: Set<string>;
 }
 
 // Builds every row this import would write — the shared core between the
@@ -284,10 +317,16 @@ export function buildImportRowPlan(params: {
   existingPairKeys: Set<string>;
   importFields: ImportFieldSelection;
   selectedPairKeys: Set<string>;
+  // Resolved-id pair keys (computeManuallyEditedForecastPairs) whose
+  // forecast months are skipped regardless of selection/importFields.forecast
+  // — actuals/N-1 for the SAME pair are unaffected, this only ever narrows
+  // forecastUpsertRows. Empty set = no protection (the checkbox unchecked).
+  protectedForecastPairKeys: Set<string>;
   year: number;
   cutoffMonth: number;
 }): ImportRowPlan {
-  const { n1Rows, nRows, employeeIds, clientIds, existingPairKeys, importFields, selectedPairKeys, year, cutoffMonth } = params;
+  const { n1Rows, nRows, employeeIds, clientIds, existingPairKeys, importFields, selectedPairKeys, protectedForecastPairKeys, year, cutoffMonth } =
+    params;
 
   const affectedPairKeys = new Set<string>();
   const newPairKeys = new Set<string>();
@@ -321,8 +360,14 @@ export function buildImportRowPlan(params: {
     else n1UpsertByKey.set(key, { employee_id: employeeId, client_mission_id: clientMissionId, year: totalYear, total_pct: totalPct });
   };
   const forecastUpsertByKey = new Map<string, ImportRowPlan['forecastUpsertRows'][number]>();
+  const skippedProtectedPairKeys = new Set<string>();
   const addForecast = (employeeId: string, clientMissionId: string, forecastYear: number, month: number, pct: number) => {
-    const key = `${employeeId}::${clientMissionId}::${forecastYear}::${month}`;
+    const pairKey = `${employeeId}::${clientMissionId}`;
+    if (protectedForecastPairKeys.has(pairKey)) {
+      skippedProtectedPairKeys.add(pairKey);
+      return;
+    }
+    const key = `${pairKey}::${forecastYear}::${month}`;
     const existing = forecastUpsertByKey.get(key);
     if (existing) existing.pct += pct;
     else forecastUpsertByKey.set(key, { employee_id: employeeId, client_mission_id: clientMissionId, year: forecastYear, month, pct });
@@ -445,6 +490,7 @@ export function buildImportRowPlan(params: {
     forecastUpsertRows: Array.from(forecastUpsertByKey.values()),
     affectedPairKeys,
     newPairKeys,
+    forecastSkippedProtectedPairKeys: skippedProtectedPairKeys,
   };
 }
 
@@ -501,6 +547,10 @@ export interface ImportDiffSummary {
   unresolvedPairsCount: number;
   plannedRowCounts: { n1: number; actuals: number; forecast: number };
   undecidedCount: number;
+  // Pairs whose forecast was left untouched this run specifically because
+  // they're protected (skip-manually-edited-forecast checkbox) — a subset of
+  // the pairs that WOULD otherwise have had a forecast row written.
+  forecastSkippedManuallyEditedCount: number;
 }
 
 // The review screen's single entry point — computed purely from state
@@ -518,11 +568,23 @@ export function computeImportDiffSummary(
   existingPairKeys: Set<string>,
   importFields: ImportFieldSelection,
   selectedPairKeys: Set<string>,
+  protectedForecastPairKeys: Set<string>,
   year: number,
   cutoffMonth: number,
 ): ImportDiffSummary {
   const { employeeIds, clientIds } = previewResolvedIds(employeeResolutions, clientResolutions);
-  const plan = buildImportRowPlan({ n1Rows, nRows, employeeIds, clientIds, existingPairKeys, importFields, selectedPairKeys, year, cutoffMonth });
+  const plan = buildImportRowPlan({
+    n1Rows,
+    nRows,
+    employeeIds,
+    clientIds,
+    existingPairKeys,
+    importFields,
+    selectedPairKeys,
+    protectedForecastPairKeys,
+    year,
+    cutoffMonth,
+  });
 
   const rawPairs = computeDistinctRawPairs(n1Rows, nRows);
   let newPairsSelectedCount = 0;
@@ -567,5 +629,6 @@ export function computeImportDiffSummary(
     undecidedCount:
       Object.values(employeeResolutions).filter((r) => r.decision === null).length +
       Object.values(clientResolutions).filter((r) => r.decision === null).length,
+    forecastSkippedManuallyEditedCount: plan.forecastSkippedProtectedPairKeys.size,
   };
 }

@@ -26,6 +26,7 @@ import {
   computeDefaultPairSelection,
   computeDistinctRawPairs,
   computeImportDiffSummary,
+  computeManuallyEditedForecastPairs,
   computeOnlyNewPairsSelection,
   computeRelevantUnresolvedNames,
   employeeResolutionAllowsContinue,
@@ -284,6 +285,13 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
   // back in, rather than a re-import silently overwriting hand-edited data
   // (a manual grid edit, say) the moment they pick a file.
   const [importFields, setImportFields] = useState<ImportFieldSelection>({ n1: false, actuals: false, forecast: false });
+  // Nested under the forecast checkbox — checked by default (same "safest
+  // option wins" convention as importFields/onlyNewPairs above): a pair
+  // whose forecast was hand-typed in the grid keeps that value untouched
+  // this run, while its actuals/N-1 still import normally. See
+  // computeManuallyEditedForecastPairs (timeImportDiff.ts) for exactly what
+  // counts as "manually edited."
+  const [skipManuallyEditedForecast, setSkipManuallyEditedForecast] = useState(true);
 
   const [employeeResolutions, setEmployeeResolutions] = useState<Record<string, EmployeeResolution>>({});
   const [clientResolutions, setClientResolutions] = useState<Record<string, ClientResolution>>({});
@@ -331,12 +339,31 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
   // buildImportRowPlan with handleImport's real commit (via
   // computeImportDiffSummary), so this preview can never disagree with what
   // actually gets written.
+  // Empty when the checkbox is off — buildImportRowPlan/computeImportDiffSummary
+  // treat an empty protectedForecastPairKeys as "nothing is protected," so
+  // unchecking the box needs no separate code path.
+  const protectedForecastPairKeys = useMemo(
+    () => (skipManuallyEditedForecast ? computeManuallyEditedForecastPairs(timeManualEditMarkers, year, cutoffMonth) : new Set<string>()),
+    [skipManuallyEditedForecast, timeManualEditMarkers, year, cutoffMonth],
+  );
+
   const diffSummary = useMemo(
     () =>
       step === 'review'
-        ? computeImportDiffSummary(employeeResolutions, clientResolutions, n1Rows, nRows, existingPairKeys, importFields, selectedPairKeys, year, cutoffMonth)
+        ? computeImportDiffSummary(
+            employeeResolutions,
+            clientResolutions,
+            n1Rows,
+            nRows,
+            existingPairKeys,
+            importFields,
+            selectedPairKeys,
+            protectedForecastPairKeys,
+            year,
+            cutoffMonth,
+          )
         : null,
-    [step, employeeResolutions, clientResolutions, n1Rows, nRows, existingPairKeys, importFields, selectedPairKeys, year, cutoffMonth],
+    [step, employeeResolutions, clientResolutions, n1Rows, nRows, existingPairKeys, importFields, selectedPairKeys, protectedForecastPairKeys, year, cutoffMonth],
   );
 
   async function handleFileSelected(selected: File) {
@@ -656,7 +683,18 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
       // step's preview so the two can never disagree on this logic. batch_id
       // is attached here, not inside the plan, since the batch row doesn't
       // exist until the line above.
-      const plan = buildImportRowPlan({ n1Rows, nRows, employeeIds, clientIds, existingPairKeys, importFields, selectedPairKeys, year, cutoffMonth });
+      const plan = buildImportRowPlan({
+        n1Rows,
+        nRows,
+        employeeIds,
+        clientIds,
+        existingPairKeys,
+        importFields,
+        selectedPairKeys,
+        protectedForecastPairKeys,
+        year,
+        cutoffMonth,
+      });
       const n1UpsertRows = plan.n1UpsertRows;
       const actualUpsertRows: TimeActualUpsertRow[] = plan.actualUpsertRows.map((row) => ({ ...row, batch_id: batch.id }));
       const forecastUpsertRows = plan.forecastUpsertRows;
@@ -1217,6 +1255,15 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
                         />
                         {t('timeEstimation.wizard.importFieldForecast')}
                       </label>
+                      <label className={`ml-6 flex items-center gap-2 text-sm ${importFields.forecast ? 'text-slate-700' : 'text-slate-400'}`}>
+                        <input
+                          type="checkbox"
+                          checked={skipManuallyEditedForecast}
+                          disabled={!importFields.forecast}
+                          onChange={() => setSkipManuallyEditedForecast((prev) => !prev)}
+                        />
+                        {t('timeEstimation.wizard.skipManuallyEditedForecast')}
+                      </label>
                     </div>
                   </section>
 
@@ -1382,6 +1429,11 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
                             to: monthLabel(12),
                             count: diffSummary.plannedRowCounts.forecast,
                           })}
+                        </p>
+                      )}
+                      {importFields.forecast && skipManuallyEditedForecast && diffSummary.forecastSkippedManuallyEditedCount > 0 && (
+                        <p className="text-slate-500">
+                          {t('timeEstimation.wizard.reviewForecastSkippedManual', { count: diffSummary.forecastSkippedManuallyEditedCount })}
                         </p>
                       )}
                     </div>

@@ -5,6 +5,7 @@ import {
   computeDefaultPairSelection,
   computeDistinctRawPairs,
   computeImportDiffSummary,
+  computeManuallyEditedForecastPairs,
   computeOnlyNewPairsSelection,
   computeRelevantUnresolvedNames,
   isNewPairKey,
@@ -16,6 +17,7 @@ import {
   type ImportFieldSelection,
 } from './timeImportDiff';
 import type { InputN1Row, InputNRow } from './timeImportParsing';
+import type { TimeManualEditMarker } from '../types/domain';
 
 const ALL_FIELDS: ImportFieldSelection = { n1: true, actuals: true, forecast: true };
 
@@ -210,6 +212,46 @@ describe('computeAllResolvablePairsSelection', () => {
   });
 });
 
+describe('computeManuallyEditedForecastPairs', () => {
+  function marker(overrides: Partial<TimeManualEditMarker> = {}): TimeManualEditMarker {
+    return {
+      id: 'marker1',
+      employee_id: 'emp1',
+      client_mission_id: 'client1',
+      year: 2026,
+      field: 'm7',
+      edited_at: '2026-01-01T00:00:00Z',
+      ...overrides,
+    };
+  }
+
+  it('protects a pair with a marker on a future month', () => {
+    // cutoffMonth 6 means months 6..11 (0-indexed) are future.
+    const protectedPairs = computeManuallyEditedForecastPairs([marker({ field: 'm7' })], 2026, 6);
+    expect(protectedPairs).toEqual(new Set(['emp1::client1']));
+  });
+
+  it('protects a pair with a marker on avgRemaining', () => {
+    const protectedPairs = computeManuallyEditedForecastPairs([marker({ field: 'avgRemaining' })], 2026, 6);
+    expect(protectedPairs).toEqual(new Set(['emp1::client1']));
+  });
+
+  it('does not protect a pair whose marker is on a PAST month', () => {
+    const protectedPairs = computeManuallyEditedForecastPairs([marker({ field: 'm2' })], 2026, 6);
+    expect(protectedPairs.size).toBe(0);
+  });
+
+  it('does not protect a pair whose marker is only on total', () => {
+    const protectedPairs = computeManuallyEditedForecastPairs([marker({ field: 'total' })], 2026, 6);
+    expect(protectedPairs.size).toBe(0);
+  });
+
+  it('ignores a marker from a different year', () => {
+    const protectedPairs = computeManuallyEditedForecastPairs([marker({ field: 'm7', year: 2025 })], 2026, 6);
+    expect(protectedPairs.size).toBe(0);
+  });
+});
+
 describe('buildImportRowPlan', () => {
   const employeeIds = new Map([['Jean Dupont', 'emp1']]);
   const clientIds = new Map([['Client A', 'client1']]);
@@ -224,6 +266,7 @@ describe('buildImportRowPlan', () => {
       existingPairKeys: new Set(),
       importFields: { n1: false, actuals: false, forecast: false },
       selectedPairKeys: selectAll,
+      protectedForecastPairKeys: new Set(),
       year: 2026,
       cutoffMonth: 6,
     });
@@ -241,6 +284,7 @@ describe('buildImportRowPlan', () => {
       existingPairKeys: new Set(),
       importFields: ALL_FIELDS,
       selectedPairKeys: selectAll,
+      protectedForecastPairKeys: new Set(),
       year: 2026,
       cutoffMonth: 6,
     });
@@ -259,6 +303,7 @@ describe('buildImportRowPlan', () => {
       existingPairKeys: new Set(),
       importFields: ALL_FIELDS,
       selectedPairKeys: selectAll,
+      protectedForecastPairKeys: new Set(),
       year: 2026,
       cutoffMonth: 6,
     });
@@ -275,6 +320,7 @@ describe('buildImportRowPlan', () => {
       existingPairKeys: new Set(['emp1::client1']),
       importFields: ALL_FIELDS,
       selectedPairKeys: new Set(), // nothing selected
+      protectedForecastPairKeys: new Set(),
       year: 2026,
       cutoffMonth: 6,
     });
@@ -293,6 +339,7 @@ describe('buildImportRowPlan', () => {
       existingPairKeys: new Set(),
       importFields: ALL_FIELDS,
       selectedPairKeys: selectAll,
+      protectedForecastPairKeys: new Set(),
       year: 2026,
       cutoffMonth: 6,
     });
@@ -311,6 +358,7 @@ describe('buildImportRowPlan', () => {
       existingPairKeys: new Set(),
       importFields: ALL_FIELDS,
       selectedPairKeys: selectAll,
+      protectedForecastPairKeys: new Set(),
       year: 2026,
       cutoffMonth: 6,
     });
@@ -333,6 +381,7 @@ describe('buildImportRowPlan', () => {
       existingPairKeys: new Set(['some-other-real-emp::client1']),
       importFields: ALL_FIELDS,
       selectedPairKeys: selectAll,
+      protectedForecastPairKeys: new Set(),
       year: 2026,
       cutoffMonth: 6,
     });
@@ -348,6 +397,7 @@ describe('buildImportRowPlan', () => {
       existingPairKeys: new Set(),
       importFields: ALL_FIELDS,
       selectedPairKeys: selectAll,
+      protectedForecastPairKeys: new Set(),
       year: 2026,
       cutoffMonth: 6,
     });
@@ -376,6 +426,7 @@ describe('buildImportRowPlan', () => {
       existingPairKeys: new Set(),
       importFields: ALL_FIELDS,
       selectedPairKeys: bothSelected,
+      protectedForecastPairKeys: new Set(),
       year: 2026,
       cutoffMonth: 6,
     });
@@ -383,6 +434,25 @@ describe('buildImportRowPlan', () => {
     expect(plan.n1UpsertRows[0].total_pct).toBeCloseTo(15); // 10% + 5%
     expect(plan.forecastUpsertRows).toHaveLength(6); // one per remaining month, not twelve
     expect(plan.forecastUpsertRows.every((r) => r.pct === 30)).toBe(true); // 10% + 20% each month
+  });
+
+  it('skips forecast for a protected pair but still writes its actuals and N-1', () => {
+    const plan = buildImportRowPlan({
+      n1Rows: [n1Row()],
+      nRows: [nRow()],
+      employeeIds,
+      clientIds,
+      existingPairKeys: new Set(),
+      importFields: ALL_FIELDS,
+      selectedPairKeys: selectAll,
+      protectedForecastPairKeys: new Set(['emp1::client1']),
+      year: 2026,
+      cutoffMonth: 6,
+    });
+    expect(plan.forecastUpsertRows).toEqual([]);
+    expect(plan.actualUpsertRows).toHaveLength(6);
+    expect(plan.n1UpsertRows).toHaveLength(1);
+    expect(plan.forecastSkippedProtectedPairKeys).toEqual(new Set(['emp1::client1']));
   });
 });
 
@@ -446,7 +516,7 @@ describe('computeImportDiffSummary', () => {
     const nRows: InputNRow[] = [nRow({ annonceur: 'Matched Client', employeeName: 'Matched Employee' })];
     const selectedPairKeys = new Set([rawPairKey('Matched Employee', 'Matched Client')]);
 
-    const summary = computeImportDiffSummary(employeeResolutions, clientResolutions, n1Rows, nRows, new Set(), ALL_FIELDS, selectedPairKeys, 2026, 6);
+    const summary = computeImportDiffSummary(employeeResolutions, clientResolutions, n1Rows, nRows, new Set(), ALL_FIELDS, selectedPairKeys, new Set(), 2026, 6);
 
     expect(summary.employeesToCreate).toEqual(['New Employee']);
     expect(summary.employeesMatchedCount).toBe(1);
@@ -478,6 +548,7 @@ describe('computeImportDiffSummary', () => {
       new Set(['emp1::client1']),
       ALL_FIELDS,
       selectedPairKeys,
+      new Set(),
       2026,
       6,
     );
@@ -500,6 +571,7 @@ describe('computeImportDiffSummary', () => {
       new Set(['emp1::client1']),
       ALL_FIELDS,
       new Set(), // nothing selected
+      new Set(),
       2026,
       6,
     );
@@ -521,7 +593,7 @@ describe('computeImportDiffSummary', () => {
     const clientResolutions: Record<string, ClientResolution> = {
       'CLIENT A': { status: 'needs-review', clientMissionId: null, decision: 'create' },
     };
-    const summary = computeImportDiffSummary(employeeResolutions, clientResolutions, [], [], new Set(), ALL_FIELDS, new Set(), 2026, 6);
+    const summary = computeImportDiffSummary(employeeResolutions, clientResolutions, [], [], new Set(), ALL_FIELDS, new Set(), new Set(), 2026, 6);
     expect(summary.employeesToCreate).toEqual(['JEAN DUPONT']);
     expect(summary.clientsToCreate).toEqual(['Client A']);
   });
