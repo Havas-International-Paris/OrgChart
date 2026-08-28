@@ -278,11 +278,41 @@ export function buildImportRowPlan(params: {
     if (isNewPairKey(employeeId, clientMissionId, existingPairKeys)) newPairKeys.add(key);
   };
 
+  // n1UpsertRows/forecastUpsertRows are built into a Map keyed by their own
+  // upsert's RESOLVED-id conflict target (employee_id/client_mission_id/
+  // year[/month] — see upsertTimeActualN1Totals/upsertTimeForecastMonths,
+  // timeEstimationService.ts), summing on collision, rather than pushed
+  // straight into an array. Two different raw names can resolve to the same
+  // real employee (an unaliased spelling variant that both independently
+  // matched/were matched to one registry employee) or client — ordinary and
+  // expected, not a data error — and if pairs for both ended up selected at
+  // Screen 3, two rows with an IDENTICAL conflict key would land in the same
+  // upsert() call, which Postgres rejects outright ("ON CONFLICT DO UPDATE
+  // command cannot affect row a second time"), not merges. time_actuals has
+  // no such problem — its own onConflict is on the RAW name columns, so it
+  // deliberately keeps one row per raw variant and sums them at read time
+  // (see that table's own comments) — n1/forecast have no raw-name column at
+  // all to disambiguate by, so the sum has to happen here, at write time,
+  // instead.
+  const n1UpsertByKey = new Map<string, ImportRowPlan['n1UpsertRows'][number]>();
+  const addN1 = (employeeId: string, clientMissionId: string, totalYear: number, totalPct: number) => {
+    const key = `${employeeId}::${clientMissionId}::${totalYear}`;
+    const existing = n1UpsertByKey.get(key);
+    if (existing) existing.total_pct += totalPct;
+    else n1UpsertByKey.set(key, { employee_id: employeeId, client_mission_id: clientMissionId, year: totalYear, total_pct: totalPct });
+  };
+  const forecastUpsertByKey = new Map<string, ImportRowPlan['forecastUpsertRows'][number]>();
+  const addForecast = (employeeId: string, clientMissionId: string, forecastYear: number, month: number, pct: number) => {
+    const key = `${employeeId}::${clientMissionId}::${forecastYear}::${month}`;
+    const existing = forecastUpsertByKey.get(key);
+    if (existing) existing.pct += pct;
+    else forecastUpsertByKey.set(key, { employee_id: employeeId, client_mission_id: clientMissionId, year: forecastYear, month, pct });
+  };
+
   // 1. N-1 annual totals — one row per (employee, client), no month. A null
   // total on a real (employee, client) row means 0% that year, not "no
   // data" — the row only exists at all because this pair genuinely appears
   // in the file.
-  const n1UpsertRows: ImportRowPlan['n1UpsertRows'] = [];
   if (importFields.n1) {
     for (const row of n1Rows) {
       if (!row.employeeName || !row.annonceur) continue;
@@ -290,14 +320,13 @@ export function buildImportRowPlan(params: {
       const employeeId = employeeIds.get(row.employeeName);
       const clientMissionId = clientIds.get(row.annonceur);
       if (!employeeId || !clientMissionId) continue;
-      n1UpsertRows.push({ employee_id: employeeId, client_mission_id: clientMissionId, year: year - 1, total_pct: etpFractionToPct(row.n1TotalFraction ?? 0) });
+      addN1(employeeId, clientMissionId, year - 1, etpFractionToPct(row.n1TotalFraction ?? 0));
     }
   }
 
   // 2. Past months (1..cutoffMonth) → time_actuals.
   // 3. Future months (cutoffMonth+1..12) → time_forecast_months.
   const actualUpsertRows: ImportRowPlan['actualUpsertRows'] = [];
-  const forecastUpsertRows: ImportRowPlan['forecastUpsertRows'] = [];
 
   for (const row of nRows) {
     if (!row.employeeName || !row.annonceur) continue;
@@ -331,7 +360,7 @@ export function buildImportRowPlan(params: {
         });
       } else {
         if (!importFields.forecast) return;
-        forecastUpsertRows.push({ employee_id: employeeId, client_mission_id: clientMissionId, year, month, pct });
+        addForecast(employeeId, clientMissionId, year, month, pct);
       }
     });
   }
@@ -356,7 +385,7 @@ export function buildImportRowPlan(params: {
       const employeeId = employeeIds.get(rawEmployeeName);
       const clientMissionId = clientIds.get(rawAnnonceur);
       if (!employeeId || !clientMissionId) continue;
-      n1UpsertRows.push({ employee_id: employeeId, client_mission_id: clientMissionId, year: year - 1, total_pct: 0 });
+      addN1(employeeId, clientMissionId, year - 1, 0);
     }
   }
 
@@ -386,12 +415,18 @@ export function buildImportRowPlan(params: {
         });
       } else {
         if (!importFields.forecast) continue;
-        forecastUpsertRows.push({ employee_id: employeeId, client_mission_id: clientMissionId, year, month, pct: 0 });
+        addForecast(employeeId, clientMissionId, year, month, 0);
       }
     }
   }
 
-  return { n1UpsertRows, actualUpsertRows, forecastUpsertRows, affectedPairKeys, newPairKeys };
+  return {
+    n1UpsertRows: Array.from(n1UpsertByKey.values()),
+    actualUpsertRows,
+    forecastUpsertRows: Array.from(forecastUpsertByKey.values()),
+    affectedPairKeys,
+    newPairKeys,
+  };
 }
 
 // Which raw employee/client names still need a decision but are relevant to

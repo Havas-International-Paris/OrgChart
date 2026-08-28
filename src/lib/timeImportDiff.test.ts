@@ -335,6 +335,34 @@ describe('buildImportRowPlan', () => {
     expect(plan.forecastUpsertRows).toEqual([]);
     expect(plan.affectedPairKeys.size).toBe(0);
   });
+
+  it('sums n1/forecast into one row, not two, when two raw names resolve to the same employee', () => {
+    // "Jean Dupont" and "J. Dupont" — two raw spellings both resolved to the
+    // same real employee id. n1_totals/forecast_months have no raw-name
+    // column to disambiguate by (unlike time_actuals), so two rows sharing
+    // the same (employee_id, client_mission_id, year[, month]) would collide
+    // in a single upsert() call and Postgres would reject the whole batch.
+    const sharedEmployeeIds = new Map([
+      ['Jean Dupont', 'emp1'],
+      ['J. Dupont', 'emp1'],
+    ]);
+    const bothSelected = new Set([rawPairKey('Jean Dupont', 'Client A'), rawPairKey('J. Dupont', 'Client A')]);
+    const plan = buildImportRowPlan({
+      n1Rows: [n1Row({ n1TotalFraction: 0.1 }), n1Row({ employeeName: 'J. Dupont', n1TotalFraction: 0.05 })],
+      nRows: [nRow({ monthlyFractions: Array(12).fill(0.1) }), nRow({ employeeName: 'J. Dupont', monthlyFractions: Array(12).fill(0.2) })],
+      employeeIds: sharedEmployeeIds,
+      clientIds,
+      existingPairKeys: new Set(),
+      importFields: ALL_FIELDS,
+      selectedPairKeys: bothSelected,
+      year: 2026,
+      cutoffMonth: 6,
+    });
+    expect(plan.n1UpsertRows).toHaveLength(1);
+    expect(plan.n1UpsertRows[0].total_pct).toBeCloseTo(15); // 10% + 5%
+    expect(plan.forecastUpsertRows).toHaveLength(6); // one per remaining month, not twelve
+    expect(plan.forecastUpsertRows.every((r) => r.pct === 30)).toBe(true); // 10% + 20% each month
+  });
 });
 
 describe('computeRelevantUnresolvedNames', () => {
