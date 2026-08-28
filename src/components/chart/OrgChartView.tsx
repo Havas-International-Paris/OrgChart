@@ -193,6 +193,7 @@ export function OrgChartView() {
         }}
         onPaneClick={() => {
           setSelectedEmployee(null);
+          nodes.clearEdgeSelection();
         }}
         // Right-click menus (backlog item 34, extended to links same day) —
         // preventDefault suppresses the browser's own native context menu.
@@ -202,11 +203,14 @@ export function OrgChartView() {
           event.preventDefault();
           actions.openContextMenu(node.id, event.clientX, event.clientY);
         }}
-        // Replaces the old click-to-select-then-click-the-'−'-button flow
-        // for deleting a relationship — hovering already highlights a link
-        // (useChartNodes.ts's hoveredEdgeId), so click-to-select no longer
-        // had any purpose once its one job, revealing the delete button,
-        // moved here.
+        // Left-click highlights this one relationship (its two endpoint
+        // cards + the line itself, useChartNodes.ts's selectedEdgeId) — lets
+        // the user pick out exactly which manager/employee pair a line
+        // connects when several overlap. Changed 2026-08-28 from a hover
+        // trigger to a click, per user request.
+        onEdgeClick={(_, edge) => nodes.handleEdgeClick(edge.id)}
+        // Deleting a relationship is this same right-click menu (one item),
+        // not the old click-to-select-then-click-the-'−'-button flow.
         onEdgeContextMenu={(event, edge) => {
           event.preventDefault();
           actions.openEdgeContextMenu(edge.id, event.clientX, event.clientY);

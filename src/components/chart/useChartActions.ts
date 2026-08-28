@@ -272,10 +272,10 @@ export function useChartActions(currentOrgChartId: string | null, data: ChartDat
   // A link's own right-click menu — replaces the old click-to-select-then-
   // click-the-'−'-button flow entirely (2026-07-30, same session as the
   // card menu above, same reasoning: a single right-click menu instead of a
-  // two-step reveal). Hovering a link already highlights it (see
-  // useChartNodes.ts's hoveredEdgeId), so click-to-select no longer served
-  // any purpose once its one remaining job — showing the delete button —
-  // moved here.
+  // two-step reveal). Deleting is right-click only; a plain left click on a
+  // link instead highlights it (see useChartNodes.ts's selectedEdgeId) —
+  // the two are independent gestures on the same edge, not a select-then-
+  // act sequence.
   const [edgeContextMenu, setEdgeContextMenu] = useState<{ edgeId: string; x: number; y: number } | null>(null);
   const openEdgeContextMenu = useCallback(
     (edgeId: string, x: number, y: number) => setEdgeContextMenu({ edgeId, x, y }),

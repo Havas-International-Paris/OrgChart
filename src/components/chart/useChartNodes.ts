@@ -39,7 +39,7 @@ interface ChartNodesInput {
 
 // The React Flow node and edge arrays, and everything that has to stay welded to
 // them: the dagre layout, the per-render styling pass, the controlled array React
-// Flow actually renders, live drag position, and hover.
+// Flow actually renders, and live drag position.
 //
 // These are ONE unit on purpose. `flowNodes`, `isDraggingRef`,
 // `displacementTargetIds` and the two drag handlers were tried as separate
@@ -101,30 +101,23 @@ export function useChartNodes({
 
   const isDraggingRef = useRef(false);
 
-  // Hovering a LINK (not a card) highlights just its own two endpoint cards
+  // Clicking a LINK (not a card) highlights just its own two endpoint cards
   // plus the link itself — a separate, narrower feature from the reporting-
-  // chain highlight above (activeEmployeeId), which is now click-only. The
-  // point here is to disambiguate one specific relationship among several
-  // that can visually overlap (a manager with many reports). Debounced
-  // (120ms) so crossing the small gap between two overlapping links doesn't
-  // flash "nothing hovered" for a frame — React Flow's per-edge native
-  // mouseenter/mouseleave have no cross-edge ordering guarantee, same reason
-  // node hover used to debounce before it was removed.
-  const [hoveredEdgeId, setHoveredEdgeId] = useState<string | null>(null);
-  const clearEdgeHoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const handleEdgeHoverChange = useCallback((edgeId: string, hovering: boolean) => {
-    if (clearEdgeHoverTimeoutRef.current) {
-      clearTimeout(clearEdgeHoverTimeoutRef.current);
-      clearEdgeHoverTimeoutRef.current = null;
-    }
-    if (hovering) {
-      setHoveredEdgeId(edgeId);
-    } else {
-      clearEdgeHoverTimeoutRef.current = setTimeout(() => {
-        clearEdgeHoverTimeoutRef.current = null;
-        setHoveredEdgeId((cur) => (cur === edgeId ? null : cur));
-      }, 120);
-    }
+  // chain highlight above (activeEmployeeId), also click-only. The point
+  // here is to disambiguate one specific relationship among several that can
+  // visually overlap (a manager with many reports). Changed 2026-08-28, per
+  // user request, from hover to click (was debounced hover before — no
+  // debounce needed now, a click is a discrete event). Wired at the
+  // <ReactFlow> level via onEdgeClick (OrgChartView.tsx calling
+  // handleEdgeClick below), the same pattern as onNodeClick/onEdgeContextMenu,
+  // rather than a per-edge data callback the way hover used to be threaded
+  // through ReportingEdge.tsx.
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+  const handleEdgeClick = useCallback((edgeId: string) => {
+    setSelectedEdgeId(edgeId);
+  }, []);
+  const clearEdgeSelection = useCallback(() => {
+    setSelectedEdgeId(null);
   }, []);
 
   // `flowNodes` is the controlled array React Flow renders; `computedNodes`
@@ -289,12 +282,12 @@ export function useChartNodes({
     [reorderGeometry],
   );
 
-  // The relationship a hovered link belongs to, if any — looked up once per
+  // The relationship a selected link belongs to, if any — looked up once per
   // render rather than per-employee inside the big memo below, since every
-  // employee's isHoverEdgeEndpoint check just needs its manager_id/employee_id.
-  const hoveredRelationship = useMemo(
-    () => (hoveredEdgeId ? (relationships.find((r) => r.id === hoveredEdgeId) ?? null) : null),
-    [hoveredEdgeId, relationships],
+  // employee's isSelectedEdgeEndpoint check just needs its manager_id/employee_id.
+  const selectedRelationship = useMemo(
+    () => (selectedEdgeId ? (relationships.find((r) => r.id === selectedEdgeId) ?? null) : null),
+    [selectedEdgeId, relationships],
   );
 
   const { nodes: computedNodes, edges } = useMemo(() => {
@@ -379,9 +372,9 @@ export function useChartNodes({
           (totalEtpReelOf(employee.id) < etpReelRange.min || totalEtpReelOf(employee.id) > etpReelRange.max)) ||
         (matchingEmployeeIds !== null && !matchingEmployeeIds.has(employee.id)) ||
         (activeEmployeeId !== null && !relatedIds.has(employee.id));
-      const isHoverEdgeEndpoint =
-        hoveredRelationship !== null &&
-        (employee.id === hoveredRelationship.manager_id || employee.id === hoveredRelationship.employee_id);
+      const isSelectedEdgeEndpoint =
+        selectedRelationship !== null &&
+        (employee.id === selectedRelationship.manager_id || employee.id === selectedRelationship.employee_id);
 
       return [
         {
@@ -404,7 +397,7 @@ export function useChartNodes({
             // in separately via the lightweight `renderedNodes` derivation
             // below, the same way flowNodes overrides live drag position.
             isDisplacementTarget: false,
-            isHoverEdgeEndpoint,
+            isSelectedEdgeEndpoint,
             incomingHandleIds,
             outgoingHandleIds,
             assignmentsCount: assignmentsOf(employee.id).length,
@@ -439,18 +432,18 @@ export function useChartNodes({
     // An edge is part of the highlighted chain if it touches the active
     // person directly (covers incoming-dotted reporters, whose edge
     // wouldn't otherwise qualify — see useReportingChain), or if both its
-    // ends sit inside the ancestor/descendant chain. The currently-hovered
-    // edge is always highlighted too, regardless of any pin chain — the
-    // user needs to see at a glance which relationship a right-click would
-    // act on, especially with several links overlapping (a manager with
-    // many reports) where only the highlighted one's color/width picks it
-    // out.
+    // ends sit inside the ancestor/descendant chain. The currently-selected
+    // (clicked) edge is always highlighted too, regardless of any pin chain
+    // — the user needs to see at a glance which relationship a right-click
+    // would act on, especially with several links overlapping (a manager
+    // with many reports) where only the highlighted one's color/width picks
+    // it out.
     const edgeHighlight = (
       managerId: string,
       employeeId: string,
       relationshipId: string,
     ): 'highlighted' | 'dimmed' | 'normal' => {
-      if (relationshipId === hoveredEdgeId) return 'highlighted';
+      if (relationshipId === selectedEdgeId) return 'highlighted';
       if (!activeEmployeeId) return 'normal';
       if (activeEmployeeId === managerId || activeEmployeeId === employeeId) return 'highlighted';
       if (chainIds.has(managerId) && chainIds.has(employeeId)) return 'highlighted';
@@ -473,7 +466,6 @@ export function useChartNodes({
 
     const edgeData = (relationship: ReportingRelationship): ReportingEdgeData => ({
       isPrimary: relationship.is_primary,
-      onHoverChange: (hovering) => handleEdgeHoverChange(relationship.id, hovering),
     });
 
     // sourceHandle/targetHandle both use the relationship's own id — see
@@ -509,14 +501,14 @@ export function useChartNodes({
       // otherwise pass behind an unrelated card; this is how the user gets
       // a clear look at exactly this one on demand instead of it always
       // trying to dodge everything.
-      const isHoveredEdge = relationship.id === hoveredEdgeId;
+      const isSelectedEdge = relationship.id === selectedEdgeId;
       return {
         ...e,
         type: 'reporting',
         sourceHandle: relationship.id,
         targetHandle: relationship.id,
         reconnectable: 'source' as const,
-        data: { ...edgeData(relationship), isHoveredEdge },
+        data: { ...edgeData(relationship), isSelectedEdge },
         style:
           state === 'highlighted'
             ? { stroke: subordinateColor(e.target), strokeWidth: 2.5, strokeDasharray: '2 4' }
@@ -564,9 +556,8 @@ export function useChartNodes({
     departmentColorByName,
     companyColorByName,
     chartColorBy,
-    hoveredEdgeId,
-    hoveredRelationship,
-    handleEdgeHoverChange,
+    selectedEdgeId,
+    selectedRelationship,
     cardDensity,
   ]);
 
@@ -601,12 +592,6 @@ export function useChartNodes({
     );
   }, [flowNodes, displacementTargetIds]);
 
-  useEffect(() => {
-    return () => {
-      if (clearEdgeHoverTimeoutRef.current) clearTimeout(clearEdgeHoverTimeoutRef.current);
-    };
-  }, []);
-
   return {
     computedNodes,
     renderedNodes,
@@ -614,5 +599,7 @@ export function useChartNodes({
     handleNodesChange,
     handleNodeDragStart,
     handleNodeDragStop,
+    handleEdgeClick,
+    clearEdgeSelection,
   };
 }

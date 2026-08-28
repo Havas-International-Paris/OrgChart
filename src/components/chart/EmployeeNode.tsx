@@ -40,12 +40,13 @@ export interface EmployeeNodeData extends Record<string, unknown> {
   // move" vs. "this is in the selected reporting chain").
   isDisplacementTarget: boolean;
   // This card is one of the two endpoints (manager or employee) of the
-  // currently-HOVERED link — see useChartNodes.ts's hoveredEdgeId. WHICH
-  // cards get this flag is narrower than isChainHighlighted on purpose (the
-  // two specific endpoints, not the whole ancestor/descendant chain — see
-  // useChartNodes.ts), but the visual treatment is deliberately identical
-  // to isChainHighlighted (below), not a distinct color.
-  isHoverEdgeEndpoint: boolean;
+  // currently-SELECTED (clicked) link — see useChartNodes.ts's
+  // selectedEdgeId. WHICH cards get this flag is narrower than
+  // isChainHighlighted on purpose (the two specific endpoints, not the
+  // whole ancestor/descendant chain — see useChartNodes.ts), but the visual
+  // treatment is deliberately identical to isChainHighlighted (below), not
+  // a distinct color.
+  isSelectedEdgeEndpoint: boolean;
   // Ordered relationship ids, one Handle rendered per entry — see
   // useChartNodes.ts for how the order (by each neighbor's laid-out x) and
   // the fallback synthetic id for a childless node are derived.
@@ -202,7 +203,7 @@ function EmployeeNodeImpl({ data }: NodeProps<Node<EmployeeNodeData>>) {
     isDimmed,
     isChainHighlighted,
     isDisplacementTarget,
-    isHoverEdgeEndpoint,
+    isSelectedEdgeEndpoint,
     incomingHandleIds,
     outgoingHandleIds,
     assignmentsTotalEtpVendu,
@@ -289,11 +290,11 @@ function EmployeeNodeImpl({ data }: NodeProps<Node<EmployeeNodeData>>) {
   // only ever applies mid-gesture, same reasoning as displacement-target
   // below. Displacement-target (drag-to-reorder, amber) is next — it only
   // ever applies while a drag is in progress.
-  // isHoverEdgeEndpoint (this card is one of the two ends of a
-  // currently-hovered LINK) deliberately renders with the EXACT SAME
-  // treatment as isChainHighlighted below — colored border + glow, in the
-  // card's OWN department color — rather than its own distinct color, so
-  // hovering a link reads as "the same kind of highlight" a user already
+  // isSelectedEdgeEndpoint (this card is one of the two ends of a
+  // currently-selected/clicked LINK) deliberately renders with the EXACT
+  // SAME treatment as isChainHighlighted below — colored border + glow, in
+  // the card's OWN department color — rather than its own distinct color,
+  // so clicking a link reads as "the same kind of highlight" a user already
   // knows from selecting a card, not a fourth unrelated color to
   // learn. Chain-highlight otherwise takes precedence over the older
   // isSelected/isMatch styling — activeEmployeeId already falls back to
@@ -307,7 +308,7 @@ function EmployeeNodeImpl({ data }: NodeProps<Node<EmployeeNodeData>>) {
       : 'border-2 border-red-500'
     : isDisplacementTarget
       ? 'border-2 border-amber-500'
-      : isChainHighlighted || isHoverEdgeEndpoint
+      : isChainHighlighted || isSelectedEdgeEndpoint
         ? 'border'
         : isSelected
           ? 'border-slate-900 ring-2 ring-slate-900'
@@ -347,7 +348,7 @@ function EmployeeNodeImpl({ data }: NodeProps<Node<EmployeeNodeData>>) {
             : { boxShadow: '0 0 0 1px #ef4444, 0 0 16px rgba(239, 68, 68, 0.5)' }
           : isDisplacementTarget
             ? { boxShadow: '0 0 0 1px #f59e0b, 0 0 16px rgba(245, 158, 11, 0.5)' }
-            : isChainHighlighted || isHoverEdgeEndpoint
+            : isChainHighlighted || isSelectedEdgeEndpoint
               ? { borderColor: swatch, boxShadow: `0 0 0 1px ${swatch}, 0 0 16px ${withAlpha(swatch, 0.5)}` }
               : {}),
       }}

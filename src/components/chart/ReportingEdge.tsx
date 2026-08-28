@@ -15,27 +15,26 @@ export interface ReportingEdgeData extends Record<string, unknown> {
   // secondary/dotted ones keep the original bezier curve — see the path
   // computation below.
   isPrimary: boolean;
-  // Hover (not click) — see useChartNodes.ts's hoveredEdgeId. Drives the
-  // highlight below; a user skimming across several stacked/overlapping
-  // links (a manager with many reports) can see at a glance which specific
-  // manager/employee pair a given line connects, without clicking anything.
-  onHoverChange: (hovering: boolean) => void;
-  // True only when the line itself is hovered — narrower than the broader
-  // chain highlight, which also fires from hovering/selecting either
+  // True only when the line itself is selected (clicked) — narrower than
+  // the broader chain highlight, which also fires from selecting either
   // endpoint card (see useChartNodes.ts). Only ever set on secondary
   // edges; primary edges never need the on-top reveal below (geometrically
   // confined to the y-band between adjacent ranks, so they never pass
   // behind an unrelated card).
-  isHoveredEdge?: boolean;
+  isSelectedEdge?: boolean;
 }
 
-// Deleting a relationship is now a right-click menu (OrgChartView.tsx's
-// onEdgeContextMenu + ContextMenu), not a click-to-select-then-click-the-
-// delete-button flow — this component no longer owns any click/selection
-// state at all, only the hover highlight and the path itself. Reassigning
-// the manager end is a native React Flow reconnect drag on the edge's own
-// rendered endpoint (see EmployeeNode.tsx's per-relationship Handles and
-// OrgChartView.tsx's onReconnect).
+// Deleting a relationship is a right-click menu (OrgChartView.tsx's
+// onEdgeContextMenu + ContextMenu). Highlighting a relationship (the pair
+// + the line itself) is a left click, wired at the <ReactFlow> level via
+// onEdgeClick (OrgChartView.tsx calling useChartNodes.ts's handleEdgeClick)
+// — same pattern as onNodeClick/onEdgeContextMenu, so this component holds
+// no click/selection state of its own, only the path itself. Changed
+// 2026-08-28 from a hover-driven highlight to click, per user request — see
+// useChartNodes.ts's selectedEdgeId. Reassigning the manager end is a
+// native React Flow reconnect drag on the edge's own rendered endpoint (see
+// EmployeeNode.tsx's per-relationship Handles and OrgChartView.tsx's
+// onReconnect).
 export function ReportingEdge({
   id,
   sourceX,
@@ -70,7 +69,7 @@ export function ReportingEdge({
   return (
     <>
       <BaseEdge id={id} path={path} style={style} markerEnd={markerEnd} />
-      {!isPrimary && data!.isHoveredEdge && (
+      {!isPrimary && data!.isSelectedEdge && (
         // Draws an exact visual duplicate of this edge above every card,
         // not just other edges — ViewportPortal is the one part of the
         // pan/zoom-transformed viewport that renders AFTER the nodes layer
@@ -92,22 +91,21 @@ export function ReportingEdge({
         default) following the exact same `d`. Whichever of the two
         identically-shaped invisible strokes comes LAST in the DOM wins real
         browser hit-testing (paint order), so putting ours first meant
-        React Flow's own path silently ate every hover — for every edge
-        shape, not just curvy/dashed ones, since both paths are 100%
+        React Flow's own path silently ate every click/hover — for every
+        edge shape, not just curvy/dashed ones, since both paths are 100%
         congruent regardless of curve. Moving ours after BaseEdge fixes
         this for good rather than depending on incidental geometry.
-        Right-click (context menu) is wired at the <ReactFlow> level via
-        onEdgeContextMenu, not here — it fires from this same hit-test path
-        via normal DOM bubbling, same as hover already does.
+        Left-click (highlight, <ReactFlow>'s onEdgeClick) and right-click
+        (delete, onEdgeContextMenu) are both wired at the <ReactFlow> level,
+        not here — they fire from this same hit-test path via React Flow's
+        own dispatch, no local handler needed on this element.
       */}
       <path
         d={path}
         fill="none"
         stroke="transparent"
         strokeWidth={20}
-        style={{ pointerEvents: 'stroke', cursor: 'context-menu' }}
-        onMouseEnter={() => data!.onHoverChange(true)}
-        onMouseLeave={() => data!.onHoverChange(false)}
+        style={{ pointerEvents: 'stroke', cursor: 'pointer' }}
       />
     </>
   );
