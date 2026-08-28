@@ -14,6 +14,7 @@
   },
   "appShell": {
     "title": "Organigramme Havas International",
+    "lastUpdated": "Dernière mise à jour : {{datetime}}",
     "verifyingSession": "Vérification de la session…",
     "loadingOrgCharts": "Chargement des organigrammes…",
     "noOrgChartsTitle": "Aucun organigramme n’existe encore.",
