@@ -35,4 +35,12 @@ export default defineConfig({
   server: {
     port: process.env.PORT ? Number(process.env.PORT) : 5173,
   },
+  define: {
+    // Stamped once per build (dev server start, or `vite build` — which is
+    // what every Vercel deploy runs), not per-request — this is what lets
+    // AppShell.tsx show "last updated" under the title so a user with a
+    // stale tab open can tell they're behind the latest deploy. Declared in
+    // src/vite-env.d.ts.
+    __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+  },
 })

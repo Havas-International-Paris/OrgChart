@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { isSupabaseConfigured } from '../../lib/supabaseClient';
 import { useAuth } from '../../hooks/useAuth';
@@ -128,7 +128,15 @@ function AuthenticatedApp({
   email: string | undefined;
   userId: string;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  // __BUILD_TIME__ (vite.config.ts's `define`, declared in vite-env.d.ts) is
+  // stamped once at build time, not per-request — shown under the app title
+  // so a user with a stale tab open (or wondering whether a just-shipped fix
+  // has landed) can tell at a glance whether they're on the latest deploy.
+  const buildTimeLabel = useMemo(() => {
+    const locale = i18n.language === 'fr' ? 'fr-FR' : 'en-US';
+    return new Intl.DateTimeFormat(locale, { dateStyle: 'short', timeStyle: 'short' }).format(new Date(__BUILD_TIME__));
+  }, [i18n.language]);
   const { role, status: roleStatus } = useCurrentUserRole(userId);
   const [showAccessManagement, setShowAccessManagement] = useState(false);
   const [showTimeEstimation, setShowTimeEstimation] = useState(false);
@@ -360,7 +368,10 @@ function AuthenticatedApp({
           of staying at the right edge. */}
       <header className="flex items-start justify-between gap-x-3 gap-y-2 border-b border-slate-200 bg-white px-4 py-2">
         <div className="flex flex-1 flex-wrap items-center gap-3">
-          <h1 className="text-sm font-semibold text-slate-900">{t('appShell.title')}</h1>
+          <div className="flex flex-col">
+            <h1 className="text-sm font-semibold text-slate-900">{t('appShell.title')}</h1>
+            <span className="text-[10px] leading-tight text-slate-400">{t('appShell.lastUpdated', { datetime: buildTimeLabel })}</span>
+          </div>
           <select
             value={currentOrgChartId}
             onChange={(e) => switchOrgChart(e.target.value)}

@@ -14,6 +14,7 @@
   },
   "appShell": {
     "title": "Havas International Org Chart",
+    "lastUpdated": "Last updated: {{datetime}}",
     "verifyingSession": "Verifying session…",
     "loadingOrgCharts": "Loading org charts…",
     "noOrgChartsTitle": "No org chart exists yet.",
