@@ -1362,6 +1362,15 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
               {t('timeEstimation.wizard.continueLabel')}
             </button>
           )}
+          {step === 'resolve' && (
+            <button
+              onClick={() => setStep('cutoff')}
+              disabled={resolving || committing}
+              className="rounded border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {t('timeEstimation.wizard.back')}
+            </button>
+          )}
           {/* Advances to the review step instead of importing directly — the
               review screen (below) is now the confirmation gate, replacing
               the old window.confirm() popup for undecided rows. */}
