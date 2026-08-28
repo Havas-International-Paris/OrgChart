@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { isNewPairKey, rawPairKey, type RawPair } from '../../lib/timeImportDiff';
+import { computeAllResolvablePairsSelection, isNewPairKey, rawPairKey, type RawPair } from '../../lib/timeImportDiff';
 
 // Screen 3 of ImportTimeActualsWizard's flow — "which (employee, client)
 // pairs from the file actually get written this run." Extracted into its
@@ -64,6 +64,13 @@ export function PairSelectionStep({
 
   const sortedClientNames = useMemo(() => [...pairsByClient.keys()].sort((a, b) => a.localeCompare(b, 'fr')), [pairsByClient]);
 
+  // "Select all" needs nothing the wizard doesn't already pass down for the
+  // resolvability check every row already does — computed locally rather
+  // than threaded in as yet another prop like onlyNewPairsSelection/
+  // defaultSelection, which the wizard also needs for its own "seed the
+  // selection on screen transition" logic and so already computes itself.
+  const allResolvableSelection = useMemo(() => computeAllResolvablePairsSelection(rawPairs, employeeIds, clientIds), [rawPairs, employeeIds, clientIds]);
+
   const q = query.trim().toLowerCase();
   // A client group stays visible if its own name matches, or ANY of its
   // employees do — searching "McCain" shows every McCain pair, searching
@@ -109,6 +116,13 @@ export function PairSelectionStep({
           placeholder={t('timeEstimation.wizard.searchPairsPlaceholder')}
           className="min-w-[200px] flex-1 rounded border border-slate-300 px-2 py-1.5 text-sm"
         />
+        <button
+          type="button"
+          onClick={() => onChangeSelectedPairKeys(allResolvableSelection)}
+          className="rounded border border-slate-300 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+        >
+          {t('timeEstimation.wizard.selectAllPairsButton')}
+        </button>
         <button
           type="button"
           onClick={() => onChangeSelectedPairKeys(onlyNewPairsSelection)}

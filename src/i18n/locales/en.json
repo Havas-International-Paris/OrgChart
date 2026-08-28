@@ -717,6 +717,7 @@
       "lastNamePlaceholder": "Last name",
       "searchPairsPlaceholder": "Search a client or employee…",
       "noMatchesForSearch": "No pairs match this search",
+      "selectAllPairsButton": "Select all",
       "onlyNewPairsButton": "Only new pairs",
       "resetToDefaultSelection": "Reset to default",
       "pairNewBadge": "new",

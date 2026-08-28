@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildImportRowPlan,
+  computeAllResolvablePairsSelection,
   computeDefaultPairSelection,
   computeDistinctRawPairs,
   computeImportDiffSummary,
@@ -186,6 +187,26 @@ describe('computeOnlyNewPairsSelection', () => {
     const existingPairKeys = new Set(['emp1::client1']);
     const selection = computeOnlyNewPairsSelection(rawPairs, employeeIds, clientIds, existingPairKeys);
     expect(selection).toEqual(new Set([rawPairKey('New Emp', 'New Client')]));
+  });
+});
+
+describe('computeAllResolvablePairsSelection', () => {
+  it('selects every pair whose employee and client both resolve, regardless of new/existing', () => {
+    const rawPairs = [
+      { employeeName: 'Known Emp', clientName: 'Known Client' },
+      { employeeName: 'New Emp', clientName: 'New Client' },
+      { employeeName: 'Unresolved Emp', clientName: 'Known Client' },
+    ];
+    const employeeIds = new Map([
+      ['Known Emp', 'emp1'],
+      ['New Emp', 'emp2'],
+    ]);
+    const clientIds = new Map([
+      ['Known Client', 'client1'],
+      ['New Client', 'client2'],
+    ]);
+    const selection = computeAllResolvablePairsSelection(rawPairs, employeeIds, clientIds);
+    expect(selection).toEqual(new Set([rawPairKey('Known Emp', 'Known Client'), rawPairKey('New Emp', 'New Client')]));
   });
 });
 

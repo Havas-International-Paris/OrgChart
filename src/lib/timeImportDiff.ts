@@ -234,6 +234,25 @@ export function computeOnlyNewPairsSelection(
   return selected;
 }
 
+// The "Select all" bulk action (Screen 3) — every pair whose employee and
+// client sides both resolve to a real (or create-placeholder) id, regardless
+// of new/existing. Same one-shot "start over with this preset" shape as
+// computeOnlyNewPairsSelection/computeDefaultPairSelection, not a toggle.
+export function computeAllResolvablePairsSelection(
+  rawPairs: RawPair[],
+  employeeIds: Map<string, string | null>,
+  clientIds: Map<string, string | null>,
+): Set<string> {
+  const selected = new Set<string>();
+  for (const pair of rawPairs) {
+    const employeeId = employeeIds.get(pair.employeeName);
+    const clientMissionId = clientIds.get(pair.clientName);
+    if (!employeeId || !clientMissionId) continue;
+    selected.add(rawPairKey(pair.employeeName, pair.clientName));
+  }
+  return selected;
+}
+
 export interface ImportRowPlan {
   n1UpsertRows: Array<{ employee_id: string; client_mission_id: string; year: number; total_pct: number }>;
   // batch_id is deliberately absent: the batch row doesn't exist yet at
