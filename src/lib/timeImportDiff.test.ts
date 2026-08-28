@@ -9,6 +9,7 @@ import {
   isNewPairKey,
   previewResolvedIds,
   rawPairKey,
+  seedNeedsReviewEmployeeResolution,
   type ClientResolution,
   type EmployeeResolution,
   type ImportFieldSelection,
@@ -38,6 +39,38 @@ describe('isNewPairKey', () => {
 
   it('is false when the pair key is present', () => {
     expect(isNewPairKey('emp1', 'client1', new Set(['emp1::client1']))).toBe(false);
+  });
+});
+
+describe('seedNeedsReviewEmployeeResolution', () => {
+  const registry = [
+    { id: 'e1', first_name: 'Jean', last_name: 'Dupont' },
+    { id: 'e2', first_name: 'Marie', last_name: 'Durand' },
+  ];
+
+  it('defaults to create, pre-filled from the raw name, when nothing is close', () => {
+    const res = seedNeedsReviewEmployeeResolution('Alice Nouvelle', registry);
+    expect(res.decision).toBe('create');
+    expect(res.employeeId).toBeNull();
+    expect(res.createFirstName).toBe('Alice');
+    expect(res.createLastName).toBe('Nouvelle');
+  });
+
+  it('defaults to matching the closest employee on a near-exact spelling variant', () => {
+    const res = seedNeedsReviewEmployeeResolution('Jean Dupond', registry);
+    expect(res.decision).toBe('match');
+    expect(res.employeeId).toBe('e1');
+  });
+
+  it('does not default to a match for two different people with similar-length names', () => {
+    const res = seedNeedsReviewEmployeeResolution('Marie Dupont', registry);
+    expect(res.decision).toBe('create');
+    expect(res.employeeId).toBeNull();
+  });
+
+  it('defaults to create against an empty registry', () => {
+    const res = seedNeedsReviewEmployeeResolution('Alice Nouvelle', []);
+    expect(res.decision).toBe('create');
   });
 });
 

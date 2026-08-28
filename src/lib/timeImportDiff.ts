@@ -1,5 +1,5 @@
 import { splitPersonName, toTitleCase, type InputN1Row, type InputNRow } from './timeImportParsing';
-import { etpFractionToPct } from './timeEstimationMath';
+import { employeeNameSimilarity, etpFractionToPct } from './timeEstimationMath';
 import type { TimeActualUpsertRow } from '../services/timeEstimationService';
 
 // Pure logic for ImportTimeActualsWizard.tsx's resolution/diff/selection half
@@ -18,6 +18,48 @@ export interface EmployeeResolution {
   // (e.g. force "Alice" alone, fix an unusual capitalization) before commit.
   createFirstName?: string;
   createLastName?: string;
+}
+
+// A raw import name that doesn't exact-match any registry employee (that
+// path resolves with no review row at all, see matchesEmployeeName in
+// ImportTimeActualsWizard.tsx's handleFileSelected) but comes very close —
+// a likely typo, or a name variant normalizeNameForMatch doesn't catch —
+// still defaults its review row to the closest existing employee rather
+// than to creating a new one, since silently creating a duplicate person is
+// the costlier mistake. Only a DEFAULT: the row stays fully visible and
+// editable on Screen 2, the admin can switch to Create/a different
+// match/Ignore before continuing.
+export const HIGH_CONFIDENCE_MATCH_THRESHOLD = 0.85;
+
+// The initial resolution proposed for a raw employee name that has zero or
+// several exact matches (so it needs a review row at all) — extracted as
+// its own pure function so the "prefer a strong fuzzy match over creating a
+// duplicate" rule has a direct unit test, matching this codebase's general
+// preference for pulling non-trivial decision logic out of the component.
+export function seedNeedsReviewEmployeeResolution(
+  rawName: string,
+  registryEmployees: Array<{ id: string; first_name: string; last_name: string }>,
+): EmployeeResolution {
+  let bestId: string | null = null;
+  let bestScore = 0;
+  for (const e of registryEmployees) {
+    const score = employeeNameSimilarity(rawName, e.first_name, e.last_name);
+    if (score > bestScore) {
+      bestScore = score;
+      bestId = e.id;
+    }
+  }
+  if (bestId && bestScore >= HIGH_CONFIDENCE_MATCH_THRESHOLD) {
+    return { status: 'needs-review', employeeId: bestId, decision: 'match' };
+  }
+  const seeded = splitPersonName(rawName);
+  return {
+    status: 'needs-review',
+    employeeId: null,
+    decision: 'create',
+    createFirstName: toTitleCase(seeded.firstName),
+    createLastName: toTitleCase(seeded.lastName),
+  };
 }
 
 export interface ClientResolution {

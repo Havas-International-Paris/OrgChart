@@ -9,7 +9,7 @@ import { useTimeEstimation } from '../../hooks/useTimeEstimation';
 import * as employeeService from '../../services/employeeService';
 import * as timeEstimationService from '../../services/timeEstimationService';
 import type { TimeActualUpsertRow } from '../../services/timeEstimationService';
-import { averageOverRange, employeeNameSimilarity, etpFractionToPct, matchesClientName, matchesEmployeeName } from '../../lib/timeEstimationMath';
+import { averageOverRange, employeeNameSimilarity, matchesClientName, matchesEmployeeName } from '../../lib/timeEstimationMath';
 import {
   detectCutoffMonth,
   forwardFillHierarchy,
@@ -30,6 +30,7 @@ import {
   computeRelevantUnresolvedNames,
   employeeResolutionAllowsContinue,
   previewResolvedIds,
+  seedNeedsReviewEmployeeResolution,
   type ClientResolution,
   type EmployeeResolution,
   type ImportFieldSelection,
@@ -201,60 +202,15 @@ function formatImportError(err: unknown): string {
   }
 }
 
-// A small always-visible search box + checkbox list, shared by all three of
-// Screen 2's ("resolveNames") name lists — checking a name here doesn't
-// select it for import (that's Screen 3's job entirely), it just expands
-// that name's Create/Match/Ignore resolution row directly below in the
-// parent. Search is a plain case-insensitive substring match, same
-// technique FilterDropdown.tsx already used for its own popover search —
-// this is an always-open inline list instead, since a checked item needs to
-// expand a row on the same screen rather than staying inside a popover.
-function SearchableNameChecklist({
-  title,
-  options,
-  expanded,
-  onToggle,
-  searchPlaceholder,
-}: {
-  title: string;
-  options: string[];
-  expanded: Set<string>;
-  onToggle: (rawName: string) => void;
-  searchPlaceholder: string;
-}) {
-  const [query, setQuery] = useState('');
-  const q = query.trim().toLowerCase();
-  const filtered = q ? options.filter((o) => o.toLowerCase().includes(q)) : options;
-  return (
-    <section className="mb-4">
-      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">{title}</h3>
-      <input
-        type="text"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder={searchPlaceholder}
-        className="mb-2 w-full rounded border border-slate-300 px-2 py-1 text-xs"
-      />
-      <div className="max-h-32 overflow-auto rounded border border-slate-200">
-        {filtered.map((name) => (
-          <label key={name} className="flex items-center gap-2 border-b border-slate-100 px-2 py-1 text-xs last:border-b-0 hover:bg-slate-50">
-            <input type="checkbox" checked={expanded.has(name)} onChange={() => onToggle(name)} />
-            {name}
-          </label>
-        ))}
-        {filtered.length === 0 && <p className="px-2 py-1.5 text-xs text-slate-400">—</p>}
-      </div>
-    </section>
-  );
-}
-
 // The new 6-screen flow (redesigned 2026-08-28, per a multi-turn design
 // conversation with the user): 'resolveNames' decouples name resolution
-// entirely from pair creation (checking a name here only reveals its
-// Create/Match/Ignore row, see SearchableNameChecklist above); 'selectPairs'
-// is the real import-scoping step (PairSelectionStep.tsx) — checking a
-// client or employee there selects only ITS OWN direct pairs, no
-// propagation; 'dataOptions' is the old 'cutoff' step, unchanged content;
+// entirely from pair creation — every needs-review/previously-ignored name
+// renders its own always-visible Create/Match/Ignore row directly (no
+// search-then-expand step, removed 2026-08-28 per user feedback that the
+// two-click reveal was "trop fastidieux"); 'selectPairs' is the real
+// import-scoping step (PairSelectionStep.tsx) — checking a client or
+// employee there selects only ITS OWN direct pairs, no propagation;
+// 'dataOptions' is the old 'cutoff' step, unchanged content;
 // 'resolveStragglers' is a narrow catch-up for names relevant to whatever
 // got selected at Screen 3 but never resolved at Screen 2; 'review' is the
 // existing diff/confirm screen. Replaces the old
@@ -344,14 +300,6 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
   // upserts, which aren't worth counting individually.
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
 
-  // Screen 2 ("resolveNames") — which raw names are currently "expanded"
-  // (checked in their SearchableNameChecklist) to show a Create/Match/
-  // Ignore row below. Purely a display concern, independent of Screen 3's
-  // import-scope selection.
-  const [clientsExpanded, setClientsExpanded] = useState<Set<string>>(new Set());
-  const [employeesNeedsReviewExpanded, setEmployeesNeedsReviewExpanded] = useState<Set<string>>(new Set());
-  const [employeesPreviouslyIgnoredExpanded, setEmployeesPreviouslyIgnoredExpanded] = useState<Set<string>>(new Set());
-
   // Screen 3 ("selectPairs") — the real import-scope selection, raw-name
   // keyed (rawPairKey, timeImportDiff.ts). Seeded from
   // computeDefaultPairSelection the moment the user leaves 'resolveNames'.
@@ -384,24 +332,6 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
     [step, employeeResolutions, clientResolutions, n1Rows, nRows, existingPairKeys, importFields, selectedPairKeys, year, cutoffMonth],
   );
 
-  function justificationFor(rawEmployeeName: string): string {
-    const parts: string[] = [];
-    for (const row of nRows) {
-      if (row.employeeName !== rawEmployeeName) continue;
-      row.monthlyFractions.forEach((v, i) => {
-        if (v == null) return;
-        parts.push(`${(Math.round(etpFractionToPct(v) * 10) / 10).toString().replace('.', ',')}% ${row.annonceur ?? '?'} (${monthLabel(i + 1)})`);
-      });
-    }
-    for (const row of n1Rows) {
-      if (row.employeeName !== rawEmployeeName || row.n1TotalFraction == null) continue;
-      parts.push(`${(Math.round(etpFractionToPct(row.n1TotalFraction) * 10) / 10).toString().replace('.', ',')}% ${row.annonceur ?? '?'} (N-1)`);
-    }
-    const shown = parts.slice(0, 5);
-    const extra = parts.length > 5 ? t('timeEstimation.wizard.andMore', { count: parts.length - 5 }) : '';
-    return [shown.join(', '), extra].filter(Boolean).join(' ');
-  }
-
   async function handleFileSelected(selected: File) {
     setFile(selected);
     setParsing(true);
@@ -409,9 +339,6 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
     setDone(null);
     setImportError(null);
     setProgress(null);
-    setClientsExpanded(new Set());
-    setEmployeesNeedsReviewExpanded(new Set());
-    setEmployeesPreviouslyIgnoredExpanded(new Set());
     setSelectedPairKeys(new Set());
     setSelectedClientNames(new Set());
     setSelectedEmployeeNames(new Set());
@@ -441,10 +368,16 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
           continue;
         }
         const matches = registryEmployees.filter((e) => matchesEmployeeName(rawName, e.first_name, e.last_name));
-        empResolutions[rawName] =
-          matches.length === 1
-            ? { status: 'auto', employeeId: matches[0].id, decision: 'match' }
-            : { status: 'needs-review', employeeId: null, decision: null };
+        if (matches.length === 1) {
+          empResolutions[rawName] = { status: 'auto', employeeId: matches[0].id, decision: 'match' };
+          continue;
+        }
+        // No exact match (zero or several) — default this review row to the
+        // closest existing employee if one stands out clearly, otherwise
+        // default to creating a brand-new employee, pre-filled from the raw
+        // name so a straight "Continue" already does the right thing for the
+        // common case (a genuinely new hire).
+        empResolutions[rawName] = seedNeedsReviewEmployeeResolution(rawName, registryEmployees);
       }
       setEmployeeResolutions(empResolutions);
 
@@ -535,9 +468,7 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
   // everything before continuing, only whatever's relevant to what gets
   // selected at Screen 3 (Screen 5, resolveStragglers, is the real safety
   // net now). The only thing that still blocks Continue is a genuinely
-  // half-filled explicit choice (picked "Create" but left the name blank) —
-  // that can only happen on a row the user actually expanded and started
-  // filling in, so it needs no separate "expanded" bookkeeping to check.
+  // half-filled explicit choice (picked "Create" but cleared the name field).
   const resolveNamesHasInvalidState =
     Object.values(clientResolutions).some((r) => !clientResolutionAllowsContinue(r)) ||
     Object.values(employeeResolutions).some((r) => !employeeResolutionAllowsContinue(r));
@@ -580,31 +511,6 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
   const stragglersUndecidedCount =
     relevantUnresolved.clients.filter((name) => (clientResolutions[name]?.decision ?? null) === null).length +
     relevantUnresolved.employees.filter((name) => (employeeResolutions[name]?.decision ?? null) === null).length;
-
-  function toggleClientExpanded(rawName: string) {
-    setClientsExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(rawName)) next.delete(rawName);
-      else next.add(rawName);
-      return next;
-    });
-  }
-  function toggleEmployeeNeedsReviewExpanded(rawName: string) {
-    setEmployeesNeedsReviewExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(rawName)) next.delete(rawName);
-      else next.add(rawName);
-      return next;
-    });
-  }
-  function toggleEmployeePreviouslyIgnoredExpanded(rawName: string) {
-    setEmployeesPreviouslyIgnoredExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(rawName)) next.delete(rawName);
-      else next.add(rawName);
-      return next;
-    });
-  }
 
   // Resolves every raw name to a real id (writing aliases, creating any new
   // employee/client along the way), then commits straight through. Every
@@ -953,156 +859,169 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
   // Shared row for "Employees to resolve", "Previously ignored" (Screen 2)
   // AND Screen 5's employee catch-up list — identical Create/Match/Ignore
   // controls everywhere, since picking any of them just overwrites this one
-  // entry in employeeResolutions to a fresh { status: 'needs-review', ... }.
+  // entry in employeeResolutions. One line per employee (redesigned
+  // 2026-08-28 per user feedback: the old card — name, a justification
+  // paragraph listing every client/month the raw name appears against, then
+  // controls below — was "trop fastidieux" for a list that can run to a
+  // hundred-plus rows). The raw import name is shown split into its two
+  // columns (same splitPersonName seed used for the create-fields default)
+  // so it's legible at a glance without the removed paragraph; Create's own
+  // first/last inputs stay visible unconditionally instead of only appearing
+  // once "Create" is picked, since there's no vertical room being saved by
+  // hiding them and one line means no layout jump when toggling decisions.
   function renderEmployeeRow(rawName: string, res: EmployeeResolution) {
+    const importSplit = splitPersonName(rawName);
     return (
-      <div key={rawName} className="rounded border border-slate-200 px-3 py-2 text-sm">
-        <div className="mb-1 flex items-center justify-between gap-2">
-          <span className="font-medium text-slate-700">{rawName}</span>
-        </div>
-        <p className="mb-2 text-xs text-slate-400">{justificationFor(rawName)}</p>
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() =>
-              setEmployeeResolutions((prev) => {
-                const seeded = splitPersonName(rawName);
-                return {
-                  ...prev,
-                  [rawName]: {
-                    status: 'needs-review',
-                    employeeId: null,
-                    decision: 'create',
-                    createFirstName: prev[rawName]?.createFirstName ?? toTitleCase(seeded.firstName),
-                    createLastName: prev[rawName]?.createLastName ?? toTitleCase(seeded.lastName),
-                  },
-                };
-              })
-            }
-            className={`rounded px-2 py-1 text-xs font-medium ${
-              res.decision === 'create' ? 'bg-slate-900 text-white' : 'border border-slate-300 text-slate-600 hover:bg-slate-50'
-            }`}
-          >
-            {t('timeEstimation.wizard.acceptCreate')}
-          </button>
-          <select
-            value={res.decision === 'match' ? (res.employeeId ?? '') : ''}
-            onChange={(e) => {
-              const value = e.target.value;
-              setEmployeeResolutions((prev) => ({
+      <div key={rawName} className="flex flex-wrap items-center gap-1.5 rounded border border-slate-200 px-2 py-1.5 text-xs">
+        <span className="w-20 shrink-0 truncate text-slate-500" title={importSplit.firstName}>
+          {importSplit.firstName}
+        </span>
+        <span className="w-28 shrink-0 truncate font-medium text-slate-700" title={importSplit.lastName}>
+          {importSplit.lastName}
+        </span>
+        <button
+          type="button"
+          onClick={() =>
+            setEmployeeResolutions((prev) => {
+              const seeded = splitPersonName(rawName);
+              return {
                 ...prev,
-                [rawName]: value
-                  ? { status: 'needs-review', employeeId: value, decision: 'match' }
-                  : { status: 'needs-review', employeeId: null, decision: null },
-              }));
-            }}
-            className="rounded border border-slate-300 px-2 py-1 text-xs"
-          >
-            <option value="">{t('timeEstimation.wizard.matchExisting')}</option>
-            {(() => {
-              const suggestions = suggestedMatchesByRawName.get(rawName) ?? [];
-              const suggestionIds = new Set(suggestions.map((e) => e.id));
-              const rest = sortedRegistryEmployees.filter((e) => !suggestionIds.has(e.id));
-              return (
-                <>
-                  {suggestions.length > 0 && (
-                    <optgroup label={t('timeEstimation.wizard.suggestedMatches')}>
-                      {suggestions.map((e) => (
-                        <option key={e.id} value={e.id}>
-                          {e.first_name} {e.last_name}
-                        </option>
-                      ))}
-                    </optgroup>
-                  )}
-                  <optgroup label={t('timeEstimation.wizard.allEmployees')}>
-                    {rest.map((e) => (
+                [rawName]: {
+                  status: 'needs-review',
+                  employeeId: null,
+                  decision: 'create',
+                  createFirstName: prev[rawName]?.createFirstName ?? toTitleCase(seeded.firstName),
+                  createLastName: prev[rawName]?.createLastName ?? toTitleCase(seeded.lastName),
+                },
+              };
+            })
+          }
+          className={`shrink-0 rounded px-2 py-1 font-medium ${
+            res.decision === 'create' ? 'bg-slate-900 text-white' : 'border border-slate-300 text-slate-600 hover:bg-slate-50'
+          }`}
+        >
+          {t('timeEstimation.wizard.acceptCreate')}
+        </button>
+        <input
+          type="text"
+          value={res.createFirstName ?? ''}
+          onChange={(e) =>
+            setEmployeeResolutions((prev) => ({
+              ...prev,
+              [rawName]: { ...prev[rawName], status: 'needs-review', decision: 'create', createFirstName: e.target.value },
+            }))
+          }
+          placeholder={t('timeEstimation.wizard.firstNamePlaceholder')}
+          className="w-20 shrink-0 rounded border border-slate-300 px-1.5 py-1"
+        />
+        <input
+          type="text"
+          value={res.createLastName ?? ''}
+          onChange={(e) =>
+            setEmployeeResolutions((prev) => ({
+              ...prev,
+              [rawName]: { ...prev[rawName], status: 'needs-review', decision: 'create', createLastName: e.target.value },
+            }))
+          }
+          placeholder={t('timeEstimation.wizard.lastNamePlaceholder')}
+          className="w-24 shrink-0 rounded border border-slate-300 px-1.5 py-1"
+        />
+        <select
+          value={res.decision === 'match' ? (res.employeeId ?? '') : ''}
+          onChange={(e) => {
+            const value = e.target.value;
+            setEmployeeResolutions((prev) => ({
+              ...prev,
+              [rawName]: value
+                ? { status: 'needs-review', employeeId: value, decision: 'match' }
+                : { ...prev[rawName], status: 'needs-review', employeeId: null, decision: null },
+            }));
+          }}
+          className="min-w-0 flex-1 rounded border border-slate-300 px-1.5 py-1"
+        >
+          <option value="">{t('timeEstimation.wizard.matchExisting')}</option>
+          {(() => {
+            const suggestions = suggestedMatchesByRawName.get(rawName) ?? [];
+            const suggestionIds = new Set(suggestions.map((e) => e.id));
+            const rest = sortedRegistryEmployees.filter((e) => !suggestionIds.has(e.id));
+            return (
+              <>
+                {suggestions.length > 0 && (
+                  <optgroup label={t('timeEstimation.wizard.suggestedMatches')}>
+                    {suggestions.map((e) => (
                       <option key={e.id} value={e.id}>
                         {e.first_name} {e.last_name}
                       </option>
                     ))}
                   </optgroup>
-                </>
-              );
-            })()}
-          </select>
-          <button
-            type="button"
-            onClick={() =>
-              setEmployeeResolutions((prev) => ({
-                ...prev,
-                [rawName]: { status: 'needs-review', employeeId: null, decision: 'ignore' },
-              }))
-            }
-            className={`rounded px-2 py-1 text-xs font-medium ${
-              res.decision === 'ignore' ? 'bg-slate-900 text-white' : 'border border-slate-300 text-slate-600 hover:bg-slate-50'
-            }`}
-          >
-            {t('timeEstimation.wizard.ignore')}
-          </button>
-        </div>
-        {res.decision === 'create' && (
-          <div className="mt-2 flex gap-2">
-            <input
-              type="text"
-              value={res.createFirstName ?? ''}
-              onChange={(e) =>
-                setEmployeeResolutions((prev) => ({ ...prev, [rawName]: { ...prev[rawName], createFirstName: e.target.value } }))
-              }
-              placeholder={t('timeEstimation.wizard.firstNamePlaceholder')}
-              className="flex-1 rounded border border-slate-300 px-2 py-1 text-xs"
-            />
-            <input
-              type="text"
-              value={res.createLastName ?? ''}
-              onChange={(e) =>
-                setEmployeeResolutions((prev) => ({ ...prev, [rawName]: { ...prev[rawName], createLastName: e.target.value } }))
-              }
-              placeholder={t('timeEstimation.wizard.lastNamePlaceholder')}
-              className="flex-1 rounded border border-slate-300 px-2 py-1 text-xs"
-            />
-          </div>
-        )}
+                )}
+                <optgroup label={t('timeEstimation.wizard.allEmployees')}>
+                  {rest.map((e) => (
+                    <option key={e.id} value={e.id}>
+                      {e.first_name} {e.last_name}
+                    </option>
+                  ))}
+                </optgroup>
+              </>
+            );
+          })()}
+        </select>
+        <button
+          type="button"
+          onClick={() =>
+            setEmployeeResolutions((prev) => ({
+              ...prev,
+              [rawName]: { status: 'needs-review', employeeId: null, decision: 'ignore' },
+            }))
+          }
+          className={`shrink-0 rounded px-2 py-1 font-medium ${
+            res.decision === 'ignore' ? 'bg-slate-900 text-white' : 'border border-slate-300 text-slate-600 hover:bg-slate-50'
+          }`}
+        >
+          {t('timeEstimation.wizard.ignore')}
+        </button>
       </div>
     );
   }
 
   // Shared row for "Clients to resolve" (Screen 2) and Screen 5's client
-  // catch-up list.
+  // catch-up list — one line, no expand: the create-name field sits inline
+  // instead of appearing below only once "create" is picked.
   function renderClientRow(rawName: string, res: ClientResolution) {
     return (
-      <div key={rawName} className="rounded border border-slate-200 px-2 py-1.5 text-sm">
-        <div className="flex items-center gap-2">
-          <span className="w-40 shrink-0 truncate font-medium text-slate-700">{rawName}</span>
-          <select
-            value={res.decision === 'match' ? (res.clientMissionId ?? '') : res.decision === 'create' ? '__create__' : ''}
-            onChange={(e) => {
-              const value = e.target.value;
-              setClientResolutions((prev) => ({
-                ...prev,
-                [rawName]:
-                  value === '__create__'
-                    ? { status: 'needs-review', clientMissionId: null, decision: 'create', createName: prev[rawName]?.createName ?? toTitleCase(rawName) }
-                    : { status: 'needs-review', clientMissionId: value || null, decision: value ? 'match' : null },
-              }));
-            }}
-            className="flex-1 rounded border border-slate-300 px-2 py-1 text-xs"
-          >
-            <option value="">{t('timeEstimation.wizard.choose')}</option>
-            <option value="__create__">{t('timeEstimation.wizard.createNew', { name: toTitleCase(rawName) })}</option>
-            {clientsMissions.map((cm) => (
-              <option key={cm.id} value={cm.id}>
-                {cm.name}
-              </option>
-            ))}
-          </select>
-        </div>
+      <div key={rawName} className="flex flex-wrap items-center gap-1.5 rounded border border-slate-200 px-2 py-1.5 text-xs">
+        <span className="w-40 shrink-0 truncate font-medium text-slate-700" title={rawName}>
+          {rawName}
+        </span>
+        <select
+          value={res.decision === 'match' ? (res.clientMissionId ?? '') : res.decision === 'create' ? '__create__' : ''}
+          onChange={(e) => {
+            const value = e.target.value;
+            setClientResolutions((prev) => ({
+              ...prev,
+              [rawName]:
+                value === '__create__'
+                  ? { status: 'needs-review', clientMissionId: null, decision: 'create', createName: prev[rawName]?.createName ?? toTitleCase(rawName) }
+                  : { status: 'needs-review', clientMissionId: value || null, decision: value ? 'match' : null },
+            }));
+          }}
+          className="min-w-0 flex-1 rounded border border-slate-300 px-1.5 py-1"
+        >
+          <option value="">{t('timeEstimation.wizard.choose')}</option>
+          <option value="__create__">{t('timeEstimation.wizard.createNew', { name: toTitleCase(rawName) })}</option>
+          {clientsMissions.map((cm) => (
+            <option key={cm.id} value={cm.id}>
+              {cm.name}
+            </option>
+          ))}
+        </select>
         {res.decision === 'create' && (
           <input
             type="text"
             value={res.createName ?? ''}
             onChange={(e) => setClientResolutions((prev) => ({ ...prev, [rawName]: { ...prev[rawName], createName: e.target.value } }))}
             placeholder={t('timeEstimation.wizard.clientNamePlaceholder')}
-            className="mt-2 w-full rounded border border-slate-300 px-2 py-1 text-xs"
+            className="w-40 shrink-0 rounded border border-slate-300 px-1.5 py-1"
           />
         )}
       </div>
@@ -1113,7 +1032,7 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
     <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/30 p-4">
       {/* h-[85vh] (not just max-h) keeps the dialog's size stable regardless
           of how many rows a given step currently shows. */}
-      <div className="flex h-[85vh] max-h-[85vh] w-full max-w-3xl flex-col rounded-lg bg-white shadow-xl">
+      <div className="flex h-[85vh] max-h-[85vh] w-full max-w-4xl flex-col rounded-lg bg-white shadow-xl">
         <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
           <h2 className="text-sm font-semibold text-slate-800">{t('timeEstimation.wizard.title')}</h2>
           <button
@@ -1184,61 +1103,37 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
 
               {step === 'resolveNames' && (
                 <>
-                  {clientsNeedingReviewAll.length > 0 && (
-                    <>
-                      <SearchableNameChecklist
-                        title={t('timeEstimation.wizard.clientsToResolve')}
-                        options={clientsNeedingReviewAll.map(([rawName]) => rawName)}
-                        expanded={clientsExpanded}
-                        onToggle={toggleClientExpanded}
-                        searchPlaceholder={t('timeEstimation.wizard.searchNamePlaceholder')}
-                      />
-                      {[...clientsExpanded].length > 0 && (
-                        <div className="mb-4 space-y-2">
-                          {[...clientsExpanded]
-                            .filter((rawName) => clientResolutions[rawName])
-                            .map((rawName) => renderClientRow(rawName, clientResolutions[rawName]))}
-                        </div>
-                      )}
-                    </>
-                  )}
-
                   {employeesNeedingReviewAll.length > 0 && (
-                    <>
-                      <SearchableNameChecklist
-                        title={t('timeEstimation.wizard.employeesToResolve')}
-                        options={employeesNeedingReviewAll.map(([rawName]) => rawName)}
-                        expanded={employeesNeedsReviewExpanded}
-                        onToggle={toggleEmployeeNeedsReviewExpanded}
-                        searchPlaceholder={t('timeEstimation.wizard.searchNamePlaceholder')}
-                      />
-                      {[...employeesNeedsReviewExpanded].length > 0 && (
-                        <div className="mb-4 space-y-3">
-                          {[...employeesNeedsReviewExpanded]
-                            .filter((rawName) => employeeResolutions[rawName])
-                            .map((rawName) => renderEmployeeRow(rawName, employeeResolutions[rawName]))}
-                        </div>
-                      )}
-                    </>
+                    <section className="mb-4">
+                      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                        {t('timeEstimation.wizard.employeesToResolve')}
+                      </h3>
+                      <div className="space-y-1">
+                        {employeesNeedingReviewAll.map(([rawName]) => renderEmployeeRow(rawName, employeeResolutions[rawName]))}
+                      </div>
+                    </section>
                   )}
 
                   {employeesPreviouslyIgnoredAll.length > 0 && (
-                    <>
-                      <SearchableNameChecklist
-                        title={t('timeEstimation.wizard.previouslyIgnoredToggle', { count: employeesPreviouslyIgnoredAll.length })}
-                        options={employeesPreviouslyIgnoredAll.map(([rawName]) => rawName)}
-                        expanded={employeesPreviouslyIgnoredExpanded}
-                        onToggle={toggleEmployeePreviouslyIgnoredExpanded}
-                        searchPlaceholder={t('timeEstimation.wizard.searchNamePlaceholder')}
-                      />
-                      {[...employeesPreviouslyIgnoredExpanded].length > 0 && (
-                        <div className="mb-4 space-y-3">
-                          {[...employeesPreviouslyIgnoredExpanded]
-                            .filter((rawName) => employeeResolutions[rawName])
-                            .map((rawName) => renderEmployeeRow(rawName, employeeResolutions[rawName]))}
-                        </div>
-                      )}
-                    </>
+                    <section className="mb-4">
+                      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                        {t('timeEstimation.wizard.previouslyIgnoredToggle', { count: employeesPreviouslyIgnoredAll.length })}
+                      </h3>
+                      <div className="space-y-1">
+                        {employeesPreviouslyIgnoredAll.map(([rawName]) => renderEmployeeRow(rawName, employeeResolutions[rawName]))}
+                      </div>
+                    </section>
+                  )}
+
+                  {clientsNeedingReviewAll.length > 0 && (
+                    <section className="mb-4">
+                      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                        {t('timeEstimation.wizard.clientsToResolve')}
+                      </h3>
+                      <div className="space-y-1">
+                        {clientsNeedingReviewAll.map(([rawName]) => renderClientRow(rawName, clientResolutions[rawName]))}
+                      </div>
+                    </section>
                   )}
 
                   {clientsNeedingReviewAll.length === 0 && employeesNeedingReviewAll.length === 0 && employeesPreviouslyIgnoredAll.length === 0 && (
