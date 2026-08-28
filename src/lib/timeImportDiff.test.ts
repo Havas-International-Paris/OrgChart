@@ -1,9 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildImportRowPlan,
+  computeDefaultPairSelection,
+  computeDistinctRawPairs,
   computeImportDiffSummary,
+  computeOnlyNewPairsSelection,
+  computeRelevantUnresolvedNames,
   isNewPairKey,
   previewResolvedIds,
+  rawPairKey,
   type ClientResolution,
   type EmployeeResolution,
   type ImportFieldSelection,
@@ -86,9 +91,75 @@ describe('previewResolvedIds', () => {
   });
 });
 
+describe('computeDistinctRawPairs', () => {
+  it('unions pairs from both sheets, deduplicated', () => {
+    const pairs = computeDistinctRawPairs(
+      [n1Row({ employeeName: 'A', annonceur: 'X' })],
+      [nRow({ employeeName: 'A', annonceur: 'X' }), nRow({ employeeName: 'B', annonceur: 'Y' })],
+    );
+    expect(pairs).toEqual([
+      { employeeName: 'A', clientName: 'X' },
+      { employeeName: 'B', clientName: 'Y' },
+    ]);
+  });
+
+  it('skips a row missing either name', () => {
+    const pairs = computeDistinctRawPairs([n1Row({ employeeName: null })], [nRow({ annonceur: null })]);
+    expect(pairs).toEqual([]);
+  });
+});
+
+describe('computeDefaultPairSelection', () => {
+  const rawPairs = [
+    { employeeName: 'Known Emp', clientName: 'Known Client' },
+    { employeeName: 'New Emp', clientName: 'New Client' },
+    { employeeName: 'Unresolved Emp', clientName: 'Known Client' },
+  ];
+  const employeeIds = new Map([
+    ['Known Emp', 'emp1'],
+    ['New Emp', 'emp2'],
+  ]);
+  const clientIds = new Map([
+    ['Known Client', 'client1'],
+    ['New Client', 'client2'],
+  ]);
+  const existingPairKeys = new Set(['emp1::client1']);
+
+  it('selects only pairs that resolve to real ids AND are already known', () => {
+    const selection = computeDefaultPairSelection(rawPairs, employeeIds, clientIds, existingPairKeys);
+    expect(selection).toEqual(new Set([rawPairKey('Known Emp', 'Known Client')]));
+  });
+
+  it('never selects a pair with an unresolved side', () => {
+    const selection = computeDefaultPairSelection(rawPairs, employeeIds, clientIds, existingPairKeys);
+    expect(selection.has(rawPairKey('Unresolved Emp', 'Known Client'))).toBe(false);
+  });
+});
+
+describe('computeOnlyNewPairsSelection', () => {
+  it('selects exactly the inverse of computeDefaultPairSelection for resolved pairs', () => {
+    const rawPairs = [
+      { employeeName: 'Known Emp', clientName: 'Known Client' },
+      { employeeName: 'New Emp', clientName: 'New Client' },
+    ];
+    const employeeIds = new Map([
+      ['Known Emp', 'emp1'],
+      ['New Emp', 'emp2'],
+    ]);
+    const clientIds = new Map([
+      ['Known Client', 'client1'],
+      ['New Client', 'client2'],
+    ]);
+    const existingPairKeys = new Set(['emp1::client1']);
+    const selection = computeOnlyNewPairsSelection(rawPairs, employeeIds, clientIds, existingPairKeys);
+    expect(selection).toEqual(new Set([rawPairKey('New Emp', 'New Client')]));
+  });
+});
+
 describe('buildImportRowPlan', () => {
   const employeeIds = new Map([['Jean Dupont', 'emp1']]);
   const clientIds = new Map([['Client A', 'client1']]);
+  const selectAll = new Set([rawPairKey('Jean Dupont', 'Client A')]);
 
   it('writes nothing for a category the user unchecked', () => {
     const plan = buildImportRowPlan({
@@ -98,7 +169,7 @@ describe('buildImportRowPlan', () => {
       clientIds,
       existingPairKeys: new Set(),
       importFields: { n1: false, actuals: false, forecast: false },
-      onlyNewPairs: false,
+      selectedPairKeys: selectAll,
       year: 2026,
       cutoffMonth: 6,
     });
@@ -115,7 +186,7 @@ describe('buildImportRowPlan', () => {
       clientIds,
       existingPairKeys: new Set(),
       importFields: ALL_FIELDS,
-      onlyNewPairs: false,
+      selectedPairKeys: selectAll,
       year: 2026,
       cutoffMonth: 6,
     });
@@ -133,7 +204,7 @@ describe('buildImportRowPlan', () => {
       clientIds,
       existingPairKeys: new Set(),
       importFields: ALL_FIELDS,
-      onlyNewPairs: false,
+      selectedPairKeys: selectAll,
       year: 2026,
       cutoffMonth: 6,
     });
@@ -141,7 +212,7 @@ describe('buildImportRowPlan', () => {
     expect(januaryRow?.etp_pct).toBe(0);
   });
 
-  it('onlyNewPairs skips a pair already in existingPairKeys, on every category', () => {
+  it('a pair not in selectedPairKeys is written nowhere, on every category', () => {
     const plan = buildImportRowPlan({
       n1Rows: [n1Row()],
       nRows: [nRow()],
@@ -149,7 +220,7 @@ describe('buildImportRowPlan', () => {
       clientIds,
       existingPairKeys: new Set(['emp1::client1']),
       importFields: ALL_FIELDS,
-      onlyNewPairs: true,
+      selectedPairKeys: new Set(), // nothing selected
       year: 2026,
       cutoffMonth: 6,
     });
@@ -157,10 +228,9 @@ describe('buildImportRowPlan', () => {
     expect(plan.actualUpsertRows).toEqual([]);
     expect(plan.forecastUpsertRows).toEqual([]);
     expect(plan.affectedPairKeys.size).toBe(0);
-    expect(plan.skippedExistingPairKeys.has('emp1::client1')).toBe(true);
   });
 
-  it('a pair present only in Input N-1 is zero-filled into every actual/forecast month', () => {
+  it('a pair present only in Input N-1 is zero-filled into every actual/forecast month, if selected', () => {
     const plan = buildImportRowPlan({
       n1Rows: [n1Row()],
       nRows: [],
@@ -168,7 +238,7 @@ describe('buildImportRowPlan', () => {
       clientIds,
       existingPairKeys: new Set(),
       importFields: ALL_FIELDS,
-      onlyNewPairs: false,
+      selectedPairKeys: selectAll,
       year: 2026,
       cutoffMonth: 6,
     });
@@ -178,7 +248,7 @@ describe('buildImportRowPlan', () => {
     expect(plan.forecastUpsertRows.every((r) => r.pct === 0)).toBe(true);
   });
 
-  it('a pair present only in Input N is zero-filled into the N-1 total', () => {
+  it('a pair present only in Input N is zero-filled into the N-1 total, if selected', () => {
     const plan = buildImportRowPlan({
       n1Rows: [],
       nRows: [nRow()],
@@ -186,7 +256,7 @@ describe('buildImportRowPlan', () => {
       clientIds,
       existingPairKeys: new Set(),
       importFields: ALL_FIELDS,
-      onlyNewPairs: false,
+      selectedPairKeys: selectAll,
       year: 2026,
       cutoffMonth: 6,
     });
@@ -208,14 +278,14 @@ describe('buildImportRowPlan', () => {
       // not accidentally match the placeholder.
       existingPairKeys: new Set(['some-other-real-emp::client1']),
       importFields: ALL_FIELDS,
-      onlyNewPairs: false,
+      selectedPairKeys: selectAll,
       year: 2026,
       cutoffMonth: 6,
     });
     expect(plan.newPairKeys.size).toBe(1);
   });
 
-  it('excludes a pair whose employee or client side is unresolved (ignored/undecided)', () => {
+  it('excludes a pair whose employee or client side is unresolved, even if raw-selected', () => {
     const plan = buildImportRowPlan({
       n1Rows: [n1Row()],
       nRows: [nRow()],
@@ -223,7 +293,7 @@ describe('buildImportRowPlan', () => {
       clientIds,
       existingPairKeys: new Set(),
       importFields: ALL_FIELDS,
-      onlyNewPairs: false,
+      selectedPairKeys: selectAll,
       year: 2026,
       cutoffMonth: 6,
     });
@@ -231,7 +301,49 @@ describe('buildImportRowPlan', () => {
     expect(plan.actualUpsertRows).toEqual([]);
     expect(plan.forecastUpsertRows).toEqual([]);
     expect(plan.affectedPairKeys.size).toBe(0);
-    expect(plan.skippedExistingPairKeys.size).toBe(0);
+  });
+});
+
+describe('computeRelevantUnresolvedNames', () => {
+  const rawPairs = [
+    { employeeName: 'Unresolved Emp', clientName: 'Selected Client' },
+    { employeeName: 'Resolved Emp', clientName: 'Selected Client' },
+    { employeeName: 'Unresolved Emp', clientName: 'Not Selected Client' },
+    { employeeName: 'Selected Emp', clientName: 'Unresolved Client' },
+  ];
+  const employeeResolutions: Record<string, EmployeeResolution> = {
+    'Unresolved Emp': { status: 'needs-review', employeeId: null, decision: null },
+    'Resolved Emp': { status: 'auto', employeeId: 'emp1', decision: 'match' },
+  };
+  const clientResolutions: Record<string, ClientResolution> = {
+    'Unresolved Client': { status: 'needs-review', clientMissionId: null, decision: null },
+  };
+
+  it('surfaces an unresolved employee only when their client is selected', () => {
+    const { employees } = computeRelevantUnresolvedNames(
+      new Set(['Selected Client']),
+      new Set(),
+      rawPairs,
+      employeeResolutions,
+      clientResolutions,
+    );
+    expect(employees).toEqual(['Unresolved Emp']);
+  });
+
+  it('surfaces an unresolved client only when their employee is selected', () => {
+    const { clients } = computeRelevantUnresolvedNames(new Set(), new Set(['Selected Emp']), rawPairs, employeeResolutions, clientResolutions);
+    expect(clients).toEqual(['Unresolved Client']);
+  });
+
+  it('never surfaces an already-resolved name', () => {
+    const { employees } = computeRelevantUnresolvedNames(
+      new Set(['Selected Client']),
+      new Set(),
+      rawPairs,
+      employeeResolutions,
+      clientResolutions,
+    );
+    expect(employees).not.toContain('Resolved Emp');
   });
 });
 
@@ -250,8 +362,9 @@ describe('computeImportDiffSummary', () => {
     };
     const n1Rows: InputN1Row[] = [n1Row({ annonceur: 'Matched Client', employeeName: 'Matched Employee' })];
     const nRows: InputNRow[] = [nRow({ annonceur: 'Matched Client', employeeName: 'Matched Employee' })];
+    const selectedPairKeys = new Set([rawPairKey('Matched Employee', 'Matched Client')]);
 
-    const summary = computeImportDiffSummary(employeeResolutions, clientResolutions, n1Rows, nRows, new Set(), ALL_FIELDS, false, 2026, 6);
+    const summary = computeImportDiffSummary(employeeResolutions, clientResolutions, n1Rows, nRows, new Set(), ALL_FIELDS, selectedPairKeys, 2026, 6);
 
     expect(summary.employeesToCreate).toEqual(['New Employee']);
     expect(summary.employeesMatchedCount).toBe(1);
@@ -259,13 +372,38 @@ describe('computeImportDiffSummary', () => {
     expect(summary.clientsToCreate).toEqual(['New Client']);
     expect(summary.clientsMatchedCount).toBe(1);
     expect(summary.clientsIgnoredCount).toBe(1); // undecided only, clients have no explicit ignore
-    expect(summary.newPairsCount).toBe(1); // Matched Employee x Matched Client, not in existingPairKeys
-    expect(summary.existingPairsCount).toBe(0);
+    expect(summary.newPairsSelectedCount).toBe(1); // Matched Employee x Matched Client, not in existingPairKeys, and selected
+    expect(summary.existingPairsSelectedCount).toBe(0);
+    expect(summary.newPairsSkippedCount).toBe(0);
+    expect(summary.existingPairsSkippedCount).toBe(0);
     expect(summary.unresolvedPairsCount).toBe(0);
     expect(summary.undecidedCount).toBe(2); // one employee, one client
   });
 
-  it('counts an already-known pair as existing, not new', () => {
+  it('counts an already-known, selected pair as existing-selected, not new', () => {
+    const employeeResolutions: Record<string, EmployeeResolution> = {
+      'Jean Dupont': { status: 'auto', employeeId: 'emp1', decision: 'match' },
+    };
+    const clientResolutions: Record<string, ClientResolution> = {
+      'Client A': { status: 'auto', clientMissionId: 'client1', decision: 'match' },
+    };
+    const selectedPairKeys = new Set([rawPairKey('Jean Dupont', 'Client A')]);
+    const summary = computeImportDiffSummary(
+      employeeResolutions,
+      clientResolutions,
+      [n1Row()],
+      [nRow()],
+      new Set(['emp1::client1']),
+      ALL_FIELDS,
+      selectedPairKeys,
+      2026,
+      6,
+    );
+    expect(summary.newPairsSelectedCount).toBe(0);
+    expect(summary.existingPairsSelectedCount).toBe(1);
+  });
+
+  it('counts an already-known, unselected pair as existing-skipped', () => {
     const employeeResolutions: Record<string, EmployeeResolution> = {
       'Jean Dupont': { status: 'auto', employeeId: 'emp1', decision: 'match' },
     };
@@ -279,12 +417,13 @@ describe('computeImportDiffSummary', () => {
       [nRow()],
       new Set(['emp1::client1']),
       ALL_FIELDS,
-      false,
+      new Set(), // nothing selected
       2026,
       6,
     );
-    expect(summary.newPairsCount).toBe(0);
-    expect(summary.existingPairsCount).toBe(1);
+    expect(summary.existingPairsSkippedCount).toBe(1);
+    expect(summary.newPairsSelectedCount).toBe(0);
+    expect(summary.existingPairsSelectedCount).toBe(0);
   });
 
   it('falls back to a naive name split/title-case when create-name fields are blank', () => {
@@ -300,7 +439,7 @@ describe('computeImportDiffSummary', () => {
     const clientResolutions: Record<string, ClientResolution> = {
       'CLIENT A': { status: 'needs-review', clientMissionId: null, decision: 'create' },
     };
-    const summary = computeImportDiffSummary(employeeResolutions, clientResolutions, [], [], new Set(), ALL_FIELDS, false, 2026, 6);
+    const summary = computeImportDiffSummary(employeeResolutions, clientResolutions, [], [], new Set(), ALL_FIELDS, new Set(), 2026, 6);
     expect(summary.employeesToCreate).toEqual(['JEAN DUPONT']);
     expect(summary.clientsToCreate).toEqual(['Client A']);
   });

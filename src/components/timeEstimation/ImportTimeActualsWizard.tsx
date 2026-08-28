@@ -23,14 +23,20 @@ import {
 import {
   buildImportRowPlan,
   clientResolutionAllowsContinue,
+  computeDefaultPairSelection,
+  computeDistinctRawPairs,
   computeImportDiffSummary,
+  computeOnlyNewPairsSelection,
+  computeRelevantUnresolvedNames,
   employeeResolutionAllowsContinue,
+  previewResolvedIds,
   type ClientResolution,
   type EmployeeResolution,
   type ImportFieldSelection,
+  type RawPair,
 } from '../../lib/timeImportDiff';
 import type { Employee } from '../../types/domain';
-import { FilterDropdown, type FilterDropdownOption } from '../shared/FilterDropdown';
+import { PairSelectionStep } from './PairSelectionStep';
 
 // Revision 3: same two-tab workbook shape (one annual total per employee×
 // client on "Input N-1", monthly detail on "Input N"), but both tabs
@@ -195,12 +201,68 @@ function formatImportError(err: unknown): string {
   }
 }
 
-// 'review' is a new step (added 2026-08-28, per user request) between
-// 'resolve' and the actual commit — an aggregate diff summary
-// (computeImportDiffSummary, timeImportDiff.ts) the user must explicitly
-// confirm before handleImport runs, replacing the old direct
-// resolve-step-button → handleImport() call and its window.confirm() gate.
-type Step = 'select' | 'cutoff' | 'resolve' | 'review';
+// A small always-visible search box + checkbox list, shared by all three of
+// Screen 2's ("resolveNames") name lists — checking a name here doesn't
+// select it for import (that's Screen 3's job entirely), it just expands
+// that name's Create/Match/Ignore resolution row directly below in the
+// parent. Search is a plain case-insensitive substring match, same
+// technique FilterDropdown.tsx already used for its own popover search —
+// this is an always-open inline list instead, since a checked item needs to
+// expand a row on the same screen rather than staying inside a popover.
+function SearchableNameChecklist({
+  title,
+  options,
+  expanded,
+  onToggle,
+  searchPlaceholder,
+}: {
+  title: string;
+  options: string[];
+  expanded: Set<string>;
+  onToggle: (rawName: string) => void;
+  searchPlaceholder: string;
+}) {
+  const [query, setQuery] = useState('');
+  const q = query.trim().toLowerCase();
+  const filtered = q ? options.filter((o) => o.toLowerCase().includes(q)) : options;
+  return (
+    <section className="mb-4">
+      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">{title}</h3>
+      <input
+        type="text"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder={searchPlaceholder}
+        className="mb-2 w-full rounded border border-slate-300 px-2 py-1 text-xs"
+      />
+      <div className="max-h-32 overflow-auto rounded border border-slate-200">
+        {filtered.map((name) => (
+          <label key={name} className="flex items-center gap-2 border-b border-slate-100 px-2 py-1 text-xs last:border-b-0 hover:bg-slate-50">
+            <input type="checkbox" checked={expanded.has(name)} onChange={() => onToggle(name)} />
+            {name}
+          </label>
+        ))}
+        {filtered.length === 0 && <p className="px-2 py-1.5 text-xs text-slate-400">—</p>}
+      </div>
+    </section>
+  );
+}
+
+// The new 6-screen flow (redesigned 2026-08-28, per a multi-turn design
+// conversation with the user): 'resolveNames' decouples name resolution
+// entirely from pair creation (checking a name here only reveals its
+// Create/Match/Ignore row, see SearchableNameChecklist above); 'selectPairs'
+// is the real import-scoping step (PairSelectionStep.tsx) — checking a
+// client or employee there selects only ITS OWN direct pairs, no
+// propagation; 'dataOptions' is the old 'cutoff' step, unchanged content;
+// 'resolveStragglers' is a narrow catch-up for names relevant to whatever
+// got selected at Screen 3 but never resolved at Screen 2; 'review' is the
+// existing diff/confirm screen. Replaces the old
+// 'select' | 'cutoff' | 'resolve' | 'review' flow, where "Filtrer par
+// client" only ever narrowed which UNRESOLVED names were shown for
+// triage — never an actual data-scoping feature, which is exactly the
+// misunderstanding that prompted this redesign.
+type Step = 'select' | 'resolveNames' | 'selectPairs' | 'dataOptions' | 'resolveStragglers' | 'review';
 
 export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { registryOrgChartId: string; onClose: () => void }) {
   const { t, i18n } = useTranslation();
@@ -222,13 +284,15 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
     refresh: refreshEstimation,
   } = useTimeEstimation();
 
-  // A pair (employee, client) already known to the tool, in ANY year — the
-  // "only new pairs" option below skips a pair entirely the moment it shows
-  // up in any of these, since time_manual_rows shows a pair can be "known"
-  // with no figures at all yet (added by hand from the grid, never
-  // imported). Checked against every table that can carry a resolved
-  // identity rather than just time_forecasts, so a pair with only N-1 data,
-  // or only a stray actual, still counts as existing.
+  // A pair (employee, client) already known to the tool, in ANY year —
+  // Screen 3's default checkbox state is "checked" exactly for a pair in
+  // this set (routine monthly refresh of something already known), and
+  // "unchecked" otherwise (a brand-new pair needs an explicit opt-in).
+  // time_manual_rows is included since a pair can be "known" with no
+  // figures at all yet (added by hand from the grid, never imported).
+  // Checked against every table that can carry a resolved identity rather
+  // than just time_forecasts, so a pair with only N-1 data, or only a stray
+  // actual, still counts as existing.
   const existingPairKeys = useMemo(() => {
     const keys = new Set<string>();
     for (const f of timeForecasts) keys.add(`${f.employee_id}::${f.client_mission_id}`);
@@ -260,20 +324,10 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
 
   const [cutoffDetection, setCutoffDetection] = useState<CutoffDetectionResult | null>(null);
   const [cutoffMonth, setCutoffMonth] = useState<number>(6);
-  // All unchecked by default (changed 2026-08-28, per user request) — an
-  // admin must actively opt each category back in, rather than a re-import
-  // silently overwriting hand-edited data (a manual grid edit, say) the
-  // moment they pick a file. Was all-true by default before this.
+  // All unchecked by default — an admin must actively opt each category
+  // back in, rather than a re-import silently overwriting hand-edited data
+  // (a manual grid edit, say) the moment they pick a file.
   const [importFields, setImportFields] = useState<ImportFieldSelection>({ n1: false, actuals: false, forecast: false });
-  // When on, any (employee, client) pair already known to the tool (see
-  // existingPairKeys above) is left completely untouched by this import —
-  // no N-1/actuals/forecast write, no marker-clearing, no total recompute —
-  // so a re-import can add newly-appeared pairs without risking a manual
-  // edit on an existing one. On by default (changed 2026-08-28, per user
-  // request, same reasoning as importFields above) — a full reimport
-  // meaning to knowingly overwrite existing pairs is still one click away,
-  // it's just no longer the silent default.
-  const [onlyNewPairs, setOnlyNewPairs] = useState(true);
 
   const [employeeResolutions, setEmployeeResolutions] = useState<Record<string, EmployeeResolution>>({});
   const [clientResolutions, setClientResolutions] = useState<Record<string, ClientResolution>>({});
@@ -290,11 +344,26 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
   // upserts, which aren't worth counting individually.
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
 
-  const [clientFilter, setClientFilter] = useState<Set<string>>(new Set());
-  // "Previously ignored" (see employeesPreviouslyIgnoredAll below) can be a
-  // large list — collapsed by default so it doesn't dominate the resolve
-  // step for a routine import with nothing to reconsider.
-  const [showPreviouslyIgnored, setShowPreviouslyIgnored] = useState(false);
+  // Screen 2 ("resolveNames") — which raw names are currently "expanded"
+  // (checked in their SearchableNameChecklist) to show a Create/Match/
+  // Ignore row below. Purely a display concern, independent of Screen 3's
+  // import-scope selection.
+  const [clientsExpanded, setClientsExpanded] = useState<Set<string>>(new Set());
+  const [employeesNeedsReviewExpanded, setEmployeesNeedsReviewExpanded] = useState<Set<string>>(new Set());
+  const [employeesPreviouslyIgnoredExpanded, setEmployeesPreviouslyIgnoredExpanded] = useState<Set<string>>(new Set());
+
+  // Screen 3 ("selectPairs") — the real import-scope selection, raw-name
+  // keyed (rawPairKey, timeImportDiff.ts). Seeded from
+  // computeDefaultPairSelection the moment the user leaves 'resolveNames'.
+  // selectedClientNames/selectedEmployeeNames are a SEPARATE, smaller
+  // signal — every client/employee the user has touched a pair for, used
+  // only to decide Screen 5's relevance (see computeRelevantUnresolvedNames)
+  // — deliberately monotonic (never un-marked by an individual toggle) so a
+  // client stays "worth surfacing stragglers for" even after unchecking one
+  // of its pairs.
+  const [selectedPairKeys, setSelectedPairKeys] = useState<Set<string>>(new Set());
+  const [selectedClientNames, setSelectedClientNames] = useState<Set<string>>(new Set());
+  const [selectedEmployeeNames, setSelectedEmployeeNames] = useState<Set<string>>(new Set());
 
   const monthLabel = useMemo(() => {
     const locale = i18n.language === 'fr' ? 'fr-FR' : 'en-US';
@@ -310,9 +379,9 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
   const diffSummary = useMemo(
     () =>
       step === 'review'
-        ? computeImportDiffSummary(employeeResolutions, clientResolutions, n1Rows, nRows, existingPairKeys, importFields, onlyNewPairs, year, cutoffMonth)
+        ? computeImportDiffSummary(employeeResolutions, clientResolutions, n1Rows, nRows, existingPairKeys, importFields, selectedPairKeys, year, cutoffMonth)
         : null,
-    [step, employeeResolutions, clientResolutions, n1Rows, nRows, existingPairKeys, importFields, onlyNewPairs, year, cutoffMonth],
+    [step, employeeResolutions, clientResolutions, n1Rows, nRows, existingPairKeys, importFields, selectedPairKeys, year, cutoffMonth],
   );
 
   function justificationFor(rawEmployeeName: string): string {
@@ -340,10 +409,13 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
     setDone(null);
     setImportError(null);
     setProgress(null);
-    setClientFilter(new Set());
-    setShowPreviouslyIgnored(false);
+    setClientsExpanded(new Set());
+    setEmployeesNeedsReviewExpanded(new Set());
+    setEmployeesPreviouslyIgnoredExpanded(new Set());
+    setSelectedPairKeys(new Set());
+    setSelectedClientNames(new Set());
+    setSelectedEmployeeNames(new Set());
     setImportFields({ n1: false, actuals: false, forecast: false });
-    setOnlyNewPairs(true);
     try {
       const buffer = await selected.arrayBuffer();
       const { n1Rows: parsedN1, nRows: parsedN } = parseCombinedWorkbook(buffer);
@@ -391,17 +463,7 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
       }
       setClientResolutions(cliResolutions);
 
-      // The client filter starts EMPTY (= show everyone needing review),
-      // not pre-narrowed — a real user report (2026-08-28): this used to
-      // preselect only already-matched clients ("most likely to be a
-      // genuine update"), which silently hid every brand-new client from
-      // "Clients to resolve"/"Employees to resolve" — exactly the ones that
-      // most need a decision — unless the user thought to clear the filter
-      // themselves. Nothing should be hidden by default; the filter is
-      // still there to narrow down a large file once the user chooses to.
-      setClientFilter(new Set());
-
-      setStep('cutoff');
+      setStep('resolveNames');
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setParseError(
@@ -416,33 +478,28 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
     }
   }
 
-  // Raw employee name -> set of raw client names it appears under in either
-  // sheet, used to decide which employees the client filter below keeps.
-  const employeeClientNames = useMemo(() => {
-    const map = new Map<string, Set<string>>();
-    for (const row of [...n1Rows, ...nRows]) {
-      if (!row.employeeName || !row.annonceur) continue;
-      if (!map.has(row.employeeName)) map.set(row.employeeName, new Set());
-      map.get(row.employeeName)!.add(row.annonceur);
-    }
-    return map;
-  }, [n1Rows, nRows]);
+  const rawPairs: RawPair[] = useMemo(() => computeDistinctRawPairs(n1Rows, nRows), [n1Rows, nRows]);
 
-  const clientFilterOptions: FilterDropdownOption[] = useMemo(() => {
-    const names = new Set([...n1Rows.map((r) => r.annonceur), ...nRows.map((r) => r.annonceur)].filter((n): n is string => n != null));
-    return Array.from(names)
-      .sort((a, b) => a.localeCompare(b))
-      .map((name) => ({ key: name, label: name }));
-  }, [n1Rows, nRows]);
+  // Preview-resolved ids (real id for match/auto, a never-colliding
+  // placeholder for create, null for ignore/undecided) — used by Screen 3
+  // to know which pairs are selectable at all, and by the default-selection
+  // seeding below. The review screen's own diffSummary computes this again
+  // internally (computeImportDiffSummary calls previewResolvedIds itself);
+  // recomputing it here too is cheap and keeps Screen 3 from needing to
+  // reach into review-screen internals.
+  const { employeeIds: previewEmployeeIds, clientIds: previewClientIds } = useMemo(
+    () => previewResolvedIds(employeeResolutions, clientResolutions),
+    [employeeResolutions, clientResolutions],
+  );
 
-  function toggleClientFilter(key: string) {
-    setClientFilter((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }
+  const defaultPairSelection = useMemo(
+    () => computeDefaultPairSelection(rawPairs, previewEmployeeIds, previewClientIds, existingPairKeys),
+    [rawPairs, previewEmployeeIds, previewClientIds, existingPairKeys],
+  );
+  const onlyNewPairsSelection = useMemo(
+    () => computeOnlyNewPairsSelection(rawPairs, previewEmployeeIds, previewClientIds, existingPairKeys),
+    [rawPairs, previewEmployeeIds, previewClientIds, existingPairKeys],
+  );
 
   // Alphabetical, for the "match an existing employee" dropdown's own
   // fallback group — the registry itself has no guaranteed order.
@@ -454,75 +511,48 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
     [registryEmployees],
   );
 
-  const employeesNeedingReviewAll = useMemo(
-    () => Object.entries(employeeResolutions).filter(([, r]) => r.status === 'needs-review'),
-    [employeeResolutions],
-  );
   const clientsNeedingReviewAll = useMemo(
     () => Object.entries(clientResolutions).filter(([, r]) => r.status === 'needs-review'),
     [clientResolutions],
   );
-  const employeesNeedingReview = useMemo(
-    () =>
-      clientFilter.size === 0
-        ? employeesNeedingReviewAll
-        : employeesNeedingReviewAll.filter(([rawName]) => {
-            const clients = employeeClientNames.get(rawName);
-            return clients != null && Array.from(clients).some((c) => clientFilter.has(c));
-          }),
-    [employeesNeedingReviewAll, employeeClientNames, clientFilter],
+  const employeesNeedingReviewAll = useMemo(
+    () => Object.entries(employeeResolutions).filter(([, r]) => r.status === 'needs-review'),
+    [employeeResolutions],
   );
-  const clientsNeedingReview = useMemo(
-    () => (clientFilter.size === 0 ? clientsNeedingReviewAll : clientsNeedingReviewAll.filter(([rawName]) => clientFilter.has(rawName))),
-    [clientsNeedingReviewAll, clientFilter],
-  );
-
   // A raw employee name that was explicitly marked "Ignorer" in a PAST
   // import gets an alias row with employee_id === null (handleFileSelected
   // above) — status: 'auto', decision: 'ignore', matching an
   // already-resolved 'match' alias in every way except its target. That
   // decision then silently repeats on every future import, forever, with
-  // no way to reconsider it — the resolve step only ever showed
-  // status === 'needs-review' rows. Real user report (2026-08-28): a
-  // 258-employee file where 163 fell into exactly this bucket, with no
-  // visible path to fix any of them. This list surfaces them, collapsed by
-  // default (see showPreviouslyIgnored below) since it can be large, with
-  // the exact same Create/Match/Ignore controls as "needs review" rows —
-  // picking any of them just overwrites this one entry in
-  // employeeResolutions, same mechanism as resolving a brand-new name.
+  // no way to reconsider it. This list surfaces them for reconsideration —
+  // same Create/Match/Ignore controls as "needs review" rows.
   const employeesPreviouslyIgnoredAll = useMemo(
     () => Object.entries(employeeResolutions).filter(([, r]) => r.status === 'auto' && r.decision === 'ignore'),
     [employeeResolutions],
   );
-  const employeesPreviouslyIgnored = useMemo(
-    () =>
-      clientFilter.size === 0
-        ? employeesPreviouslyIgnoredAll
-        : employeesPreviouslyIgnoredAll.filter(([rawName]) => {
-            const clients = employeeClientNames.get(rawName);
-            return clients != null && Array.from(clients).some((c) => clientFilter.has(c));
-          }),
-    [employeesPreviouslyIgnoredAll, employeeClientNames, clientFilter],
-  );
 
-  const allResolved =
-    employeesNeedingReviewAll.every(([, r]) => employeeResolutionAllowsContinue(r)) &&
-    clientsNeedingReviewAll.every(([, r]) => clientResolutionAllowsContinue(r));
-
-  // Rows the user never explicitly touched — allowed to continue (treated
-  // as ignored, see employeeResolutionAllowsContinue above), but worth a
-  // heads-up before their data is silently skipped from the import.
-  const undecidedEmployees = employeesNeedingReviewAll.filter(([, r]) => r.decision == null);
-  const undecidedClients = clientsNeedingReviewAll.filter(([, r]) => r.decision == null);
-  const undecidedCount = undecidedEmployees.length + undecidedClients.length;
+  // No 'allResolved' gate anymore — Screen 2 no longer requires resolving
+  // everything before continuing, only whatever's relevant to what gets
+  // selected at Screen 3 (Screen 5, resolveStragglers, is the real safety
+  // net now). The only thing that still blocks Continue is a genuinely
+  // half-filled explicit choice (picked "Create" but left the name blank) —
+  // that can only happen on a row the user actually expanded and started
+  // filling in, so it needs no separate "expanded" bookkeeping to check.
+  const resolveNamesHasInvalidState =
+    Object.values(clientResolutions).some((r) => !clientResolutionAllowsContinue(r)) ||
+    Object.values(employeeResolutions).some((r) => !employeeResolutionAllowsContinue(r));
 
   // Top-5 closest names per raw import name, ranked by Levenshtein
   // similarity (employeeNameSimilarity) — purely a UI ranking aid to help
   // find the right employee faster; never used to auto-resolve (that stays
-  // matchesEmployeeName's strict equality check above).
+  // matchesEmployeeName's strict equality check above). Computed for every
+  // needs-review/previously-ignored name up front (not just expanded ones)
+  // since the list is bounded by the file's own distinct name count and
+  // this is cheap relative to the network round trips elsewhere in this
+  // wizard.
   const suggestedMatchesByRawName = useMemo(() => {
     const map = new Map<string, Employee[]>();
-    for (const [rawName] of [...employeesNeedingReview, ...employeesPreviouslyIgnored]) {
+    for (const [rawName] of [...employeesNeedingReviewAll, ...employeesPreviouslyIgnoredAll]) {
       const ranked = registryEmployees
         .map((e) => ({ e, score: employeeNameSimilarity(rawName, e.first_name, e.last_name) }))
         .sort((a, b) => b.score - a.score)
@@ -531,24 +561,61 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
       map.set(rawName, ranked);
     }
     return map;
-  }, [employeesNeedingReview, employeesPreviouslyIgnored, registryEmployees]);
+  }, [employeesNeedingReviewAll, employeesPreviouslyIgnoredAll, registryEmployees]);
+
+  // Screen 5's whole reason to exist — names relevant to whatever the user
+  // touched at Screen 3 but never resolved. See
+  // computeRelevantUnresolvedNames's own comment for why this needs the
+  // explicit selectedClientNames/selectedEmployeeNames signal rather than
+  // being derivable from selectedPairKeys alone (a client whose employees
+  // are ALL unresolved has no selectable pair to derive from in the first
+  // place).
+  const relevantUnresolved = useMemo(
+    () => computeRelevantUnresolvedNames(selectedClientNames, selectedEmployeeNames, rawPairs, employeeResolutions, clientResolutions),
+    [selectedClientNames, selectedEmployeeNames, rawPairs, employeeResolutions, clientResolutions],
+  );
+  const stragglersHasInvalidState =
+    relevantUnresolved.clients.some((name) => !clientResolutionAllowsContinue(clientResolutions[name])) ||
+    relevantUnresolved.employees.some((name) => !employeeResolutionAllowsContinue(employeeResolutions[name]));
+  const stragglersUndecidedCount =
+    relevantUnresolved.clients.filter((name) => (clientResolutions[name]?.decision ?? null) === null).length +
+    relevantUnresolved.employees.filter((name) => (employeeResolutions[name]?.decision ?? null) === null).length;
+
+  function toggleClientExpanded(rawName: string) {
+    setClientsExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(rawName)) next.delete(rawName);
+      else next.add(rawName);
+      return next;
+    });
+  }
+  function toggleEmployeeNeedsReviewExpanded(rawName: string) {
+    setEmployeesNeedsReviewExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(rawName)) next.delete(rawName);
+      else next.add(rawName);
+      return next;
+    });
+  }
+  function toggleEmployeePreviouslyIgnoredExpanded(rawName: string) {
+    setEmployeesPreviouslyIgnoredExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(rawName)) next.delete(rawName);
+      else next.add(rawName);
+      return next;
+    });
+  }
 
   // Resolves every raw name to a real id (writing aliases, creating any new
-  // employee/client along the way), then commits straight through — no more
-  // separate conflicts step. Every checked category in `importFields` is
-  // written unconditionally: a fresh import always overwrites whatever was
-  // there before (upsert on each table's own unique constraint), whether
-  // that prior value came from a manual grid edit or an earlier import.
-  // Unchecked categories are simply never written, leaving existing data
-  // for them untouched. `onlyNewPairs` narrows this further, per pair
-  // rather than per category: a pair already in existingPairKeys is skipped
-  // outright at every row-building step below (isNewPair guards), so it
-  // never enters n1UpsertRows/actualUpsertRows/forecastUpsertRows, never
-  // joins affectedKeys, and therefore never triggers marker-clearing,
-  // manual-row-clearing or the total_pct recompute either — a genuinely new
-  // pair from the same file is unaffected and imports exactly as before.
+  // employee/client along the way), then commits straight through. Every
+  // checked category in `importFields` is written unconditionally for a
+  // pair in `selectedPairKeys`: a fresh import always overwrites whatever
+  // was there before (upsert on each table's own unique constraint),
+  // whether that prior value came from a manual grid edit or an earlier
+  // import. A pair NOT selected is left completely untouched — no write, no
+  // marker-clearing, no total recompute — regardless of whether it's new or
+  // already known; that decision was already made explicitly at Screen 3.
   async function handleImport() {
-    if (!allResolved) return;
     setImportError(null);
     setResolving(true);
     const aliasTotal = Object.keys(employeeResolutions).length + Object.keys(clientResolutions).length;
@@ -649,17 +716,16 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
       // continuously across it, rather than resetting or sitting blank
       // during whichever part happens to run first. The actual row-building
       // (N-1 totals, past/future months, the cross-sheet zero-fill for a
-      // pair mentioned in only one tab, onlyNewPairs skipping) lives in
+      // pair mentioned in only one tab, selectedPairKeys scoping) lives in
       // buildImportRowPlan (timeImportDiff.ts) — shared with the review
       // step's preview so the two can never disagree on this logic. batch_id
       // is attached here, not inside the plan, since the batch row doesn't
       // exist until the line above.
-      const plan = buildImportRowPlan({ n1Rows, nRows, employeeIds, clientIds, existingPairKeys, importFields, onlyNewPairs, year, cutoffMonth });
+      const plan = buildImportRowPlan({ n1Rows, nRows, employeeIds, clientIds, existingPairKeys, importFields, selectedPairKeys, year, cutoffMonth });
       const n1UpsertRows = plan.n1UpsertRows;
       const actualUpsertRows: TimeActualUpsertRow[] = plan.actualUpsertRows.map((row) => ({ ...row, batch_id: batch.id }));
       const forecastUpsertRows = plan.forecastUpsertRows;
       const affectedKeys = plan.affectedPairKeys;
-      const skippedExistingPairKeys = plan.skippedExistingPairKeys;
 
       // Recompute the stored time_forecasts.total_pct for every affected
       // (employee, client) so it can never drift out of sync with what was
@@ -855,19 +921,24 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
         await refreshEstimation();
       }
 
+      // A distinct raw pair whose data was actually written (affectedKeys)
+      // and wasn't already in existingPairKeys BEFORE this import ran —
+      // existingPairKeys is a snapshot from useTimeEstimation()'s data as
+      // loaded when the wizard opened, untouched by this function's own
+      // writes, so it still reflects pre-import state here.
+      let newPairsAdded = 0;
+      for (const key of affectedKeys) {
+        if (!existingPairKeys.has(key)) newPairsAdded += 1;
+      }
+      const totalRawPairs = rawPairs.length;
+      const skippedPairs = totalRawPairs - affectedKeys.size;
+
       setDone({
         actualRows: actualUpsertRows.length,
         n1Rows: n1UpsertRows.length,
         forecastRows: forecastUpsertRows.length,
-        skippedPairs: skippedExistingPairKeys.size,
-        // plan.newPairKeys was computed against existingPairKeys — a
-        // snapshot from useTimeEstimation()'s data as loaded when the
-        // wizard opened, untouched by this function's own writes below — so
-        // it still reflects pre-import state here regardless of
-        // onlyNewPairs. Shown unconditionally (not just in "only new pairs"
-        // mode) since "how many brand-new pairs did this add" is useful
-        // information either way.
-        newPairs: plan.newPairKeys.size,
+        skippedPairs,
+        newPairs: newPairsAdded,
       });
     } catch (err) {
       setImportError(formatImportError(err));
@@ -879,10 +950,9 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
 
   const sortedCandidates = cutoffDetection?.candidates ?? [];
 
-  // Shared row for both "Employees to resolve" (status: 'needs-review') and
-  // "Previously ignored" (status: 'auto', decision: 'ignore', see
-  // employeesPreviouslyIgnoredAll above) — identical Create/Match/Ignore
-  // controls either way, since picking any of them just overwrites this one
+  // Shared row for "Employees to resolve", "Previously ignored" (Screen 2)
+  // AND Screen 5's employee catch-up list — identical Create/Match/Ignore
+  // controls everywhere, since picking any of them just overwrites this one
   // entry in employeeResolutions to a fresh { status: 'needs-review', ... }.
   function renderEmployeeRow(rawName: string, res: EmployeeResolution) {
     return (
@@ -996,15 +1066,53 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
     );
   }
 
+  // Shared row for "Clients to resolve" (Screen 2) and Screen 5's client
+  // catch-up list.
+  function renderClientRow(rawName: string, res: ClientResolution) {
+    return (
+      <div key={rawName} className="rounded border border-slate-200 px-2 py-1.5 text-sm">
+        <div className="flex items-center gap-2">
+          <span className="w-40 shrink-0 truncate font-medium text-slate-700">{rawName}</span>
+          <select
+            value={res.decision === 'match' ? (res.clientMissionId ?? '') : res.decision === 'create' ? '__create__' : ''}
+            onChange={(e) => {
+              const value = e.target.value;
+              setClientResolutions((prev) => ({
+                ...prev,
+                [rawName]:
+                  value === '__create__'
+                    ? { status: 'needs-review', clientMissionId: null, decision: 'create', createName: prev[rawName]?.createName ?? toTitleCase(rawName) }
+                    : { status: 'needs-review', clientMissionId: value || null, decision: value ? 'match' : null },
+              }));
+            }}
+            className="flex-1 rounded border border-slate-300 px-2 py-1 text-xs"
+          >
+            <option value="">{t('timeEstimation.wizard.choose')}</option>
+            <option value="__create__">{t('timeEstimation.wizard.createNew', { name: toTitleCase(rawName) })}</option>
+            {clientsMissions.map((cm) => (
+              <option key={cm.id} value={cm.id}>
+                {cm.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        {res.decision === 'create' && (
+          <input
+            type="text"
+            value={res.createName ?? ''}
+            onChange={(e) => setClientResolutions((prev) => ({ ...prev, [rawName]: { ...prev[rawName], createName: e.target.value } }))}
+            placeholder={t('timeEstimation.wizard.clientNamePlaceholder')}
+            className="mt-2 w-full rounded border border-slate-300 px-2 py-1 text-xs"
+          />
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/30 p-4">
       {/* h-[85vh] (not just max-h) keeps the dialog's size stable regardless
-          of how many rows the resolve step currently shows — without a
-          fixed height, a narrow client filter result (few/no rows) let the
-          flex column collapse to fit its content, and the "Filtrer par
-          client" FilterDropdown's own absolutely-positioned popover (up to
-          ~320px tall) then got clipped by that shrunken overflow-auto body,
-          making the dropdown itself look tiny and hard to use. */}
+          of how many rows a given step currently shows. */}
       <div className="flex h-[85vh] max-h-[85vh] w-full max-w-3xl flex-col rounded-lg bg-white shadow-xl">
         <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
           <h2 className="text-sm font-semibold text-slate-800">{t('timeEstimation.wizard.title')}</h2>
@@ -1074,7 +1182,87 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
               {parsing && <p className="mt-3 text-sm text-slate-400">{t('timeEstimation.wizard.parsing')}</p>}
               {parseError && <p className="mt-3 text-sm text-red-600">{parseError}</p>}
 
-              {step === 'cutoff' && (
+              {step === 'resolveNames' && (
+                <>
+                  {clientsNeedingReviewAll.length > 0 && (
+                    <>
+                      <SearchableNameChecklist
+                        title={t('timeEstimation.wizard.clientsToResolve')}
+                        options={clientsNeedingReviewAll.map(([rawName]) => rawName)}
+                        expanded={clientsExpanded}
+                        onToggle={toggleClientExpanded}
+                        searchPlaceholder={t('timeEstimation.wizard.searchNamePlaceholder')}
+                      />
+                      {[...clientsExpanded].length > 0 && (
+                        <div className="mb-4 space-y-2">
+                          {[...clientsExpanded]
+                            .filter((rawName) => clientResolutions[rawName])
+                            .map((rawName) => renderClientRow(rawName, clientResolutions[rawName]))}
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {employeesNeedingReviewAll.length > 0 && (
+                    <>
+                      <SearchableNameChecklist
+                        title={t('timeEstimation.wizard.employeesToResolve')}
+                        options={employeesNeedingReviewAll.map(([rawName]) => rawName)}
+                        expanded={employeesNeedsReviewExpanded}
+                        onToggle={toggleEmployeeNeedsReviewExpanded}
+                        searchPlaceholder={t('timeEstimation.wizard.searchNamePlaceholder')}
+                      />
+                      {[...employeesNeedsReviewExpanded].length > 0 && (
+                        <div className="mb-4 space-y-3">
+                          {[...employeesNeedsReviewExpanded]
+                            .filter((rawName) => employeeResolutions[rawName])
+                            .map((rawName) => renderEmployeeRow(rawName, employeeResolutions[rawName]))}
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {employeesPreviouslyIgnoredAll.length > 0 && (
+                    <>
+                      <SearchableNameChecklist
+                        title={t('timeEstimation.wizard.previouslyIgnoredToggle', { count: employeesPreviouslyIgnoredAll.length })}
+                        options={employeesPreviouslyIgnoredAll.map(([rawName]) => rawName)}
+                        expanded={employeesPreviouslyIgnoredExpanded}
+                        onToggle={toggleEmployeePreviouslyIgnoredExpanded}
+                        searchPlaceholder={t('timeEstimation.wizard.searchNamePlaceholder')}
+                      />
+                      {[...employeesPreviouslyIgnoredExpanded].length > 0 && (
+                        <div className="mb-4 space-y-3">
+                          {[...employeesPreviouslyIgnoredExpanded]
+                            .filter((rawName) => employeeResolutions[rawName])
+                            .map((rawName) => renderEmployeeRow(rawName, employeeResolutions[rawName]))}
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {clientsNeedingReviewAll.length === 0 && employeesNeedingReviewAll.length === 0 && employeesPreviouslyIgnoredAll.length === 0 && (
+                    <p className="text-sm text-slate-500">{t('timeEstimation.wizard.nothingToResolve')}</p>
+                  )}
+                </>
+              )}
+
+              {step === 'selectPairs' && (
+                <PairSelectionStep
+                  rawPairs={rawPairs}
+                  existingPairKeys={existingPairKeys}
+                  employeeIds={previewEmployeeIds}
+                  clientIds={previewClientIds}
+                  selectedPairKeys={selectedPairKeys}
+                  onChangeSelectedPairKeys={setSelectedPairKeys}
+                  onTouchClient={(name) => setSelectedClientNames((prev) => new Set(prev).add(name))}
+                  onTouchEmployee={(name) => setSelectedEmployeeNames((prev) => new Set(prev).add(name))}
+                  onlyNewPairsSelection={onlyNewPairsSelection}
+                  defaultSelection={defaultPairSelection}
+                />
+              )}
+
+              {step === 'dataOptions' && (
                 <>
                   <section className="mb-5">
                     <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
@@ -1108,24 +1296,6 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
                     </div>
                   </section>
 
-                  <section className="mb-5">
-                    <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
-                      {t('timeEstimation.wizard.importModeTitle')}
-                    </h3>
-                    <label className="flex items-start gap-2 text-sm text-slate-700">
-                      <input
-                        type="checkbox"
-                        checked={onlyNewPairs}
-                        onChange={() => setOnlyNewPairs((prev) => !prev)}
-                        className="mt-0.5"
-                      />
-                      <span>
-                        {t('timeEstimation.wizard.onlyNewPairsLabel')}
-                        <span className="mt-0.5 block text-xs text-slate-400">{t('timeEstimation.wizard.onlyNewPairsHint')}</span>
-                      </span>
-                    </label>
-                  </section>
-
                   <section>
                     <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">{t('timeEstimation.wizard.cutoffTitle')}</h3>
                     <p className="mb-3 text-xs text-slate-500">
@@ -1152,123 +1322,40 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
                 </>
               )}
 
-              {step === 'resolve' && (
+              {step === 'resolveStragglers' && (
                 <>
-                  {(employeesNeedingReviewAll.length > 0 || clientsNeedingReviewAll.length > 0) && clientFilterOptions.length > 0 && (
-                    <div className="mb-3">
-                      <FilterDropdown
-                        title={t('timeEstimation.wizard.filterByClient')}
-                        options={clientFilterOptions}
-                        selected={clientFilter}
-                        onToggle={toggleClientFilter}
-                        onSelectAll={() => setClientFilter(new Set(clientFilterOptions.map((o) => o.key)))}
-                        onDeselectAll={() => setClientFilter(new Set())}
-                        selectAllLabel={t('timeEstimation.wizard.selectAll')}
-                        deselectAllLabel={t('timeEstimation.wizard.deselectAll')}
-                      />
-                    </div>
-                  )}
-
-                  {clientsNeedingReview.length > 0 && (
+                  <p className="mb-3 text-xs text-slate-500">{t('timeEstimation.wizard.stragglersHint')}</p>
+                  {relevantUnresolved.clients.length > 0 && (
                     <section className="mb-4">
                       <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
                         {t('timeEstimation.wizard.clientsToResolve')}
                       </h3>
                       <div className="space-y-2">
-                        {clientsNeedingReview.map(([rawName, res]) => (
-                          <div key={rawName} className="rounded border border-slate-200 px-2 py-1.5 text-sm">
-                            <div className="flex items-center gap-2">
-                              <span className="w-40 shrink-0 truncate font-medium text-slate-700">{rawName}</span>
-                              <select
-                                value={res.decision === 'match' ? (res.clientMissionId ?? '') : res.decision === 'create' ? '__create__' : ''}
-                                onChange={(e) => {
-                                  const value = e.target.value;
-                                  setClientResolutions((prev) => ({
-                                    ...prev,
-                                    [rawName]:
-                                      value === '__create__'
-                                        ? { status: 'needs-review', clientMissionId: null, decision: 'create', createName: prev[rawName]?.createName ?? toTitleCase(rawName) }
-                                        : { status: 'needs-review', clientMissionId: value || null, decision: value ? 'match' : null },
-                                  }));
-                                }}
-                                className="flex-1 rounded border border-slate-300 px-2 py-1 text-xs"
-                              >
-                                <option value="">{t('timeEstimation.wizard.choose')}</option>
-                                <option value="__create__">{t('timeEstimation.wizard.createNew', { name: toTitleCase(rawName) })}</option>
-                                {clientsMissions.map((cm) => (
-                                  <option key={cm.id} value={cm.id}>
-                                    {cm.name}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                            {res.decision === 'create' && (
-                              <input
-                                type="text"
-                                value={res.createName ?? ''}
-                                onChange={(e) =>
-                                  setClientResolutions((prev) => ({ ...prev, [rawName]: { ...prev[rawName], createName: e.target.value } }))
-                                }
-                                placeholder={t('timeEstimation.wizard.clientNamePlaceholder')}
-                                className="mt-2 w-full rounded border border-slate-300 px-2 py-1 text-xs"
-                              />
-                            )}
-                          </div>
-                        ))}
+                        {relevantUnresolved.clients.map((rawName) => renderClientRow(rawName, clientResolutions[rawName]))}
                       </div>
                     </section>
                   )}
-
-                  {employeesNeedingReview.length > 0 && (
+                  {relevantUnresolved.employees.length > 0 && (
                     <section className="mb-4">
                       <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
                         {t('timeEstimation.wizard.employeesToResolve')}
                       </h3>
-                      <div className="space-y-3">{employeesNeedingReview.map(([rawName, res]) => renderEmployeeRow(rawName, res))}</div>
+                      <div className="space-y-3">
+                        {relevantUnresolved.employees.map((rawName) => renderEmployeeRow(rawName, employeeResolutions[rawName]))}
+                      </div>
                     </section>
                   )}
-
-                  {employeesPreviouslyIgnoredAll.length > 0 && (
-                    <section className="mb-4">
-                      <button
-                        type="button"
-                        onClick={() => setShowPreviouslyIgnored((v) => !v)}
-                        className="mb-2 flex w-full items-center justify-between text-left text-xs font-semibold uppercase tracking-wide text-amber-600 hover:text-amber-700"
-                      >
-                        <span>
-                          {t('timeEstimation.wizard.previouslyIgnoredToggle', { count: employeesPreviouslyIgnoredAll.length })}
-                        </span>
-                        <span>{showPreviouslyIgnored ? '▲' : '▼'}</span>
-                      </button>
-                      {showPreviouslyIgnored && (
-                        <>
-                          <p className="mb-2 text-xs text-slate-400">{t('timeEstimation.wizard.previouslyIgnoredHint')}</p>
-                          <div className="space-y-3">
-                            {employeesPreviouslyIgnored.map(([rawName, res]) => renderEmployeeRow(rawName, res))}
-                          </div>
-                        </>
-                      )}
-                    </section>
-                  )}
-
-                  {employeesNeedingReview.length === 0 && clientsNeedingReview.length === 0 && (
-                    <p className="text-sm text-slate-500">
-                      {clientFilter.size > 0 && (employeesNeedingReviewAll.length > 0 || clientsNeedingReviewAll.length > 0)
-                        ? t('timeEstimation.wizard.noMatchesForFilter')
-                        : t('timeEstimation.wizard.nothingToResolve')}
-                    </p>
+                  {relevantUnresolved.clients.length === 0 && relevantUnresolved.employees.length === 0 && (
+                    <p className="text-sm text-slate-500">{t('timeEstimation.wizard.nothingToResolve')}</p>
                   )}
                 </>
               )}
 
-              {/* Diff/review step (added 2026-08-28, per user request): an
-                  aggregate summary of what this import is about to do —
-                  computed purely from state already available before any
-                  network write (computeImportDiffSummary, timeImportDiff.ts)
-                  — that the user must explicitly confirm before handleImport
-                  actually runs. Replaces the old direct
-                  resolve-step-button → handleImport() call and its
-                  window.confirm() gate for undecided rows. */}
+              {/* Diff/review step: an aggregate summary of what this import
+                  is actually about to do — computed purely from state
+                  already available before any network write
+                  (computeImportDiffSummary, timeImportDiff.ts) — that the
+                  user must explicitly confirm before handleImport runs. */}
               {step === 'review' && diffSummary && (
                 <>
                   {(diffSummary.employeesToCreate.length > 0 || diffSummary.employeesMatchedCount > 0 || diffSummary.employeesIgnoredCount > 0) && (
@@ -1315,17 +1402,25 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
                     </section>
                   )}
 
-                  {(diffSummary.newPairsCount > 0 || diffSummary.existingPairsCount > 0 || diffSummary.unresolvedPairsCount > 0) && (
+                  {(diffSummary.newPairsSelectedCount > 0 ||
+                    diffSummary.existingPairsSelectedCount > 0 ||
+                    diffSummary.newPairsSkippedCount > 0 ||
+                    diffSummary.existingPairsSkippedCount > 0 ||
+                    diffSummary.unresolvedPairsCount > 0) && (
                     <section className="mb-5">
                       <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">{t('timeEstimation.wizard.reviewPairsTitle')}</h3>
                       <div className="flex flex-col gap-1 text-sm text-slate-700">
-                        {diffSummary.newPairsCount > 0 && <p>{t('timeEstimation.wizard.reviewPairsNew', { count: diffSummary.newPairsCount })}</p>}
-                        {diffSummary.existingPairsCount > 0 && (
-                          <p>
-                            {onlyNewPairs
-                              ? t('timeEstimation.wizard.reviewPairsSkippedOnlyNew', { count: diffSummary.existingPairsCount })
-                              : t('timeEstimation.wizard.reviewPairsUpdated', { count: diffSummary.existingPairsCount })}
-                          </p>
+                        {diffSummary.newPairsSelectedCount > 0 && (
+                          <p>{t('timeEstimation.wizard.reviewPairsNewSelected', { count: diffSummary.newPairsSelectedCount })}</p>
+                        )}
+                        {diffSummary.existingPairsSelectedCount > 0 && (
+                          <p>{t('timeEstimation.wizard.reviewPairsExistingSelected', { count: diffSummary.existingPairsSelectedCount })}</p>
+                        )}
+                        {diffSummary.newPairsSkippedCount > 0 && (
+                          <p className="text-slate-500">{t('timeEstimation.wizard.reviewPairsNewSkipped', { count: diffSummary.newPairsSkippedCount })}</p>
+                        )}
+                        {diffSummary.existingPairsSkippedCount > 0 && (
+                          <p className="text-slate-500">{t('timeEstimation.wizard.reviewPairsExistingSkipped', { count: diffSummary.existingPairsSkippedCount })}</p>
                         )}
                         {diffSummary.unresolvedPairsCount > 0 && (
                           <p className="text-amber-600">{t('timeEstimation.wizard.reviewPairsUnresolved', { count: diffSummary.unresolvedPairsCount })}</p>
@@ -1340,10 +1435,10 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
                       {/* Unlike the sections above, a CHECKED category showing 0
                           rows is shown, not hidden — that's a meaningful
                           "something's misconfigured" signal (e.g. the cutoff
-                          month), not noise like an unremarkable "0 new
-                          employees" would be. An unchecked category is simply
-                          absent, matching the cutoff step's own importFields
-                          checkboxes. */}
+                          month, or nothing selected at Screen 3), not noise
+                          like an unremarkable "0 new employees" would be. An
+                          unchecked category is simply absent, matching the
+                          dataOptions step's own importFields checkboxes. */}
                       {importFields.n1 && (
                         <p>{t('timeEstimation.wizard.reviewDataN1', { year: year - 1, count: diffSummary.plannedRowCounts.n1 })}</p>
                       )}
@@ -1373,27 +1468,14 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
                   )}
                 </>
               )}
-
             </>
           )}
         </div>
 
         <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-4 py-3">
-          {/* handleImport now only ever runs from the 'review' step, but an
-              error must stay visible there — no longer gated on step === 'resolve'. */}
           {importError && <p className="mr-auto text-xs text-red-600">{t('timeEstimation.wizard.importError', { message: importError })}</p>}
-          {step === 'resolve' && !importError && undecidedCount > 0 && (
-            <p className="mr-auto text-xs text-amber-600">
-              {t('timeEstimation.wizard.undecidedWarning', { count: undecidedCount })}
-              {clientFilter.size > 0 && (
-                <>
-                  {' '}
-                  <button type="button" onClick={() => setClientFilter(new Set())} className="underline hover:text-amber-800">
-                    {t('timeEstimation.wizard.clearFilterToReview')}
-                  </button>
-                </>
-              )}
-            </p>
+          {step === 'resolveStragglers' && !importError && stragglersUndecidedCount > 0 && (
+            <p className="mr-auto text-xs text-amber-600">{t('timeEstimation.wizard.undecidedWarning', { count: stragglersUndecidedCount })}</p>
           )}
           <button
             onClick={onClose}
@@ -1403,18 +1485,52 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
           >
             {t('timeEstimation.wizard.close')}
           </button>
-          {step === 'cutoff' && (
+
+          {step === 'resolveNames' && (
             <button
-              onClick={() => setStep('select')}
+              onClick={() => {
+                setSelectedPairKeys(defaultPairSelection);
+                setSelectedClientNames(new Set());
+                setSelectedEmployeeNames(new Set());
+                setStep('selectPairs');
+              }}
+              disabled={resolveNamesHasInvalidState}
+              className="rounded bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-40"
+            >
+              {t('timeEstimation.wizard.continueLabel')}
+            </button>
+          )}
+
+          {step === 'selectPairs' && (
+            <button
+              onClick={() => setStep('resolveNames')}
               disabled={resolving || committing}
               className="rounded border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {t('timeEstimation.wizard.back')}
             </button>
           )}
-          {step === 'cutoff' && (
+          {step === 'selectPairs' && (
             <button
-              onClick={() => setStep('resolve')}
+              onClick={() => setStep('dataOptions')}
+              className="rounded bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700"
+            >
+              {t('timeEstimation.wizard.continueLabel')}
+            </button>
+          )}
+
+          {step === 'dataOptions' && (
+            <button
+              onClick={() => setStep('selectPairs')}
+              disabled={resolving || committing}
+              className="rounded border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {t('timeEstimation.wizard.back')}
+            </button>
+          )}
+          {step === 'dataOptions' && (
+            <button
+              onClick={() => setStep('resolveStragglers')}
               disabled={!importFields.n1 && !importFields.actuals && !importFields.forecast}
               title={
                 !importFields.n1 && !importFields.actuals && !importFields.forecast
@@ -1426,30 +1542,29 @@ export function ImportTimeActualsWizard({ registryOrgChartId, onClose }: { regis
               {t('timeEstimation.wizard.continueLabel')}
             </button>
           )}
-          {step === 'resolve' && (
+
+          {step === 'resolveStragglers' && (
             <button
-              onClick={() => setStep('cutoff')}
+              onClick={() => setStep('dataOptions')}
               disabled={resolving || committing}
               className="rounded border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {t('timeEstimation.wizard.back')}
             </button>
           )}
-          {/* Advances to the review step instead of importing directly — the
-              review screen (below) is now the confirmation gate, replacing
-              the old window.confirm() popup for undecided rows. */}
-          {step === 'resolve' && (
+          {step === 'resolveStragglers' && (
             <button
               onClick={() => setStep('review')}
-              disabled={!allResolved}
+              disabled={stragglersHasInvalidState}
               className="rounded bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-40"
             >
               {t('timeEstimation.wizard.continueLabel')}
             </button>
           )}
+
           {step === 'review' && !done && (
             <button
-              onClick={() => setStep('resolve')}
+              onClick={() => setStep('resolveStragglers')}
               disabled={resolving || committing}
               className="rounded border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
             >

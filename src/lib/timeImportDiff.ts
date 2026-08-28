@@ -2,12 +2,12 @@ import { splitPersonName, toTitleCase, type InputN1Row, type InputNRow } from '.
 import { etpFractionToPct } from './timeEstimationMath';
 import type { TimeActualUpsertRow } from '../services/timeEstimationService';
 
-// Pure logic for ImportTimeActualsWizard.tsx's resolution/diff half — the
-// counterpart to timeImportParsing.ts (which handles the *parsing* half).
-// Kept framework/Supabase-free so it's testable without a DB, and kept
-// separate from timeEstimationMath.ts (generic name/month/number math shared
-// across the whole Time Estimation feature) since everything here is
-// specific to this one wizard's resolution/import-planning shape.
+// Pure logic for ImportTimeActualsWizard.tsx's resolution/diff/selection half
+// — the counterpart to timeImportParsing.ts (which handles the *parsing*
+// half). Kept framework/Supabase-free so it's testable without a DB, and
+// kept separate from timeEstimationMath.ts (generic name/month/number math
+// shared across the whole Time Estimation feature) since everything here is
+// specific to this one wizard's resolution/selection/import-planning shape.
 
 export interface EmployeeResolution {
   status: 'auto' | 'needs-review';
@@ -78,11 +78,11 @@ export interface PreviewResolvedIds {
 // where employeeId/clientMissionId is already the real one) or a unique
 // placeholder string (decision === 'create') that can never collide with a
 // real UUID and therefore never appears in existingPairKeys — this is what
-// lets buildImportRowPlan classify pair-newness correctly BEFORE anything
-// has actually been created (the review screen's whole reason to exist).
-// handleImport itself never reaches the placeholder branch: it calls this
-// only AFTER creating every 'create' row for real, passing 'match'-shaped
-// resolutions with the freshly-created real id filled in instead.
+// lets buildImportRowPlan/computeImportDiffSummary classify pair-newness
+// correctly BEFORE anything has actually been created. handleImport itself
+// never reaches the placeholder branch: it calls this only AFTER creating
+// every 'create' row for real, passing 'match'-shaped resolutions with the
+// freshly-created real id filled in instead.
 export function previewResolvedIds(
   employeeResolutions: Record<string, EmployeeResolution>,
   clientResolutions: Record<string, ClientResolution>,
@@ -108,6 +108,90 @@ export function previewResolvedIds(
   return { employeeIds, clientIds };
 }
 
+export interface RawPair {
+  employeeName: string;
+  clientName: string;
+}
+
+// Raw-name key format shared by every selection/plan set in this module —
+// `${employeeName}::${clientName}`, always the raw file names, never
+// resolved ids. Kept as raw names (not ids) specifically so a pair can be
+// selected/deselected at Screen 3 even before its employee/client side has
+// a real id — resolution (Screen 2/5) and selection (Screen 3) are
+// deliberately independent steps that don't need to happen in a strict
+// dependency order relative to each other for a given pair.
+export function rawPairKey(employeeName: string, clientName: string): string {
+  return `${employeeName}::${clientName}`;
+}
+
+// The union of (employee, client) combinations mentioned in either sheet —
+// this exact computation used to live duplicated inline in
+// buildImportRowPlan's cross-sheet zero-fill logic; lifted out so Screen 3's
+// pair-selection UI and buildImportRowPlan can never disagree on what "every
+// pair in this file" means.
+export function computeDistinctRawPairs(n1Rows: InputN1Row[], nRows: InputNRow[]): RawPair[] {
+  const seen = new Set<string>();
+  const pairs: RawPair[] = [];
+  for (const row of [...n1Rows, ...nRows]) {
+    if (!row.employeeName || !row.annonceur) continue;
+    const key = rawPairKey(row.employeeName, row.annonceur);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    pairs.push({ employeeName: row.employeeName, clientName: row.annonceur });
+  }
+  return pairs;
+}
+
+// Screen 3's starting checkbox state, before the user touches anything: a
+// pair defaults to SELECTED only when it's already known to the tool
+// (existingPairKeys, real ids) — a routine monthly refresh should update
+// what's already there without extra clicks. A pair that's new (or whose
+// employee/client side isn't resolved to a real id yet — including a
+// 'create' placeholder, which can never appear in existingPairKeys by
+// construction) defaults to UNSELECTED: creating a brand-new pair is a more
+// consequential action than updating an existing one, so it needs an
+// explicit opt-in rather than happening silently by default.
+export function computeDefaultPairSelection(
+  rawPairs: RawPair[],
+  employeeIds: Map<string, string | null>,
+  clientIds: Map<string, string | null>,
+  existingPairKeys: Set<string>,
+): Set<string> {
+  const selected = new Set<string>();
+  for (const pair of rawPairs) {
+    const employeeId = employeeIds.get(pair.employeeName);
+    const clientMissionId = clientIds.get(pair.clientName);
+    if (!employeeId || !clientMissionId) continue;
+    if (!isNewPairKey(employeeId, clientMissionId, existingPairKeys)) {
+      selected.add(rawPairKey(pair.employeeName, pair.clientName));
+    }
+  }
+  return selected;
+}
+
+// The "Only new pairs" bulk action (Screen 3) — recomputes the WHOLE
+// selection from scratch to the inverse of the default pattern (new
+// checked, existing unchecked), rather than toggling in place, so it can
+// never silently drift out of sync with prior manual edits: it's a one-shot
+// "start over with this preset" action, not a persistent mode.
+export function computeOnlyNewPairsSelection(
+  rawPairs: RawPair[],
+  employeeIds: Map<string, string | null>,
+  clientIds: Map<string, string | null>,
+  existingPairKeys: Set<string>,
+): Set<string> {
+  const selected = new Set<string>();
+  for (const pair of rawPairs) {
+    const employeeId = employeeIds.get(pair.employeeName);
+    const clientMissionId = clientIds.get(pair.clientName);
+    if (!employeeId || !clientMissionId) continue;
+    if (isNewPairKey(employeeId, clientMissionId, existingPairKeys)) {
+      selected.add(rawPairKey(pair.employeeName, pair.clientName));
+    }
+  }
+  return selected;
+}
+
 export interface ImportRowPlan {
   n1UpsertRows: Array<{ employee_id: string; client_mission_id: string; year: number; total_pct: number }>;
   // batch_id is deliberately absent: the batch row doesn't exist yet at
@@ -118,20 +202,19 @@ export interface ImportRowPlan {
   forecastUpsertRows: Array<{ employee_id: string; client_mission_id: string; year: number; month: number; pct: number }>;
   // Every (employee, client) pair this plan actually writes SOME data for.
   affectedPairKeys: Set<string>;
-  // A resolvable pair skipped outright because onlyNewPairs is on and it's
-  // already known to the tool.
-  skippedExistingPairKeys: Set<string>;
   // Subset of affectedPairKeys not already in existingPairKeys.
   newPairKeys: Set<string>;
 }
 
-// Builds every row this import would write, plus the pair-classification
-// sets — the shared core between the review screen's preview
-// (previewResolvedIds' placeholder ids) and handleImport's real commit
-// (real ids, post-creation). Blind to which kind of id it's given, so the
-// two callers can never disagree on the gnarliest part of this wizard: the
-// cross-sheet "present in only one tab means 0 in the other" zero-fill rule
-// and onlyNewPairs skip logic.
+// Builds every row this import would write — the shared core between the
+// review screen's preview (previewResolvedIds' placeholder ids) and
+// handleImport's real commit (real ids, post-creation). Blind to which kind
+// of id it's given, so the two callers can never disagree on the gnarliest
+// part of this wizard: the cross-sheet "present in only one tab means 0 in
+// the other" zero-fill rule. Only ever writes a pair explicitly present in
+// selectedPairKeys (Screen 3's checklist) — this function no longer decides
+// new-vs-existing skip logic itself, that decision already happened
+// upstream, in the user's own selection.
 export function buildImportRowPlan(params: {
   n1Rows: InputN1Row[];
   nRows: InputNRow[];
@@ -139,20 +222,18 @@ export function buildImportRowPlan(params: {
   clientIds: Map<string, string | null>;
   existingPairKeys: Set<string>;
   importFields: ImportFieldSelection;
-  onlyNewPairs: boolean;
+  selectedPairKeys: Set<string>;
   year: number;
   cutoffMonth: number;
 }): ImportRowPlan {
-  const { n1Rows, nRows, employeeIds, clientIds, existingPairKeys, importFields, onlyNewPairs, year, cutoffMonth } = params;
+  const { n1Rows, nRows, employeeIds, clientIds, existingPairKeys, importFields, selectedPairKeys, year, cutoffMonth } = params;
 
-  const isNewPair = (employeeId: string, clientMissionId: string) => isNewPairKey(employeeId, clientMissionId, existingPairKeys);
-  const skippedExistingPairKeys = new Set<string>();
   const affectedPairKeys = new Set<string>();
   const newPairKeys = new Set<string>();
   const markAffected = (employeeId: string, clientMissionId: string) => {
     const key = `${employeeId}::${clientMissionId}`;
     affectedPairKeys.add(key);
-    if (isNewPair(employeeId, clientMissionId)) newPairKeys.add(key);
+    if (isNewPairKey(employeeId, clientMissionId, existingPairKeys)) newPairKeys.add(key);
   };
 
   // 1. N-1 annual totals — one row per (employee, client), no month. A null
@@ -162,13 +243,11 @@ export function buildImportRowPlan(params: {
   const n1UpsertRows: ImportRowPlan['n1UpsertRows'] = [];
   if (importFields.n1) {
     for (const row of n1Rows) {
-      const employeeId = row.employeeName ? employeeIds.get(row.employeeName) : null;
-      const clientMissionId = row.annonceur ? clientIds.get(row.annonceur) : null;
+      if (!row.employeeName || !row.annonceur) continue;
+      if (!selectedPairKeys.has(rawPairKey(row.employeeName, row.annonceur))) continue;
+      const employeeId = employeeIds.get(row.employeeName);
+      const clientMissionId = clientIds.get(row.annonceur);
       if (!employeeId || !clientMissionId) continue;
-      if (onlyNewPairs && !isNewPair(employeeId, clientMissionId)) {
-        skippedExistingPairKeys.add(`${employeeId}::${clientMissionId}`);
-        continue;
-      }
       n1UpsertRows.push({ employee_id: employeeId, client_mission_id: clientMissionId, year: year - 1, total_pct: etpFractionToPct(row.n1TotalFraction ?? 0) });
     }
   }
@@ -179,13 +258,11 @@ export function buildImportRowPlan(params: {
   const forecastUpsertRows: ImportRowPlan['forecastUpsertRows'] = [];
 
   for (const row of nRows) {
-    const employeeId = row.employeeName ? employeeIds.get(row.employeeName) : null;
-    const clientMissionId = row.annonceur ? clientIds.get(row.annonceur) : null;
+    if (!row.employeeName || !row.annonceur) continue;
+    if (!selectedPairKeys.has(rawPairKey(row.employeeName, row.annonceur))) continue;
+    const employeeId = employeeIds.get(row.employeeName);
+    const clientMissionId = clientIds.get(row.annonceur);
     if (!employeeId || !clientMissionId) continue;
-    if (onlyNewPairs && !isNewPair(employeeId, clientMissionId)) {
-      skippedExistingPairKeys.add(`${employeeId}::${clientMissionId}`);
-      continue;
-    }
     markAffected(employeeId, clientMissionId);
     row.monthlyFractions.forEach((fraction, i) => {
       const month = i + 1;
@@ -223,38 +300,31 @@ export function buildImportRowPlan(params: {
   // there" — not "no opinion," which is what leaving it completely
   // untouched would otherwise imply. This is the coarser, whole-row
   // counterpart of the null-cell-within-a-row → 0 rule above. Deliberately
-  // scoped to pairs the file actually mentions: a pair absent from BOTH
-  // sheets is never touched, so a genuinely partial/filtered extract (one
-  // Business Unit's own file, say) can never zero out a pair that simply
-  // isn't its concern.
-  const n1PairKeys = new Set(n1Rows.filter((r) => r.employeeName && r.annonceur).map((r) => `${r.employeeName}::${r.annonceur}`));
-  const nPairKeys = new Set(nRows.filter((r) => r.employeeName && r.annonceur).map((r) => `${r.employeeName}::${r.annonceur}`));
+  // scoped to pairs the file actually mentions AND the user selected: a
+  // pair absent from BOTH sheets, or present but not selected, is never
+  // touched.
+  const n1PairKeys = new Set(n1Rows.filter((r) => r.employeeName && r.annonceur).map((r) => rawPairKey(r.employeeName!, r.annonceur!)));
+  const nPairKeys = new Set(nRows.filter((r) => r.employeeName && r.annonceur).map((r) => rawPairKey(r.employeeName!, r.annonceur!)));
 
   if (importFields.n1) {
     for (const key of nPairKeys) {
       if (n1PairKeys.has(key)) continue;
+      if (!selectedPairKeys.has(key)) continue;
       const [rawEmployeeName, rawAnnonceur] = key.split('::');
       const employeeId = employeeIds.get(rawEmployeeName);
       const clientMissionId = clientIds.get(rawAnnonceur);
       if (!employeeId || !clientMissionId) continue;
-      if (onlyNewPairs && !isNewPair(employeeId, clientMissionId)) {
-        skippedExistingPairKeys.add(`${employeeId}::${clientMissionId}`);
-        continue;
-      }
       n1UpsertRows.push({ employee_id: employeeId, client_mission_id: clientMissionId, year: year - 1, total_pct: 0 });
     }
   }
 
   for (const key of n1PairKeys) {
     if (nPairKeys.has(key)) continue;
+    if (!selectedPairKeys.has(key)) continue;
     const [rawEmployeeName, rawAnnonceur] = key.split('::');
     const employeeId = employeeIds.get(rawEmployeeName);
     const clientMissionId = clientIds.get(rawAnnonceur);
     if (!employeeId || !clientMissionId) continue;
-    if (onlyNewPairs && !isNewPair(employeeId, clientMissionId)) {
-      skippedExistingPairKeys.add(`${employeeId}::${clientMissionId}`);
-      continue;
-    }
     markAffected(employeeId, clientMissionId);
     for (let month = 1; month <= 12; month += 1) {
       if (month <= cutoffMonth) {
@@ -279,7 +349,37 @@ export function buildImportRowPlan(params: {
     }
   }
 
-  return { n1UpsertRows, actualUpsertRows, forecastUpsertRows, affectedPairKeys, skippedExistingPairKeys, newPairKeys };
+  return { n1UpsertRows, actualUpsertRows, forecastUpsertRows, affectedPairKeys, newPairKeys };
+}
+
+// Which raw employee/client names still need a decision but are relevant to
+// what the user has already opted into at Screen 3 — Screen 5's whole
+// reason to exist. "Relevant" is driven by two small, EXPLICIT tracking
+// sets (selectedClientNames/selectedEmployeeNames — see
+// ImportTimeActualsWizard.tsx's Screen 3 state), not derived from
+// selectedPairKeys alone: a client whose employees are ALL still
+// unresolved has literally no selectable pair checkbox yet (nothing to
+// derive from), so the user opting into that client at all has to be
+// tracked as its own signal, separate from which individual pairs ended up
+// checkable.
+export function computeRelevantUnresolvedNames(
+  selectedClientNames: Set<string>,
+  selectedEmployeeNames: Set<string>,
+  rawPairs: RawPair[],
+  employeeResolutions: Record<string, EmployeeResolution>,
+  clientResolutions: Record<string, ClientResolution>,
+): { employees: string[]; clients: string[] } {
+  const employees = new Set<string>();
+  const clients = new Set<string>();
+  for (const pair of rawPairs) {
+    if (selectedClientNames.has(pair.clientName) && (employeeResolutions[pair.employeeName]?.decision ?? null) === null) {
+      employees.add(pair.employeeName);
+    }
+    if (selectedEmployeeNames.has(pair.employeeName) && (clientResolutions[pair.clientName]?.decision ?? null) === null) {
+      clients.add(pair.clientName);
+    }
+  }
+  return { employees: [...employees].sort((a, b) => a.localeCompare(b, 'fr')), clients: [...clients].sort((a, b) => a.localeCompare(b, 'fr')) };
 }
 
 export interface ImportDiffSummary {
@@ -289,14 +389,19 @@ export interface ImportDiffSummary {
   clientsToCreate: string[];
   clientsMatchedCount: number;
   clientsIgnoredCount: number;
-  newPairsCount: number;
-  // Resolvable pairs already known before this import — whether they'll be
-  // WRITTEN (overwritten) or SKIPPED depends only on the caller's own
-  // onlyNewPairs flag, already in its own hands, so this stays one neutral
-  // number and the wording lives entirely in the component's i18n strings.
-  existingPairsCount: number;
-  // A pair whose employee or client side didn't resolve to any id at all —
-  // its data is silently dropped from this import.
+  // A pair actually being written this run, split by whether it's brand
+  // new or already known (both are real writes — the distinction is just
+  // "create" vs "update" in wording).
+  newPairsSelectedCount: number;
+  existingPairsSelectedCount: number;
+  // A resolvable pair NOT selected — deliberately left untouched. Split the
+  // same way, since "N new pairs available but not created" and "N known
+  // pairs left as-is" read very differently to a reviewer.
+  newPairsSkippedCount: number;
+  existingPairsSkippedCount: number;
+  // A pair whose employee or client side never resolved to any id at all —
+  // its data is silently dropped from this import (distinct from "resolved
+  // but not selected," which is a deliberate choice, not a gap).
   unresolvedPairsCount: number;
   plannedRowCounts: { n1: number; actuals: number; forecast: number };
   undecidedCount: number;
@@ -305,7 +410,10 @@ export interface ImportDiffSummary {
 // The review screen's single entry point — computed purely from state
 // already available before any network write, so it can run as soon as the
 // user reaches the review step and never risks disagreeing with what
-// handleImport actually ends up writing (same buildImportRowPlan core).
+// handleImport actually ends up writing (same buildImportRowPlan core for
+// the row counts; the pair-classification counts below are computed
+// directly against the full pair list so every distinct pair in the file is
+// accounted for exactly once, not just the ones actually written).
 export function computeImportDiffSummary(
   employeeResolutions: Record<string, EmployeeResolution>,
   clientResolutions: Record<string, ClientResolution>,
@@ -313,21 +421,33 @@ export function computeImportDiffSummary(
   nRows: InputNRow[],
   existingPairKeys: Set<string>,
   importFields: ImportFieldSelection,
-  onlyNewPairs: boolean,
+  selectedPairKeys: Set<string>,
   year: number,
   cutoffMonth: number,
 ): ImportDiffSummary {
   const { employeeIds, clientIds } = previewResolvedIds(employeeResolutions, clientResolutions);
-  const plan = buildImportRowPlan({ n1Rows, nRows, employeeIds, clientIds, existingPairKeys, importFields, onlyNewPairs, year, cutoffMonth });
+  const plan = buildImportRowPlan({ n1Rows, nRows, employeeIds, clientIds, existingPairKeys, importFields, selectedPairKeys, year, cutoffMonth });
 
-  const distinctRawPairKeys = new Set<string>();
-  for (const row of n1Rows) {
-    if (row.employeeName && row.annonceur) distinctRawPairKeys.add(`${row.employeeName}::${row.annonceur}`);
+  const rawPairs = computeDistinctRawPairs(n1Rows, nRows);
+  let newPairsSelectedCount = 0;
+  let existingPairsSelectedCount = 0;
+  let newPairsSkippedCount = 0;
+  let existingPairsSkippedCount = 0;
+  let unresolvedPairsCount = 0;
+  for (const pair of rawPairs) {
+    const employeeId = employeeIds.get(pair.employeeName);
+    const clientMissionId = clientIds.get(pair.clientName);
+    if (!employeeId || !clientMissionId) {
+      unresolvedPairsCount += 1;
+      continue;
+    }
+    const isNew = isNewPairKey(employeeId, clientMissionId, existingPairKeys);
+    const isSelected = selectedPairKeys.has(rawPairKey(pair.employeeName, pair.clientName));
+    if (isNew && isSelected) newPairsSelectedCount += 1;
+    else if (!isNew && isSelected) existingPairsSelectedCount += 1;
+    else if (isNew && !isSelected) newPairsSkippedCount += 1;
+    else existingPairsSkippedCount += 1;
   }
-  for (const row of nRows) {
-    if (row.employeeName && row.annonceur) distinctRawPairKeys.add(`${row.employeeName}::${row.annonceur}`);
-  }
-  const resolvablePairsTotal = plan.affectedPairKeys.size + plan.skippedExistingPairKeys.size;
 
   return {
     employeesToCreate: Object.entries(employeeResolutions)
@@ -342,9 +462,11 @@ export function computeImportDiffSummary(
       .sort((a, b) => a.localeCompare(b, 'fr')),
     clientsMatchedCount: Object.values(clientResolutions).filter((r) => r.decision === 'match').length,
     clientsIgnoredCount: Object.values(clientResolutions).filter((r) => r.decision === null).length,
-    newPairsCount: plan.newPairKeys.size,
-    existingPairsCount: resolvablePairsTotal - plan.newPairKeys.size,
-    unresolvedPairsCount: distinctRawPairKeys.size - resolvablePairsTotal,
+    newPairsSelectedCount,
+    existingPairsSelectedCount,
+    newPairsSkippedCount,
+    existingPairsSkippedCount,
+    unresolvedPairsCount,
     plannedRowCounts: { n1: plan.n1UpsertRows.length, actuals: plan.actualUpsertRows.length, forecast: plan.forecastUpsertRows.length },
     undecidedCount:
       Object.values(employeeResolutions).filter((r) => r.decision === null).length +
