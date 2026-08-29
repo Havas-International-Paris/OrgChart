@@ -74,10 +74,24 @@ In priority order — the first two cost nothing against LinkedIn's quotas:
    `/in/firstnamelastname/` (accents stripped). Surprisingly high hit rate for
    French professionals; a miss is a clean, cheap `/404/`.
 2. **Bing Images** for candidate slugs — see below.
-3. **LinkedIn people search** (`/search/results/people/?keywords=...`) — works
-   and is authoritative, but LinkedIn meters it as *commercial use* and will
-   throttle the account for the month. Profile **views** are not metered the
-   same way. Use search sparingly, prefer views.
+3. **LinkedIn people search** (`/search/results/people/?keywords=...`) —
+   authoritative when it answers, but metered as *commercial use* with a
+   **monthly cap**, and on a normally-used account that cap is often already
+   spent. Treat it as a scarce resource, not a workhorse.
+
+   **The cap fails silently and deceptively.** You do not get an error. The
+   page still renders, but results degrade to anonymised rows — literally
+   `Utilisateur LinkedIn` with `--` as the headline — mixed in among real ones,
+   and a banner reads *"Vous avez atteint le nombre maximum de recherches de
+   profils par mois."* Matching against that output produces confident garbage.
+   **Before trusting any search result, check for that banner** (grep the page
+   text for `nombre maximum de recherches`) and for `Utilisateur LinkedIn` rows.
+   If either appears, stop searching and switch source.
+
+   Profile **views** are metered separately and stayed fully functional even
+   with search capped — so a supplied URL always works. This is why asking the
+   user for URLs, or using an internal HR directory (Workday), beats spending
+   the search quota.
 4. **Ask the user for URLs.** For anyone still unresolved this is by far the
    best move — it is seconds of their time versus many minutes of guessing.
 
