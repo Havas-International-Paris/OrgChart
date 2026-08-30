@@ -33,7 +33,7 @@ console.log(`  without:            ${without.length}`);
 // Spot-check that the stored objects really resolve (a photo_path pointing at
 // nothing is worse than a null, because the UI shows a broken image).
 let checked = 0, broken = [];
-for (const e of withPhoto.slice(0, 200)) {
+for (const e of withPhoto) {
   const { data } = supabase.storage.from(BUCKET).getPublicUrl(e.photo_path);
   const res = await fetch(data.publicUrl, { method: 'HEAD' });
   checked++;
