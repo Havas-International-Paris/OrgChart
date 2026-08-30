@@ -33,8 +33,13 @@ const moved = [];
 for (const f of readdirSync(SRC)) {
   if (!/\.jpg$/i.test(f)) continue;
   if (/^ZZTEST|^ZZPROBE/.test(f)) continue;   // development probes, not employees
-  // strip a Chrome "name (1).jpg" / "name 2.jpg" duplicate suffix before matching
-  const stem = f.replace(/\.jpg$/i, '').replace(/[ _-]*(\(\d+\)|\d)$/, '').trim();
+  // A Chrome "name (1).jpg" means the page fired TWO downloads under one name.
+  // On Workday that second image is the *manager's* thumbnail, not the
+  // employee's — and "(1)" sorts before the plain name, so an earlier version
+  // of this script silently preferred the wrong face. Never map these back to
+  // an employee; surface them instead.
+  if (/\(\d+\)\.jpg$/i.test(f)) { console.log('DUPLICATE-SUFFIX file, NOT collected (likely wrong person):', f); continue; }
+  const stem = f.replace(/\.jpg$/i, '').trim();
   if (!known.has(norm(stem))) { console.log('not an employee file, leaving alone:', f); continue; }
   const from = `${SRC}/${f}`;
   if (!statSync(from).isFile()) continue;
