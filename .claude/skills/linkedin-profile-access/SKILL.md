@@ -68,7 +68,8 @@ saves, and spot-check every ~10. Never trust the JS return value alone.
 
 ## Finding the profile from just a name
 
-In priority order — the first two cost nothing against LinkedIn's quotas:
+In priority order — the first three cost nothing against LinkedIn's search
+quota, so exhaust them before spending it:
 
 1. **Guess the vanity slug FIRST, for everyone, before touching any search
    engine.** Try `/in/firstname-lastname/` *and* `/in/firstnamelastname/`
@@ -91,8 +92,27 @@ In priority order — the first two cost nothing against LinkedIn's quotas:
      obvious cases like `/in/gabriel-bascou/` were never tried — the person had
      already been "rejected" by an earlier, worse method. **If you improve the
      method mid-run, re-run it over everyone already rejected.**
-2. **Bing Images** for candidate slugs — see below.
-3. **LinkedIn people search** (`/search/results/people/?keywords=...`) —
+
+   **A guess that resolves is not a guess that is right.** The name you were
+   given may be misspelled, and every guess inherits the typo. Asked for
+   "Julien Carrette, Havas Paris", `/in/julien-carrette/` resolved perfectly —
+   to a Business Development manager at **Amazon**. The real person is *Julien
+   Carette*, one `r`, at `/in/julien-carette-1a60693/`. A resolving URL feels
+   like success and looks entirely plausible; only the employer check exposes
+   it. Never skip that check because the slug "obviously" matched.
+
+2. **LinkedIn's typeahead (the search-box dropdown)** — try this before a full
+   search. Type the name into the global search field and read the suggestion
+   list rather than submitting. It returns name + headline + employer, which is
+   usually enough to identify the person and recover the real slug. Two
+   properties make it valuable: it tolerates near-miss spellings (it surfaced
+   "Julien Carette — PDG chez Havas Paris" from the misspelled query), and in
+   one observation it still produced suggestions on a page that was already
+   showing the monthly search-cap banner — so it may not be gated the same way
+   as full results. Treat that last point as observed once, not proven, but it
+   costs nothing to try first.
+3. **Bing Images** for candidate slugs — see below.
+4. **LinkedIn people search** (`/search/results/people/?keywords=...`) —
    authoritative when it answers, but metered as *commercial use* with a
    **monthly cap**, and on a normally-used account that cap is often already
    spent. Treat it as a scarce resource, not a workhorse.
@@ -119,7 +139,7 @@ In priority order — the first two cost nothing against LinkedIn's quotas:
    `margot-rdgs`). Guess the whole list first, then spend the handful of
    searches you have on the residue. Doing it the other way round — as happened
    here — exhausts a scarce resource on people who were free to find.
-4. **Ask the user for URLs.** For anyone still unresolved this is by far the
+5. **Ask the user for URLs.** For anyone still unresolved this is by far the
    best move — it is seconds of their time versus many minutes of guessing.
 
 ### Bing Images for candidate slugs
