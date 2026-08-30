@@ -110,6 +110,15 @@ In priority order — the first two cost nothing against LinkedIn's quotas:
    with search capped — so a supplied URL always works. This is why asking the
    user for URLs, or using an internal HR directory (Workday), beats spending
    the search quota.
+
+   **Spend the quota only where guessing cannot reach.** Guessing and search
+   solve different halves of the problem: guessing gets everyone whose slug
+   derives from their name (19 of 24 in the measured cohort), while search is
+   the *only* automated route to someone who changed surname or uses a handle
+   (`marion-aymerich` for Marion Hourtoule, `mansouria-k`, `1julielaurent`,
+   `margot-rdgs`). Guess the whole list first, then spend the handful of
+   searches you have on the residue. Doing it the other way round — as happened
+   here — exhausts a scarce resource on people who were free to find.
 4. **Ask the user for URLs.** For anyone still unresolved this is by far the
    best move — it is seconds of their time versus many minutes of guessing.
 
