@@ -70,9 +70,27 @@ saves, and spot-check every ~10. Never trust the JS return value alone.
 
 In priority order — the first two cost nothing against LinkedIn's quotas:
 
-1. **Guess the vanity slug**: `/in/firstname-lastname/` and
-   `/in/firstnamelastname/` (accents stripped). Surprisingly high hit rate for
-   French professionals; a miss is a clean, cheap `/404/`.
+1. **Guess the vanity slug FIRST, for everyone, before touching any search
+   engine.** Try `/in/firstname-lastname/` *and* `/in/firstnamelastname/`
+   (accents stripped, apostrophes dropped: `gloria-dagostin`). A wrong guess is
+   a harmless `/404/`, so this is free.
+
+   **Measured on a real cohort of 24 "unfindable" employees (2026-08-30): those
+   two patterns alone reached 19 of them.** 10 matched exactly; the other 9
+   matched the *prefix* and carried a trailing id (`philippe-bigot-238a4640`,
+   `elie-cuny-a9569828b`). Only 5 were genuinely underivable, all because the
+   person uses a different surname or handle on LinkedIn (`marion-aymerich`,
+   `mansouria-k`, `1julielaurent`, `margot-rdgs`).
+
+   Two consequences worth internalising:
+   - **A 404 on the bare guess is not "no profile."** It usually means the slug
+     has a trailing id. Keep the guessed prefix as your best search key rather
+     than discarding the person.
+   - **Do this for the whole list up front.** In the run that produced these
+     numbers the tactic was invented halfway through and never back-applied, so
+     obvious cases like `/in/gabriel-bascou/` were never tried — the person had
+     already been "rejected" by an earlier, worse method. **If you improve the
+     method mid-run, re-run it over everyone already rejected.**
 2. **Bing Images** for candidate slugs — see below.
 3. **LinkedIn people search** (`/search/results/people/?keywords=...`) —
    authoritative when it answers, but metered as *commercial use* with a
@@ -112,6 +130,15 @@ curl -s -A "$UA" -b "$CK" "https://www.bing.com/images/search?q=$Q&form=HDRSC2&c
 
 Recall is decent, **precision is poor** — roughly half the top candidates were
 the wrong human. Never accept a Bing match without the profile check below.
+
+**And beware the sharper trap: Bing's index may not contain your people at
+all.** On the 2026-08-30 cohort, Bing returned 12–40 candidates per person and
+the correct profile was among them **zero times out of ten checked** — every
+candidate was a homonym. A pool of plausible-looking wrong answers is worse
+than an empty one, because it keeps you busy. If the confirmed-match rate sits
+near 40–50%, stop grinding through candidates and change source: guess slugs,
+use the internal HR directory ([[workday-employee-photos]]), or ask the user
+for URLs. Judge the *source*, not just the individual match.
 
 ## Confirming it is actually the right person
 
