@@ -113,6 +113,36 @@ export function sumNullable(values: Array<number | null | undefined>): number | 
   return present.reduce((a, b) => a + b, 0);
 }
 
+// "Constaté" for the org chart's employee card gauge: the average of the
+// already-elapsed months of `year`, summed across every client/mission the
+// employee has actual time logged against — same lastMonth/averageOverRange
+// logic as TimeEstimationGrid's own per-row avgPast, but aggregated at the
+// employee level (all clients combined) since the card shows one number per
+// person, not per client. Takes the pre-filtered TimeActual rows for a given
+// year (any resolved_employee_id) so it can compute lastMonth itself,
+// exactly like the grid does — a month with zero actuals imported anywhere
+// is not "the employee did 0%", it just hasn't happened data-wise yet.
+export function computeAvgPastMonths(
+  actuals: Array<{ resolved_employee_id: string | null; resolved_client_mission_id: string | null; year: number; month: number; etp_pct: number }>,
+  employeeId: string,
+  year: number,
+): number | null {
+  const yearRows = actuals.filter((a) => a.year === year && a.resolved_employee_id && a.resolved_client_mission_id);
+  const lastMonth = yearRows.reduce((max, a) => Math.max(max, a.month), 0);
+  if (lastMonth === 0) return null;
+
+  const employeeRows = yearRows.filter((a) => a.resolved_employee_id === employeeId);
+  if (employeeRows.length === 0) return null;
+
+  const byMonth = new Array(lastMonth).fill(null) as Array<number | null>;
+  for (const row of employeeRows) {
+    if (row.month > lastMonth) continue;
+    const idx = row.month - 1;
+    byMonth[idx] = (byMonth[idx] ?? 0) + row.etp_pct;
+  }
+  return averageOverRange(byMonth);
+}
+
 // Aggregates a group's rows (primary + members) into one "cumul" row by
 // summing every numeric metric column-by-column — used for every numeric
 // column in the grid (vendu, prevu, N-1 total, each monthly actual,

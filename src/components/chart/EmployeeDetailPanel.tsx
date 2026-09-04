@@ -50,8 +50,11 @@ export interface EmployeeDetailPanelProps {
   // Surfaced here (backlog item 51) so compact-mode cards, which hide the
   // ETP bars/advertiser list on the card itself, keep them reachable one
   // click away — same data EmployeeNode.tsx's MetricRow/AdvertisersRow show.
-  assignmentsTotalEtpVendu: number;
-  assignmentsTotalEtpReel: number;
+  // Both null on every chart but the "base centrale" registry chart, same
+  // gate as the card's own gauges.
+  isRegistryChart: boolean;
+  assignmentsTotalEtpVendu: number | null;
+  assignmentsAvgActual: number | null;
   advertiserNames: string[];
   onClose: () => void;
   onSelectEmployee: (id: string) => void;
@@ -64,8 +67,9 @@ export function EmployeeDetailPanel({
   functionalManagers,
   directReports,
   functionalReports,
+  isRegistryChart,
   assignmentsTotalEtpVendu,
-  assignmentsTotalEtpReel,
+  assignmentsAvgActual,
   advertiserNames,
   onClose,
   onSelectEmployee,
@@ -96,14 +100,15 @@ export function EmployeeDetailPanel({
         </span>
       )}
 
-      {(assignmentsTotalEtpVendu > 0 || assignmentsTotalEtpReel > 0) && (
+      {isRegistryChart && ((assignmentsTotalEtpVendu ?? 0) > 0 || assignmentsAvgActual != null) && (
         <Section label={t('chart.detailPanel.assignments')}>
           <div className="flex items-center gap-3 text-xs text-slate-600">
             <span>
-              {t('chart.node.sold')}: <span className="font-semibold text-slate-900">{assignmentsTotalEtpVendu}%</span>
+              {t('chart.node.planned')}: <span className="font-semibold text-slate-900">{assignmentsTotalEtpVendu ?? 0}%</span>
             </span>
             <span>
-              {t('chart.node.actual')}: <span className="font-semibold text-slate-900">{assignmentsTotalEtpReel}%</span>
+              {t('chart.node.observed')}:{' '}
+              <span className="font-semibold text-slate-900">{assignmentsAvgActual == null ? '—' : `${assignmentsAvgActual}%`}</span>
             </span>
           </div>
         </Section>

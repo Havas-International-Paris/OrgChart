@@ -125,6 +125,12 @@ export function EmployeeGrid() {
   const { session } = useAuth();
   const { role } = useCurrentUserRole(session?.user.id);
   const { registryOrgChart } = useRegistryOrgChart();
+  // The %ETP summary (Prévu/Constaté) only ever means anything on the "base
+  // centrale" chart — Time Estimation, the only place etp_vendu can still be
+  // edited, operates exclusively on the registry chart's own assignments
+  // (see CLAUDE.md's gauge-redesign note), so every other chart's
+  // assignments.etp_vendu is permanently null/unset.
+  const isRegistryChart = registryOrgChart !== null && currentOrgChartId === registryOrgChart.id;
   const { importFromRegistry } = useRegistryImport(currentOrgChartId, {
     deleteEmployee,
     restoreEmployee,
@@ -411,7 +417,7 @@ export function EmployeeGrid() {
                 .join(', ');
               const count = assignmentsOf(row.id).length;
               const total = totalEtpOf(row.id);
-              const status = etpStatus(total);
+              const status = isRegistryChart ? etpStatus(total) : null;
 
               return (
                 <tr
@@ -483,11 +489,13 @@ export function EmployeeGrid() {
                               ? 'text-emerald-700'
                               : status === 'amber'
                                 ? 'text-amber-700'
-                                : 'text-red-700'
+                                : status === 'red'
+                                  ? 'text-red-700'
+                                  : 'text-slate-600'
                         }`}
                         title={t('grid.employees.editAssignments')}
                       >
-                        {count === 0 ? t('grid.employees.add2') : `${count} · ${total}% ETP`}
+                        {count === 0 ? t('grid.employees.add2') : isRegistryChart ? `${count} · ${total}% ETP` : count}
                       </button>
                     )}
                   </td>

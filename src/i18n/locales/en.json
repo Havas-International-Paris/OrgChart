@@ -236,8 +236,8 @@
       "addBusinessUnit": "+ business unit",
       "editField": "Click to edit",
       "editAssignments": "Edit assignments",
-      "sold": "Sold",
-      "actual": "Actual",
+      "planned": "Planned",
+      "observed": "Observed",
       "totalAndDirect_one": "{{total}} total · {{count}} direct report",
       "totalAndDirect_other": "{{total}} total · {{count}} direct reports",
       "functionalCount": "+{{count}} func."
@@ -273,22 +273,12 @@
   "modals": {
     "assignmentEditor": {
       "title": "Clients for {{name}}",
-      "totalSold": "Total sold: {{value}} ETP",
-      "totalActual": "Total actual: {{value}} ETP",
+      "totalSold": "Total planned: {{value}} ETP",
       "empty": "No assignment yet.",
-      "model": "model",
-      "sold": "sold",
-      "actual": "actual",
-      "delete": "Delete",
       "clientOrMission": "Client",
       "namePlaceholder": "Name…",
-      "modelLabel": "Model",
-      "percentSold": "% sold",
-      "percentActual": "% actual",
       "add": "Add",
       "close": "Close",
-      "invalidSold": "Invalid % sold",
-      "invalidActual": "Invalid % actual",
       "historyAddLabel": "Add an assignment ({{name}})"
     },
     "clientAssignments": {
@@ -497,6 +487,7 @@
     "exportButton": "Export",
     "loadingRegistry": "Loading registry…",
     "noRegistry": "No central registry found.",
+    "unlink": "Unlink this client/mission",
     "grid": {
       "title": "Time estimation",
       "expandAll": "Expand all",
@@ -563,6 +554,7 @@
       "editPrevuNextYear": "Edit % expected N+1",
       "addManualRow": "Add row",
       "deleteManualRow": "Remove manually-added row",
+      "unlinkAssignment": "Unlink client/mission",
       "addComment": "Add comment",
       "editComment": "Edit comment",
       "deleteComment": "Delete comment"

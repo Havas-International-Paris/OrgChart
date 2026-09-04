@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import type { Database, RemunerationModel } from '../../src/lib/database.types.js';
+import type { Database } from '../../src/lib/database.types.js';
 
 // One client per request, authenticated as the calling user's own session
 // (their access token, forwarded from the browser) rather than a service-role
@@ -664,7 +664,7 @@ const setManager: ToolDefinition = {
 const createAssignment: ToolDefinition = {
   name: 'create_assignment',
   description:
-    "Create or update a client/mission assignment for an employee (from find_employee), setting their %ETP vendu (sold) and/or %ETP réel (actual) allocation. If the named client/mission doesn't already exist in the Clients/Missions catalog, it is created automatically — never ask the user to create it first. If this employee already has an assignment on this exact client/mission, this updates it in place rather than creating a duplicate. Note: a 'commission' remunerationModel can never carry an etpVendu value (DB constraint) — omit etpVendu when setting commission.",
+    "Link an employee (from find_employee) to a client/mission. If the named client/mission doesn't already exist in the Clients/Missions catalog, it is created automatically — never ask the user to create it first. If this employee already has an assignment on this exact client/mission, nothing is changed and the existing assignment is returned. Note: %ETP and remuneration model can no longer be set from here — only the Time Estimation module edits those.",
   parametersJsonSchema: {
     type: 'object',
     properties: {
@@ -675,18 +675,12 @@ const createAssignment: ToolDefinition = {
         enum: ['client', 'mission'],
         description: 'Whether this is a client or an internal mission.',
       },
-      etpVendu: { type: 'number', description: '% ETP vendu (sold), 0-100. Omit to leave unset/unchanged.' },
-      etpReel: { type: 'number', description: '% ETP réel (actual), 0-100. Omit to leave unset/unchanged.' },
-      remunerationModel: { type: 'string', enum: ['retainer', 'commission'], description: 'Optional remuneration model.' },
     },
     required: ['employeeId', 'clientMissionName', 'clientMissionType'],
   },
   async run({ supabase, orgChartId }, args) {
     const employeeId = args.employeeId as string;
     const clientMissionType = args.clientMissionType as 'client' | 'mission';
-    const etpVendu = typeof args.etpVendu === 'number' ? args.etpVendu : undefined;
-    const etpReel = typeof args.etpReel === 'number' ? args.etpReel : undefined;
-    const remunerationModel = args.remunerationModel as RemunerationModel | undefined;
 
     const { id: clientMissionId, created: clientMissionCreated } = await findOrCreateClientMission(
       supabase,
@@ -694,9 +688,6 @@ const createAssignment: ToolDefinition = {
       clientMissionType,
     );
 
-    // Selects the full row, not just `id` — item 48 needs the pre-update
-    // etp_vendu/etp_reel/remuneration_model to build an undo, the same
-    // reasoning as update_employee's own `before` select above.
     const { data: existing, error: findExistingError } = await supabase
       .from('assignments')
       .select('id, etp_vendu, etp_reel, remuneration_model')
@@ -707,18 +698,7 @@ const createAssignment: ToolDefinition = {
     if (findExistingError) throw findExistingError;
 
     if (existing) {
-      const changes: Partial<{ etp_vendu: number; etp_reel: number; remuneration_model: RemunerationModel }> = {};
-      if (etpVendu !== undefined) changes.etp_vendu = etpVendu;
-      if (etpReel !== undefined) changes.etp_reel = etpReel;
-      if (remunerationModel !== undefined) changes.remuneration_model = remunerationModel;
-      const { data, error } = await supabase.from('assignments').update(changes).eq('id', existing.id).select().single();
-      if (error) throw error;
-      return {
-        assignment: data,
-        action: 'updated',
-        clientMissionCreated,
-        before: { etp_vendu: existing.etp_vendu, etp_reel: existing.etp_reel, remuneration_model: existing.remuneration_model },
-      };
+      return { assignment: existing, action: 'already_exists', clientMissionCreated };
     }
 
     const { data, error } = await supabase
@@ -726,9 +706,9 @@ const createAssignment: ToolDefinition = {
       .insert({
         employee_id: employeeId,
         client_mission_id: clientMissionId,
-        etp_vendu: etpVendu ?? null,
-        etp_reel: etpReel ?? null,
-        remuneration_model: remunerationModel ?? null,
+        etp_vendu: null,
+        etp_reel: null,
+        remuneration_model: null,
         org_chart_id: orgChartId,
       })
       .select()

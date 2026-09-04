@@ -167,15 +167,7 @@ function AuthenticatedApp({
   // `enabled` — not simply not calling it — is what gates the listener.
   useUndoRedoShortcuts(!showTimeEstimation);
   const { employees, deleteEmployee, restoreEmployee, updateEmployee } = useEmployees(currentOrgChartId);
-  const {
-    assignmentsOf,
-    createAssignment,
-    restoreAssignment,
-    updateAssignmentEtpVendu,
-    updateAssignmentEtpReel,
-    updateAssignmentRemuneration,
-    deleteAssignment,
-  } = useAssignments(currentOrgChartId);
+  const { assignmentsOf, createAssignment, restoreAssignment, deleteAssignment } = useAssignments(currentOrgChartId);
   // Instantiated here purely for its mutators (item 48) — EmployeeGrid and
   // OrgChartView already have their own separate instances for the grid/
   // chart UI itself; a third simultaneous instance is the established,
@@ -206,9 +198,6 @@ function AuthenticatedApp({
         reassignManager,
         restoreAssignment,
         deleteAssignment,
-        updateAssignmentEtpVendu,
-        updateAssignmentEtpReel,
-        updateAssignmentRemuneration,
       },
       currentOrgChartId,
       t,
@@ -562,9 +551,6 @@ function AuthenticatedApp({
           restoreAssignment={restoreAssignment}
           deleteClientMission={deleteClientMission}
           createAssignment={createAssignment}
-          updateAssignmentEtpVendu={updateAssignmentEtpVendu}
-          updateAssignmentEtpReel={updateAssignmentEtpReel}
-          updateAssignmentRemuneration={updateAssignmentRemuneration}
           deleteAssignment={deleteAssignment}
           onClose={() => setAssignmentsEmployeeId(null)}
         />

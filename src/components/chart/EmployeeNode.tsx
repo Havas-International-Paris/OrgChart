@@ -53,8 +53,14 @@ export interface EmployeeNodeData extends Record<string, unknown> {
   incomingHandleIds: string[];
   outgoingHandleIds: string[];
   assignmentsCount: number;
-  assignmentsTotalEtpVendu: number;
-  assignmentsTotalEtpReel: number;
+  // The org chart's Prévu/Constaté gauges only ever render on the "base
+  // centrale" (registry) chart — see CLAUDE.md's "gauge redesign" note.
+  // Both values are null on every other chart, not just hidden by
+  // isRegistryChart alone, so a bug in the render gate can't leak a stale
+  // number from a previously-viewed registry chart.
+  isRegistryChart: boolean;
+  assignmentsTotalEtpVendu: number | null;
+  assignmentsAvgActual: number | null;
   advertiserNames: string[];
   directReportsCount: number;
   totalDescendantCount: number;
@@ -148,7 +154,7 @@ function MetricRow({
   fillColor,
 }: {
   label: string;
-  pct: number;
+  pct: number | null;
   trackColor: string;
   fillColor: string;
 }) {
@@ -158,10 +164,10 @@ function MetricRow({
       <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full" style={{ backgroundColor: trackColor }}>
         <div
           className="h-full rounded-full"
-          style={{ width: `${Math.min(100, Math.max(0, pct))}%`, backgroundColor: fillColor }}
+          style={{ width: `${pct == null ? 0 : Math.min(100, Math.max(0, pct))}%`, backgroundColor: fillColor }}
         />
       </div>
-      <span className="w-8 shrink-0 text-right text-[9px] font-bold text-slate-600">{pct}%</span>
+      <span className="w-8 shrink-0 text-right text-[9px] font-bold text-slate-600">{pct == null ? '—' : `${pct}%`}</span>
     </div>
   );
 }
@@ -206,8 +212,9 @@ function EmployeeNodeImpl({ data }: NodeProps<Node<EmployeeNodeData>>) {
     isSelectedEdgeEndpoint,
     incomingHandleIds,
     outgoingHandleIds,
+    isRegistryChart,
     assignmentsTotalEtpVendu,
-    assignmentsTotalEtpReel,
+    assignmentsAvgActual,
     advertiserNames,
     directReportsCount,
     totalDescendantCount,
@@ -547,7 +554,10 @@ function EmployeeNodeImpl({ data }: NodeProps<Node<EmployeeNodeData>>) {
           </div>
         ))}
 
-      {!isCompact && (
+      {/* Prévu/Constaté only ever apply to the "base centrale" (registry)
+          chart — see CLAUDE.md's gauge-redesign note. Any other chart
+          renders nothing here, not a "—" placeholder. */}
+      {!isCompact && isRegistryChart && (
         <button
           type="button"
           onClick={(e) => {
@@ -566,12 +576,12 @@ function EmployeeNodeImpl({ data }: NodeProps<Node<EmployeeNodeData>>) {
           className="nodrag mt-2 block w-full text-left"
         >
           <MetricRow
-            label={t('chart.node.sold')}
+            label={t('chart.node.planned')}
             pct={assignmentsTotalEtpVendu}
             trackColor={trackColor}
             fillColor={withAlpha(swatch, 0.55)}
           />
-          <MetricRow label={t('chart.node.actual')} pct={assignmentsTotalEtpReel} trackColor={trackColor} fillColor={swatch} />
+          <MetricRow label={t('chart.node.observed')} pct={assignmentsAvgActual} trackColor={trackColor} fillColor={swatch} />
         </button>
       )}
 

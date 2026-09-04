@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useEmployees } from '../../hooks/useEmployees';
 import { useReportingGraph } from '../../hooks/useReportingGraph';
 import { useAssignments } from '../../hooks/useAssignments';
@@ -6,8 +6,11 @@ import { useJobTitles } from '../../hooks/useJobTitles';
 import { useDepartments } from '../../hooks/useDepartments';
 import { useCompanies } from '../../hooks/useCompanies';
 import { useClientsMissions } from '../../hooks/useClientsMissions';
+import { useRegistryOrgChart } from '../../hooks/useRegistryOrgChart';
+import { useTimeEstimation } from '../../hooks/useTimeEstimation';
 import { departmentColorMap } from '../../lib/departmentColor';
 import { companyColorMap } from '../../lib/companyColor';
+import { computeAvgPastMonths } from '../../lib/timeEstimationMath';
 import { useSelectionStore } from '../../stores/selectionStore';
 import { useUiPreferencesStore } from '../../stores/uiPreferencesStore';
 
@@ -77,6 +80,19 @@ export function useChartData(orgChartId: string | null) {
 
   const { assignments, assignmentsOf, totalEtpOf, totalEtpReelOf, createAssignment, restoreAssignment } =
     useAssignments(orgChartId);
+
+  // The two chart-card gauges (Prévu/Constaté) only ever render on the
+  // "base centrale" (registry) chart — see CLAUDE.md's "gauge redesign"
+  // note. Time Estimation's tables are only fetched when this chart IS the
+  // registry chart, so a normal user chart never pays for loading them.
+  const { registryOrgChart } = useRegistryOrgChart();
+  const isRegistryChart = registryOrgChart != null && registryOrgChart.id === orgChartId;
+  const { timeActuals } = useTimeEstimation({ enabled: isRegistryChart });
+  const [currentYear] = useState(() => new Date().getFullYear());
+  const assignmentsAvgActualOf = useMemo(
+    () => (employeeId: string) => computeAvgPastMonths(timeActuals, employeeId, currentYear),
+    [timeActuals, currentYear],
+  );
 
   const { jobTitles } = useJobTitles();
   const { departments } = useDepartments();
@@ -167,6 +183,9 @@ export function useChartData(orgChartId: string | null) {
     totalEtpReelOf,
     createAssignment,
     restoreAssignment,
+
+    isRegistryChart,
+    assignmentsAvgActualOf,
 
     departments,
     companies,

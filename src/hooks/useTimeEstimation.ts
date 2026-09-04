@@ -38,7 +38,12 @@ export interface PairDataSnapshot {
 // these, since it's the one holding the pre-edit snapshot a Command's undo
 // body needs. Drag-to-group and the import wizard's alias resolution stay
 // outside any undo history — deliberately out of scope.
-export function useTimeEstimation() {
+// `enabled` (default true) lets a caller skip the fetch/realtime subscription
+// entirely — used by the org chart, which only needs this module's data
+// (for the registry chart's Prévu/Constaté gauges) when the currently open
+// chart actually IS the registry chart, so a normal user chart doesn't pay
+// for loading Time Estimation's tables on every open.
+export function useTimeEstimation({ enabled = true }: { enabled?: boolean } = {}) {
   const [timeActuals, setTimeActuals] = useState<TimeActual[]>([]);
   const [timeForecasts, setTimeForecasts] = useState<TimeForecast[]>([]);
   const [timeForecastMonths, setTimeForecastMonths] = useState<TimeForecastMonth[]>([]);
@@ -126,6 +131,11 @@ export function useTimeEstimation() {
   }, [refresh]);
 
   useEffect(() => {
+    if (!enabled) {
+      setLoading(false);
+      return;
+    }
+
     refresh();
 
     const channel = supabase
@@ -144,7 +154,7 @@ export function useTimeEstimation() {
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
       supabase.removeChannel(channel);
     };
-  }, [refresh, debouncedRefresh]);
+  }, [enabled, refresh, debouncedRefresh]);
 
   const actualsOf = useCallback(
     (employeeId: string, clientMissionId: string, year: number) =>

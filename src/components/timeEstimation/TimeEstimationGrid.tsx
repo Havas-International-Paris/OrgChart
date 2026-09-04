@@ -1320,6 +1320,29 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
     });
   }
 
+  // Genuinely deletes the underlying assignments row — the org chart's own
+  // ✕ delete button was removed once ETP editing moved here exclusively
+  // (see CLAUDE.md's gauge-redesign note), so this is now the only place
+  // left that can unlink a client/mission for good; clearing a vendu/prévu
+  // cell above only ever nulls a value and leaves the row orphaned. Same
+  // identity-stable-undo convention as every other create/delete path here:
+  // captures the full row before deleting so undo can restoreAssignment(...)
+  // it back under its original id.
+  async function handleUnlinkAssignment(li: LineItem) {
+    if (!li.assignmentId) return;
+    const label = t('timeEstimation.history.unlinkAssignment');
+    await withRowLock(li, async () => {
+      const current = await assignmentService.fetchAssignmentByPair(registryOrgChartId, li.employeeId, li.clientMissionId);
+      if (!current) return;
+      await withSuppressedRecording(() => deleteAssignment(current.id));
+      useTimeEstimationHistoryStore.getState().push({
+        label,
+        undo: () => restoreAssignment(current).then(() => {}),
+        redo: () => withSuppressedRecording(() => deleteAssignment(current.id)),
+      });
+    });
+  }
+
   // "% sold N+1"/"% expected N+1" — mirrors handleEditVendu/handleEditPrevu
   // exactly, one shared etp_vendu_next_year column bucketed by its own
   // remuneration_model_next_year flag (0027), kept independent of the
@@ -1960,6 +1983,19 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
                                     onSave={(text) => handleSaveComment(primary, text)}
                                     onDelete={() => handleDeleteComment(primary)}
                                   />
+                                  {primary.assignmentId && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleUnlinkAssignment(primary);
+                                      }}
+                                      title={t('timeEstimation.unlink')}
+                                      className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-[10px] font-semibold leading-none text-slate-300 hover:bg-red-50 hover:text-red-600"
+                                    >
+                                      ✕
+                                    </button>
+                                  )}
                                 </>
                               )}
                               {hasGroup && <span className="shrink-0 text-xs italic text-slate-400">{t('timeEstimation.grid.cumulSuffix')}</span>}
@@ -1989,6 +2025,19 @@ export function TimeEstimationGrid({ registryOrgChartId }: { registryOrgChartId:
                                       onSave={(text) => handleSaveComment(sub, text)}
                                       onDelete={() => handleDeleteComment(sub)}
                                     />
+                                    {sub.assignmentId && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleUnlinkAssignment(sub);
+                                        }}
+                                        title={t('timeEstimation.unlink')}
+                                        className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-[10px] font-semibold leading-none text-slate-300 hover:bg-red-50 hover:text-red-600"
+                                      >
+                                        ✕
+                                      </button>
+                                    )}
                                     {isMember && group && (
                                       <button
                                         type="button"

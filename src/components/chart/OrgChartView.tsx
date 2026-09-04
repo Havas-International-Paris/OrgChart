@@ -261,8 +261,9 @@ export function OrgChartView() {
           functionalManagers={actions.detailPanelProps.functionalManagers}
           directReports={actions.detailPanelProps.directReports}
           functionalReports={actions.detailPanelProps.functionalReports}
+          isRegistryChart={actions.detailPanelProps.isRegistryChart}
           assignmentsTotalEtpVendu={actions.detailPanelProps.assignmentsTotalEtpVendu}
-          assignmentsTotalEtpReel={actions.detailPanelProps.assignmentsTotalEtpReel}
+          assignmentsAvgActual={actions.detailPanelProps.assignmentsAvgActual}
           advertiserNames={actions.detailPanelProps.advertiserNames}
           onClose={() => setSelectedEmployee(null)}
           // Jumping to a manager/report from inside an already-open panel is

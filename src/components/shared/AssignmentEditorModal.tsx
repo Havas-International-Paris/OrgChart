@@ -25,13 +25,11 @@ interface AssignmentEditorModalProps {
     etpReel: number | null,
     remunerationModel: RemunerationModel | null,
   ) => Promise<Assignment>;
-  updateAssignmentEtpVendu: (id: string, etpVendu: number | null) => Promise<void>;
-  updateAssignmentEtpReel: (id: string, etpReel: number | null) => Promise<void>;
-  updateAssignmentRemuneration: (
-    id: string,
-    remunerationModel: RemunerationModel | null,
-    clearVendu: boolean,
-  ) => Promise<void>;
+  // Not exposed via any UI control in this modal anymore (no per-row ✕) —
+  // kept as a prop purely because handleAdd's own undo body needs it to
+  // delete the assignment it just created. All %ETP/model editing moved to
+  // Time Estimation (see CLAUDE.md's gauge-redesign note); this modal only
+  // links/unlinks-via-undo a client/mission, never edits ETP.
   deleteAssignment: (id: string) => Promise<void>;
   onClose: () => void;
 }
@@ -46,26 +44,18 @@ export function AssignmentEditorModal({
   restoreAssignment,
   deleteClientMission,
   createAssignment,
-  updateAssignmentEtpVendu,
-  updateAssignmentEtpReel,
-  updateAssignmentRemuneration,
   deleteAssignment,
   onClose,
 }: AssignmentEditorModalProps) {
   const { t } = useTranslation();
   const [newName, setNewName] = useState('');
   const [newType, setNewType] = useState<ClientMissionType>('client');
-  const [newEtp, setNewEtp] = useState('');
-  const [newReel, setNewReel] = useState('');
-  const [newRemuneration, setNewRemuneration] = useState<RemunerationModel | ''>('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const clientMissionById = new Map(clientsMissions.map((cm) => [cm.id, cm]));
   const venduKnown = assignments.filter((a) => a.etp_vendu !== null);
   const totalVendu = venduKnown.reduce((sum, a) => sum + (a.etp_vendu ?? 0), 0);
-  const reelKnown = assignments.filter((a) => a.etp_reel !== null);
-  const totalReel = reelKnown.reduce((sum, a) => sum + (a.etp_reel ?? 0), 0);
 
   function handleNameChange(value: string) {
     setNewName(value);
@@ -91,20 +81,6 @@ export function AssignmentEditorModal({
   async function handleAdd() {
     const name = newName.trim();
     if (!name) return;
-    const rawVendu = newEtp.trim();
-    const etpVendu = rawVendu === '' ? null : Number(rawVendu);
-    if (etpVendu !== null && (!Number.isFinite(etpVendu) || etpVendu < 0 || etpVendu > 100)) {
-      setError(t('modals.assignmentEditor.invalidSold'));
-      return;
-    }
-    const rawReel = newReel.trim();
-    const etpReel = rawReel === '' ? null : Number(rawReel);
-    if (etpReel !== null && (!Number.isFinite(etpReel) || etpReel < 0 || etpReel > 100)) {
-      setError(t('modals.assignmentEditor.invalidActual'));
-      return;
-    }
-    const model = newRemuneration === '' ? null : newRemuneration;
-    const finalVendu = model === 'commission' ? null : etpVendu;
     setSubmitting(true);
     await runMutation(async () => {
       // Peek at whether findOrCreate is about to insert a new ClientMission
@@ -118,7 +94,7 @@ export function AssignmentEditorModal({
       let createdAssignment!: Assignment;
       await withSuppressedRecording(async () => {
         cm = await findOrCreate(name, newType);
-        createdAssignment = await createAssignment(employee.id, cm.id, finalVendu, etpReel, model);
+        createdAssignment = await createAssignment(employee.id, cm.id, null, null, null);
       });
 
       // Both rows are captured and restored under their original ids, so the
@@ -141,9 +117,6 @@ export function AssignmentEditorModal({
       });
 
       setNewName('');
-      setNewEtp('');
-      setNewReel('');
-      setNewRemuneration('');
     });
     setSubmitting(false);
   }
@@ -154,11 +127,8 @@ export function AssignmentEditorModal({
         <h2 className="mb-1 text-sm font-semibold text-slate-900">
           {t('modals.assignmentEditor.title', { name: `${employee.first_name} ${employee.last_name}` })}
         </h2>
-        <p className="text-xs text-slate-500">
+        <p className="mb-3 text-xs text-slate-500">
           {t('modals.assignmentEditor.totalSold', { value: venduKnown.length > 0 ? `${totalVendu}%` : '—' })}
-        </p>
-        <p className="mb-3 text-xs text-slate-400">
-          {t('modals.assignmentEditor.totalActual', { value: reelKnown.length > 0 ? `${totalReel}%` : '—' })}
         </p>
 
         {error && (
@@ -171,87 +141,13 @@ export function AssignmentEditorModal({
           )}
           {assignments.map((a) => {
             const cm = clientMissionById.get(a.client_mission_id);
-            const isCommission = a.remuneration_model === 'commission';
+            const modelLabel = a.remuneration_model === 'retainer' ? 'Retainer' : a.remuneration_model === 'commission' ? 'Commission' : null;
+            const venduLabel = a.etp_vendu != null ? `${a.etp_vendu}%` : null;
+            const detail = [modelLabel, venduLabel].filter(Boolean).join(' · ') || '—';
             return (
-              <div key={a.id} className="flex items-center gap-2 rounded px-2 py-1 hover:bg-slate-50">
+              <div key={a.id} className="flex items-center gap-2 rounded px-2 py-1">
                 <span className="flex-1 truncate text-sm text-slate-700">{cm?.name ?? '?'}</span>
-                <div className="flex flex-col items-center">
-                  <span className="text-[10px] text-slate-400">{t('modals.assignmentEditor.model')}</span>
-                  <select
-                    value={a.remuneration_model ?? ''}
-                    onChange={(e) => {
-                      const value = e.target.value as RemunerationModel | '';
-                      const model = value === '' ? null : value;
-                      runMutation(() =>
-                        updateAssignmentRemuneration(a.id, model, model === 'commission' && a.etp_vendu !== null),
-                      );
-                    }}
-                    className="rounded border border-slate-300 px-1 py-0.5 text-xs"
-                  >
-                    <option value="">—</option>
-                    <option value="retainer">Retainer</option>
-                    <option value="commission">Commission</option>
-                  </select>
-                </div>
-                <div className="flex flex-col items-center">
-                  <span className="text-[10px] text-slate-400">{t('modals.assignmentEditor.sold')}</span>
-                  <div className="flex items-center gap-0.5">
-                    <input
-                      key={`${a.id}-${a.etp_vendu}-${a.remuneration_model}`}
-                      type="number"
-                      min={0}
-                      max={100}
-                      placeholder="—"
-                      disabled={isCommission}
-                      defaultValue={a.etp_vendu ?? ''}
-                      onBlur={(e) => {
-                        const raw = e.target.value.trim();
-                        if (raw === '') {
-                          if (a.etp_vendu !== null) runMutation(() => updateAssignmentEtpVendu(a.id, null));
-                          return;
-                        }
-                        const value = Number(raw);
-                        if (Number.isFinite(value) && value >= 0 && value !== a.etp_vendu) {
-                          runMutation(() => updateAssignmentEtpVendu(a.id, value));
-                        }
-                      }}
-                      className="w-16 rounded border border-slate-300 px-1.5 py-0.5 text-right text-sm disabled:bg-slate-100 disabled:text-slate-300"
-                    />
-                    <span className="text-xs text-slate-400">%</span>
-                  </div>
-                </div>
-                <div className="flex flex-col items-center">
-                  <span className="text-[10px] text-slate-400">{t('modals.assignmentEditor.actual')}</span>
-                  <div className="flex items-center gap-0.5">
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      placeholder="—"
-                      defaultValue={a.etp_reel ?? ''}
-                      onBlur={(e) => {
-                        const raw = e.target.value.trim();
-                        if (raw === '') {
-                          if (a.etp_reel !== null) runMutation(() => updateAssignmentEtpReel(a.id, null));
-                          return;
-                        }
-                        const value = Number(raw);
-                        if (Number.isFinite(value) && value >= 0 && value !== a.etp_reel) {
-                          runMutation(() => updateAssignmentEtpReel(a.id, value));
-                        }
-                      }}
-                      className="w-16 rounded border border-slate-300 px-1.5 py-0.5 text-right text-sm"
-                    />
-                    <span className="text-xs text-slate-400">%</span>
-                  </div>
-                </div>
-                <button
-                  onClick={() => runMutation(() => deleteAssignment(a.id))}
-                  className="text-slate-400 hover:text-red-600"
-                  title={t('modals.assignmentEditor.delete')}
-                >
-                  ✕
-                </button>
+                <span className="text-xs text-slate-400">{detail}</span>
               </div>
             );
           })}
@@ -273,47 +169,6 @@ export function AssignmentEditorModal({
                 <option key={cm.id} value={cm.name} />
               ))}
             </datalist>
-          </div>
-          <div>
-            <label className="mb-1 block text-xs text-slate-500">{t('modals.assignmentEditor.modelLabel')}</label>
-            <select
-              value={newRemuneration}
-              onChange={(e) => {
-                const value = e.target.value as RemunerationModel | '';
-                setNewRemuneration(value);
-                if (value === 'commission') setNewEtp('');
-              }}
-              className="h-8 rounded border border-slate-300 px-2 text-sm"
-            >
-              <option value="">—</option>
-              <option value="retainer">Retainer</option>
-              <option value="commission">Commission</option>
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-xs text-slate-500">{t('modals.assignmentEditor.percentSold')}</label>
-            <input
-              type="number"
-              min={0}
-              max={100}
-              placeholder="—"
-              disabled={newRemuneration === 'commission'}
-              value={newEtp}
-              onChange={(e) => setNewEtp(e.target.value)}
-              className="h-8 w-20 rounded border border-slate-300 px-2 text-sm disabled:bg-slate-100 disabled:text-slate-300"
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs text-slate-500">{t('modals.assignmentEditor.percentActual')}</label>
-            <input
-              type="number"
-              min={0}
-              max={100}
-              placeholder="—"
-              value={newReel}
-              onChange={(e) => setNewReel(e.target.value)}
-              className="h-8 w-20 rounded border border-slate-300 px-2 text-sm"
-            />
           </div>
           <button
             onClick={handleAdd}

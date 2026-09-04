@@ -236,8 +236,8 @@
       "addBusinessUnit": "+ business unit",
       "editField": "Cliquez pour modifier",
       "editAssignments": "Modifier les missions",
-      "sold": "Vendu",
-      "actual": "Réel",
+      "planned": "Prévu",
+      "observed": "Constaté",
       "totalAndDirect_one": "{{total}} au total · {{count}} direct",
       "totalAndDirect_other": "{{total}} au total · {{count}} directs",
       "functionalCount": "+{{count}} fonc."
@@ -273,22 +273,12 @@
   "modals": {
     "assignmentEditor": {
       "title": "Clients de {{name}}",
-      "totalSold": "Total vendu : {{value}} ETP",
-      "totalActual": "Total réel : {{value}} ETP",
+      "totalSold": "Total prévu : {{value}} ETP",
       "empty": "Aucune affectation pour le moment.",
-      "model": "modèle",
-      "sold": "vendu",
-      "actual": "réel",
-      "delete": "Supprimer",
       "clientOrMission": "Client",
       "namePlaceholder": "Nom…",
-      "modelLabel": "Modèle",
-      "percentSold": "% vendu",
-      "percentActual": "% réel",
       "add": "Ajouter",
       "close": "Fermer",
-      "invalidSold": "% vendu invalide",
-      "invalidActual": "% réel invalide",
       "historyAddLabel": "Ajouter une affectation ({{name}})"
     },
     "clientAssignments": {
@@ -497,6 +487,7 @@
     "exportButton": "Exporter",
     "loadingRegistry": "Chargement du registre…",
     "noRegistry": "Aucun registre central trouvé.",
+    "unlink": "Délier ce client/mission",
     "grid": {
       "title": "Estimation des temps",
       "expandAll": "Tout développer",
@@ -563,6 +554,7 @@
       "editPrevuNextYear": "Modifier le % prévu N+1",
       "addManualRow": "Ajouter une ligne",
       "deleteManualRow": "Retirer une ligne ajoutée manuellement",
+      "unlinkAssignment": "Délier le client/mission",
       "addComment": "Ajouter un commentaire",
       "editComment": "Modifier le commentaire",
       "deleteComment": "Supprimer le commentaire"

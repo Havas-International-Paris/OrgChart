@@ -42,7 +42,8 @@ export function useChartActions(currentOrgChartId: string | null, data: ChartDat
     departmentColorByName,
     assignmentsOf,
     totalEtpOf,
-    totalEtpReelOf,
+    isRegistryChart,
+    assignmentsAvgActualOf,
     clientMissionNameById,
   } = data;
 
@@ -360,8 +361,9 @@ export function useChartActions(currentOrgChartId: string | null, data: ChartDat
       functionalManagers,
       directReports,
       functionalReports,
-      assignmentsTotalEtpVendu: totalEtpOf(selectedEmployeeId),
-      assignmentsTotalEtpReel: totalEtpReelOf(selectedEmployeeId),
+      isRegistryChart,
+      assignmentsTotalEtpVendu: isRegistryChart ? totalEtpOf(selectedEmployeeId) : null,
+      assignmentsAvgActual: isRegistryChart ? assignmentsAvgActualOf(selectedEmployeeId) : null,
       advertiserNames,
     };
   }, [
@@ -373,7 +375,8 @@ export function useChartActions(currentOrgChartId: string | null, data: ChartDat
     departmentColorByName,
     assignmentsOf,
     totalEtpOf,
-    totalEtpReelOf,
+    isRegistryChart,
+    assignmentsAvgActualOf,
     clientMissionNameById,
   ]);
 
